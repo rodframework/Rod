@@ -308,10 +308,17 @@ internal sealed class StreamBeaconBridge
             // Answer each demand with its chunk run in this response, before
             // any new tasking: the implant is blocked on bytes it already
             // accepted a task for (architecture.md Sec 10, the typed arm). A
-            // resumed demand (ADR-010) answers from the offset it proved.
+            // resumed demand (ADR-010) answers from the offset it proved,
+            // and the run budget splits evenly across the demands and ends
+            // short of terminal past it -- a run larger than one body spans
+            // contacts through the resume discipline, the poll shape's own
+            // body-budget answer (the upload arm's mirror).
+            var share = Math.Max(
+                BeaconTasking.StagedChunkSize,
+                BeaconTasking.MaxStagedRunBytes / Math.Max(1, stagedPulls.Count));
             foreach (var pull in stagedPulls)
                 outbound.AddRange(await _tasking.StagedChunkRunAsync(
-                    pull.Task.Value, pull.Offset, pull.PrefixSha256, cancellationToken));
+                    pull.Task.Value, pull.Offset, pull.PrefixSha256, share, cancellationToken));
 
             // Dispatch queued tasking while the budget lasts. The claim
             // evaluation every poll carrier runs decides what fits: a channel

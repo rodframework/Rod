@@ -30,8 +30,11 @@ use crate::wire::Frame;
 const LIVE_SESSION_CAPABILITY: &str = "channels.live";
 
 /// One message budget per direction, the envelope's own body cap (the wire
-/// contract's sizing rule; nothing larger is legal on any carriage).
-const MAX_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
+/// contract's sizing rule; nothing larger is legal on any carriage). The
+/// sealed body's base64 expansion rides inside it: a poll response's staged
+/// run answers under the server's per-contact run budget, so a legal
+/// response always fits.
+const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
 /// How long a message, once started, may take to complete: bounded against
 /// a dead peer, generous against a slow one.

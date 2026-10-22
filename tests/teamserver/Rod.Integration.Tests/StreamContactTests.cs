@@ -164,6 +164,153 @@ public class StreamContactTests
             fetched.Audit.Select(e => e.Kind).ToArray());
     }
 
+    // The download arm's cross-message budget (ADR-010's download half): a
+    // staged payload larger than one response body is served as budgeted
+    // slices that span contacts through the resume discipline -- the mirror
+    // of the upload arm's per-contact slicing. A demand's answer ends short
+    // of terminal at the budget, the next demand proves its held bytes, and
+    // the run completes from the seam. The wire stays honest throughout:
+    // every response message fits the envelope body cap, so no carriage's
+    // read budget is ever asked to exceed it.
+    [Fact]
+    public async Task StagedDownload_PastTheBodyBudget_SpansContactsThroughResume()
+    {
+        // 10 MiB: past the 6 MiB per-contact run budget (two contacts) and
+        // past the raw-TCP client's former 8 MiB read cap in the unsplit
+        // shape -- the regression this test pins.
+        var content = RandomNumberGenerator.GetBytes(10 * 1024 * 1024);
+        var expectedHash = Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
+
+        var port = TestSupport.GetFreeTcpPort();
+        await using var env = await TestEnv.StartAsync(new ListenerConfig(
+            "test-tcp", "tcp", $"127.0.0.1:{port}", $"10.0.0.5:{port}"));
+
+        var implants = env.Host.Services.GetRequiredService<IImplantRepository>();
+        var registry = env.Host.Services.GetRequiredService<IListenerRegistry>();
+        await WaitUntilAsync(async () =>
+            (await registry.ListAsync()).Any(l => l.Transport == "tcp" && l.State == ListenerState.Running));
+
+        var now = env.Host.Services.GetRequiredService<TimeProvider>().GetUtcNow();
+        var engagement = await EngagementSetup.CreateOwnedEngagementAsync(env.Host);
+        var implant = Implant.Enroll(
+            ImplantId.New(), engagement, now.AddDays(30), ImplantClass.Implant, now);
+        await implants.SaveAsync(implant);
+        await AuthenticatedHost.LoginAsync(env.Http);
+
+        var issued = await env.Http.PostAsJsonAsync(
+            $"/engagements/{implant.EngagementId}/tasks",
+            new { ImplantId = implant.Id.ToString(), Verb = "file.push", Arguments = "/tmp/rod-span", Content = content });
+        issued.EnsureSuccessStatusCode();
+        var issuedBody = await issued.Content.ReadFromJsonAsync<TaskIssuedBody>();
+        Assert.NotNull(issuedBody);
+
+        async Task<System.IO.Stream> Connect()
+        {
+            var client = new TcpClient();
+            await client.ConnectAsync(IPAddress.Loopback, port);
+            return client.GetStream();
+        }
+
+        // The task arrives marked staged on the first contact that claims it.
+        var claimed = await ContactAsync(Connect, Handshake(implant, "file.push"));
+        Assert.Equal(HandshakeStatus.Ok, HandshakeResponse.Parser.ParseFrom(claimed[0].Payload).Status);
+        var request = TaskRequest.Parser.ParseFrom(claimed[1].Payload);
+        Assert.Equal(issuedBody!.TaskId, request.TaskId);
+        Assert.True(request.HasStagedBytes);
+        Assert.Equal((ulong)content.Length, request.StagedBytes);
+
+        // The first demand's answer carries the budgeted slice -- the 6 MiB
+        // per-contact run budget at the 512 KiB chunk cut -- and ends short
+        // of terminal: the run spans contacts from here.
+        var (firstRun, _) = await DemandAsync(Connect, implant, request.TaskId, offset: null, prefix: null);
+        Assert.Equal(12, firstRun.Count);
+        Assert.Equal(6 * 1024 * 1024, firstRun.Sum(c => c.Data.Length));
+        Assert.All(firstRun, c => Assert.False(c.Terminal));
+
+        var held = new List<byte>(6 * 1024 * 1024);
+        foreach (var chunk in firstRun)
+            held.AddRange(chunk.Data);
+
+        // Contacts onward: demand from the proven seam until the terminal
+        // chunk lands. Every response message stays under the body cap.
+        StagedChunk last;
+        do
+        {
+            var (run, _) = await DemandAsync(
+                Connect, implant, request.TaskId,
+                offset: (ulong)held.Count, prefix: SHA256.HashData(held.ToArray()));
+            Assert.Equal((ulong)held.Count, run[0].Offset);
+            foreach (var chunk in run)
+                held.AddRange(chunk.Data);
+            last = run[^1];
+        } while (!last.Terminal);
+
+        // 10 MiB crossed in budgeted slices -- more than one contact's
+        // share -- and the reassembled bytes are the staged artifact.
+        Assert.Equal(content.Length, held.Count);
+        Assert.Equal(content, held.ToArray());
+
+        // The completing result carries the payload hash: the both-side arm
+        // records Succeeded only when the served bytes match the held ones.
+        await ContactAsync(
+            Connect,
+            Handshake(implant, "file.push"),
+            new Frame
+            {
+                Payload = ByteString.CopyFrom(new TaskResult
+                {
+                    TaskId = request.TaskId,
+                    Outcome = TaskOutcome.Succeeded,
+                    Output = $"/tmp/rod-span: {content.Length} bytes written",
+                    PayloadSha256 = expectedHash,
+                }.ToByteArray()),
+                Kind = FrameKind.TaskResult,
+            });
+
+        TaskBody? fetched = null;
+        await WaitUntilAsync(async () => (fetched = await env.Http.GetFromJsonAsync<TaskBody>(
+            $"/engagements/{implant.EngagementId}/tasks/{request.TaskId}")) is { Status: "Completed" });
+        Assert.NotNull(fetched);
+        Assert.Equal("Succeeded", fetched!.Outcome);
+    }
+
+    // One staged demand contact: the request message carries the handshake
+    // and the pull at its seam; the response's chunk run drains whole, and
+    // the raw body length is asserted against the envelope cap every time.
+    private static async Task<(List<StagedChunk> Run, byte[] Body)> DemandAsync(
+        Func<Task<System.IO.Stream>> connect,
+        Implant implant,
+        string taskId,
+        ulong? offset,
+        byte[]? prefix)
+    {
+        var pull = new StagedPull { TaskId = taskId };
+        if (offset is { } at)
+        {
+            pull.Offset = at;
+            pull.PrefixSha256 = ByteString.CopyFrom(prefix!);
+        }
+        using var stream = await connect();
+        await WriteMessageAsync(stream, EncodeFrames(new[]
+        {
+            Handshake(implant, "file.push"),
+            new Frame
+            {
+                Payload = ByteString.CopyFrom(pull.ToByteArray()),
+                Kind = FrameKind.StagedPull,
+            },
+        }));
+        var body = await ReadMessageAsync(stream);
+        Assert.True(body.Length < 16 * 1024 * 1024, $"response body {body.Length} exceeds the envelope cap");
+        var frames = ParseFrames(body);
+        Assert.Equal(HandshakeStatus.Ok, HandshakeResponse.Parser.ParseFrom(frames[0].Payload).Status);
+        var run = frames.Skip(1)
+            .Select(f => StagedChunk.Parser.ParseFrom(f.Payload))
+            .ToList();
+        Assert.NotEmpty(run);
+        return (run, body);
+    }
+
     // One contact: connect, send the request message (the handshake frame
     // first, then any upstream frames), read the response message, close.
     // One connection is one poll contact -- the cadence every stream

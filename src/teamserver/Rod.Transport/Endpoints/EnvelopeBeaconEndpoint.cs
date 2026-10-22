@@ -75,9 +75,11 @@ internal sealed class EnvelopeBeaconContact
     /// The dispatched-tasking budget for one response body: tasking frames are
     /// claimed only while they fit, and a task that does not fit is requeued
     /// for the next contact -- it never strands in Dispatched
-    /// (architecture.md Sec 10.3). Staged chunk runs are exempt: a demand is
-    /// answered whole, because its size was fixed by the operator's staged
-    /// upload, and an implant waits on the terminal chunk.
+    /// (architecture.md Sec 10.3). Staged chunk runs answer under their own
+    /// budget (<see cref="BeaconTasking.MaxStagedRunBytes"/>) rather than this
+    /// one: a run longer than the budget ends short of terminal and the
+    /// implant re-demands from its proven seam, so a demand larger than one
+    /// body still completes across contacts.
     /// </summary>
     public const int MaxDispatchBytes = 4 * 1024 * 1024;
 
@@ -292,10 +294,18 @@ internal sealed class EnvelopeBeaconContact
         // new tasking: the implant is blocked on bytes it already accepted a
         // task for (architecture.md Sec 10, the typed arm). A resumed demand
         // (ADR-010) is answered from the offset it proved, so an interrupted
-        // run costs the unserved remainder, not the whole payload.
+        // run costs the unserved remainder, not the whole payload. The run
+        // budget splits evenly across the demands -- every pending transfer
+        // takes its share of progress each contact, so none starves against
+        // the implant's idle bound -- and a run larger than the share ends
+        // short of terminal and spans contacts through that same resume
+        // discipline.
+        var share = Math.Max(
+            BeaconTasking.StagedChunkSize,
+            BeaconTasking.MaxStagedRunBytes / Math.Max(1, stagedPulls.Count));
         foreach (var pull in stagedPulls)
             outbound.AddRange(await _tasking.StagedChunkRunAsync(
-                pull.Task.Value, pull.Offset, pull.PrefixSha256, cancellationToken));
+                pull.Task.Value, pull.Offset, pull.PrefixSha256, share, cancellationToken));
 
         // Dispatch queued tasking while the budget lasts. The claim
         // evaluation every poll carrier runs decides what fits: a channel
