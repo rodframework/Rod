@@ -380,6 +380,12 @@ public static class TransportHost
         // identically regardless of which transport carried it.
         services.AddSingleton<Endpoints.BeaconIngest>();
         services.AddSingleton<Endpoints.BeaconTasking>();
+        // The beacon-path latency histogram (architecture.md Sec 15.3,
+        // ADR-008): the shared ingest observes every upstream frame's
+        // turnaround, whatever carriage it rode. Registered here so every
+        // host composition -- the teamserver and the test hosts -- carries
+        // the same counter the diagnostics face reads.
+        services.AddSingleton<BeaconDiagnostics>();
         // The per-artifact contact key bookkeeping (architecture.md Sec 8/9):
         // the enroll-time implant-to-key binding and the contact counter
         // floor. Singleton because the binding spans the enroll route and the

@@ -62,6 +62,7 @@ internal sealed class BeaconIngest
     private readonly TimeProvider _clock;
     private readonly Channels.TaskRelayHub _relays;
     private readonly Channels.SocksProxyHub _socks;
+    private readonly BeaconDiagnostics _diagnostics;
 
     public BeaconIngest(
         TaskService tasks,
@@ -72,7 +73,8 @@ internal sealed class BeaconIngest
         ILiveEventBus bus,
         TimeProvider clock,
         Channels.TaskRelayHub relays,
-        Channels.SocksProxyHub socks)
+        Channels.SocksProxyHub socks,
+        BeaconDiagnostics diagnostics)
     {
         _tasks = tasks;
         _taskRecords = taskRecords;
@@ -83,6 +85,7 @@ internal sealed class BeaconIngest
         _clock = clock;
         _relays = relays;
         _socks = socks;
+        _diagnostics = diagnostics;
     }
 
     /// <summary>
@@ -90,7 +93,7 @@ internal sealed class BeaconIngest
     /// reassembler and channel decoders scoped to one transport connection.
     /// </summary>
     public BeaconConnectionIngest OpenConnection()
-        => new(_tasks, _taskRecords, _implants, _audit, _artifacts, _bus, _clock, _relays, _socks);
+        => new(_tasks, _taskRecords, _implants, _audit, _artifacts, _bus, _clock, _relays, _socks, _diagnostics);
 }
 
 /// <summary>
@@ -111,6 +114,7 @@ internal sealed class BeaconConnectionIngest
     private readonly TimeProvider _clock;
     private readonly Channels.TaskRelayHub _relays;
     private readonly Channels.SocksProxyHub _socks;
+    private readonly BeaconDiagnostics _diagnostics;
     // Per-connection chunk reassembly buffer; the owning transport loop is the
     // sole writer, so a plain dictionary is safe without locking.
     private readonly ExfilReassembler _exfil = new();
@@ -127,7 +131,8 @@ internal sealed class BeaconConnectionIngest
         ILiveEventBus bus,
         TimeProvider clock,
         Channels.TaskRelayHub relays,
-        Channels.SocksProxyHub socks)
+        Channels.SocksProxyHub socks,
+        BeaconDiagnostics diagnostics)
     {
         _tasks = tasks;
         _taskRecords = taskRecords;
@@ -138,6 +143,7 @@ internal sealed class BeaconConnectionIngest
         _clock = clock;
         _relays = relays;
         _socks = socks;
+        _diagnostics = diagnostics;
     }
 
     /// <summary>
@@ -187,6 +193,29 @@ internal sealed class BeaconConnectionIngest
     /// with no ack ledger of its own (the poll carriers) passes a no-op.
     /// </param>
     public async Task IngestAsync(
+        BeaconSessionContext session,
+        Frame frame,
+        Action<TaskId> stagedPullSink,
+        Action<TaskId> taskAckSink,
+        CancellationToken cancellationToken)
+    {
+        // The one seam every upstream frame crosses (ADR-008's beacon latency
+        // distribution): observe the whole dispatch, whatever it decodes into
+        // -- a keepalive's cheap parse and a terminal exfil chunk's artifact
+        // write both count, because both are work the server did between the
+        // frame arriving and being done with it.
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            await IngestFrameAsync(session, frame, stagedPullSink, taskAckSink, cancellationToken);
+        }
+        finally
+        {
+            _diagnostics.Observe(System.Diagnostics.Stopwatch.GetElapsedTime(started));
+        }
+    }
+
+    private async Task IngestFrameAsync(
         BeaconSessionContext session,
         Frame frame,
         Action<TaskId> stagedPullSink,
