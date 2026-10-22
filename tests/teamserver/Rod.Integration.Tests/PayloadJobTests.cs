@@ -152,7 +152,9 @@ public class PayloadJobTests
 
         var accepted = await client.PostAsJsonAsync(
             $"/engagements/{engagementId}/payload-jobs",
-            Request(language: "Go", listenerId: frontId));
+            // Nim is the still-empty community slot; Go carries its in-tree
+            // reference unit now, so it would build.
+            Request(language: "Nim", listenerId: frontId));
         Assert.Equal(HttpStatusCode.Accepted, accepted.StatusCode);
         var job = await accepted.Content.ReadFromJsonAsync<PayloadJobEndpoints.PayloadJobResponse>();
         Assert.NotNull(job);

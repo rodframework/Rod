@@ -83,7 +83,10 @@ public class SystemInfoTests
         Assert.Equal(cacheDir, settings!.RustTargetDir);
 
         var info = await client.GetFromJsonAsync<SystemInfoDto>("/system");
-        var finding = Assert.Single(info!.BuildUnits[0].Findings, f => f.Area == "build cache");
+        // The registry carries more than one unit now; the cache finding is
+        // the Rust unit's own.
+        var rust = Assert.Single(info!.BuildUnits, u => u.Language == "Rust");
+        var finding = Assert.Single(rust.Findings, f => f.Area == "build cache");
         Assert.Equal("ok", finding.Level);
         Assert.Contains(cacheDir, finding.Detail);
 
