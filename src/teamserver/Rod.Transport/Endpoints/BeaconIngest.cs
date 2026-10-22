@@ -44,6 +44,14 @@ internal sealed record BeaconSessionContext(
     bool TaskAcks = false);
 
 /// <summary>
+/// A validated staged-pull demand handed to the caller's sink: the task, and
+/// -- when the demanding implant resumed (architecture.md Sec 15.3, ADR-010)
+/// -- the byte offset it holds with the SHA-256 prefix proof for those bytes.
+/// A fresh demand carries neither, and the answering run starts at 0.
+/// </summary>
+internal sealed record StagedPullDemand(TaskId Task, ulong? Offset = null, byte[]? PrefixSha256 = null);
+
+/// <summary>
 /// Ingests upstream beacon frames -- task results, exfil chunks, staged pulls,
 /// channel output -- into the same core-state, audit, and live-event
 /// composition every beacon transport shares. Per-connection state (the exfil
@@ -195,7 +203,7 @@ internal sealed class BeaconConnectionIngest
     public async Task IngestAsync(
         BeaconSessionContext session,
         Frame frame,
-        Action<TaskId> stagedPullSink,
+        Action<StagedPullDemand> stagedPullSink,
         Action<TaskId> taskAckSink,
         CancellationToken cancellationToken)
     {
@@ -208,8 +216,7 @@ internal sealed class BeaconConnectionIngest
         try
         {
             await IngestFrameAsync(session, frame, stagedPullSink, taskAckSink, cancellationToken);
-        }
-        finally
+        }        finally
         {
             _diagnostics.Observe(System.Diagnostics.Stopwatch.GetElapsedTime(started));
         }
@@ -218,7 +225,7 @@ internal sealed class BeaconConnectionIngest
     private async Task IngestFrameAsync(
         BeaconSessionContext session,
         Frame frame,
-        Action<TaskId> stagedPullSink,
+        Action<StagedPullDemand> stagedPullSink,
         Action<TaskId> taskAckSink,
         CancellationToken cancellationToken)
     {
@@ -320,11 +327,27 @@ internal sealed class BeaconConnectionIngest
             Rod.V1.TaskOutcome.Failed => Rod.CoreState.Tasks.TaskOutcome.Failed,
             _ => Rod.CoreState.Tasks.TaskOutcome.Failed,
         };
+        var output = result.Output;
+
+        // The both-side half of the resume arm (architecture.md Sec 15.3,
+        // ADR-010): a staged task's result may carry the payload hash the
+        // implant computed over what it reassembled. The served artifact is
+        // the server's own view of the same bytes, so a mismatch is recorded
+        // as the task's failure -- Succeeded means both sides held identical
+        // bytes, and a lying or broken executor cannot mark its own task done.
+        // An absent field is the ordinary result shape and changes nothing.
+        if (owned.StagedBytes is not null
+            && result.HasPayloadSha256
+            && !await StagedHashMatchesAsync(taskId, result.PayloadSha256, cancellationToken))
+        {
+            outcome = Rod.CoreState.Tasks.TaskOutcome.Failed;
+            output = $"staged payload hash mismatch: implant reported {result.PayloadSha256}: {output}";
+        }
 
         TaskCompleted completed;
         try
         {
-            completed = await _tasks.RecordResultAsync(taskId, result.Output, outcome, cancellationToken);
+            completed = await _tasks.RecordResultAsync(taskId, output, outcome, cancellationToken);
         }
         catch (InvalidOperationException)
         {
@@ -460,16 +483,36 @@ internal sealed class BeaconConnectionIngest
             cancellationToken);
     }
 
+    // The served-side hash for the both-side check above: the staged artifact
+    // this task's issuer bound to it, hashed exactly as the implant hashes its
+    // reassembled run. No staged bytes at all also mismatches -- a result
+    // claiming a hash for a task whose payload is gone is not a success.
+    private async Task<bool> StagedHashMatchesAsync(
+        TaskId taskId,
+        string reportedHex,
+        CancellationToken cancellationToken)
+    {
+        var staged = (await _artifacts.ForTaskAsync(taskId.Value, cancellationToken))
+            .FirstOrDefault(a => a.Name == StagedArtifacts.NameFor(taskId.Value));
+        if (staged is null)
+            return false;
+        var served = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(staged.Content));
+        return string.Equals(served, reportedHex, StringComparison.OrdinalIgnoreCase);
+    }
+
     // A StagedPull frame: the implant demands a staged task's payload
     // (architecture.md Sec 10). Validated against the connection's own implant
     // -- a demand naming another implant's task is dropped, not answered -- then
     // handed to the caller's sink, which answers it through the transport's own
     // path. The task's own lifecycle is untouched: the demand is a transport
-    // read of staged bytes, not a task transition.
+    // read of staged bytes, not a task transition. A resuming demand (ADR-010)
+    // carries the offset and prefix proof; a malformed proof (not 32 bytes)
+    // degrades to the fresh shape rather than being dropped, so the demanding
+    // implant still resolves.
     private async Task HandleStagedPullAsync(
         BeaconSessionContext session,
         Frame frame,
-        Action<TaskId> stagedPullSink,
+        Action<StagedPullDemand> stagedPullSink,
         CancellationToken cancellationToken)
     {
         StagedPull pull;
@@ -489,7 +532,10 @@ internal sealed class BeaconConnectionIngest
         if (task is null || task.StagedBytes is null || !await BelongsToSessionAsync(task, session, cancellationToken))
             return;
 
-        stagedPullSink(task.Id);
+        stagedPullSink(new StagedPullDemand(
+            task.Id,
+            pull.HasOffset ? pull.Offset : null,
+            pull.HasPrefixSha256 && pull.PrefixSha256.Length == 32 ? pull.PrefixSha256.ToByteArray() : null));
     }
 
     // A ChannelOutput frame (architecture.md Sec 10.3, the streaming task

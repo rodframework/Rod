@@ -271,7 +271,7 @@ internal sealed class EnvelopeBeaconContact
         // completed whole or answered nothing -- so the arm's requeue never
         // applies on this path (architecture.md Sec 10.3).
         var connection = _ingest.OpenConnection();
-        var stagedPulls = new List<TaskId>();
+        var stagedPulls = new List<StagedPullDemand>();
         for (var i = 1; i < frames.Count; i++)
         {
             await connection.IngestAsync(
@@ -284,9 +284,12 @@ internal sealed class EnvelopeBeaconContact
 
         // Answer each demand with its chunk run in this response, before any
         // new tasking: the implant is blocked on bytes it already accepted a
-        // task for (architecture.md Sec 10, the typed arm).
+        // task for (architecture.md Sec 10, the typed arm). A resumed demand
+        // (ADR-010) is answered from the offset it proved, so an interrupted
+        // run costs the unserved remainder, not the whole payload.
         foreach (var pull in stagedPulls)
-            outbound.AddRange(await _tasking.StagedChunkRunAsync(pull.Value, cancellationToken));
+            outbound.AddRange(await _tasking.StagedChunkRunAsync(
+                pull.Task.Value, pull.Offset, pull.PrefixSha256, cancellationToken));
 
         // Dispatch queued tasking while the budget lasts. The claim
         // evaluation every poll carrier runs decides what fits: a channel

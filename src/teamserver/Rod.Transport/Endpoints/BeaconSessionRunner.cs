@@ -111,7 +111,7 @@ internal sealed class BeaconSessionRunner
         // the stream's sole frame writer -- streams the demanded bytes
         // downstream. The dispatch wake doubles as the handoff: a demand
         // releases the implant's wake, so the parked writer wakes and drains.
-        var pulls = new ConcurrentQueue<Guid>();
+        var pulls = new ConcurrentQueue<StagedPullDemand>();
         // The stream's channel sink (architecture.md Sec 10.3, the streaming
         // task shape): the operator input route enqueues onto it over HTTP and
         // the writer drains it downstream as ChannelInput frames. Registered
@@ -209,7 +209,7 @@ internal sealed class BeaconSessionRunner
         BeaconSessionContext session,
         BeaconConnectionIngest connection,
         BeaconFrameReader read,
-        ConcurrentQueue<Guid> stagedPulls,
+        ConcurrentQueue<StagedPullDemand> stagedPulls,
         ConcurrentDictionary<TaskId, byte> unacked,
         CancellationTokenSource linked,
         string carrier)
@@ -236,9 +236,9 @@ internal sealed class BeaconSessionRunner
             await connection.IngestAsync(
                 session,
                 frame,
-                stagedPullSink: taskId =>
+                stagedPullSink: demand =>
                 {
-                    stagedPulls.Enqueue(taskId.Value);
+                    stagedPulls.Enqueue(demand);
                     _wake.Release(session.Implant);
                 },
                 taskAckSink: taskId => unacked.TryRemove(taskId, out _),
@@ -258,7 +258,7 @@ internal sealed class BeaconSessionRunner
     // claims nothing (architecture.md Sec 10.3).
     private async Task DispatchTasksAsync(
         BeaconSessionContext session,
-        ConcurrentQueue<Guid> stagedPulls,
+        ConcurrentQueue<StagedPullDemand> stagedPulls,
         BeaconChannelSink inputs,
         BeaconFrameWriter write,
         ConcurrentDictionary<TaskId, byte> unacked,
@@ -341,15 +341,18 @@ internal sealed class BeaconSessionRunner
     }
 
     // Streams every demanded staged payload downstream, one StagedChunk run
-    // per demand (architecture.md Sec 10, the typed arm).
+    // per demand (architecture.md Sec 10, the typed arm) -- a resumed demand
+    // (ADR-010) answers from the offset it proved, so a dropped stream costs
+    // the unserved remainder, not the whole payload.
     private async Task StreamStagedPullsAsync(
-        ConcurrentQueue<Guid> stagedPulls,
+        ConcurrentQueue<StagedPullDemand> stagedPulls,
         BeaconFrameWriter write,
         CancellationToken cancellationToken)
     {
-        while (stagedPulls.TryDequeue(out var taskIdValue))
+        while (stagedPulls.TryDequeue(out var demand))
         {
-            foreach (var frame in await _tasking.StagedChunkRunAsync(taskIdValue, cancellationToken))
+            foreach (var frame in await _tasking.StagedChunkRunAsync(
+                         demand.Task.Value, demand.Offset, demand.PrefixSha256, cancellationToken))
                 await write(frame, cancellationToken);
         }
     }

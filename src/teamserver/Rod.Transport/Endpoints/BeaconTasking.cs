@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Google.Protobuf;
 using Rod.Audit;
 using Rod.CoreState;
@@ -157,14 +158,41 @@ internal sealed class BeaconTasking
     /// the implant resolves and fails the hash check honestly rather than
     /// waiting on chunks that will never come.
     /// </summary>
-    public async Task<IReadOnlyList<Frame>> StagedChunkRunAsync(Guid taskId, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<Frame>> StagedChunkRunAsync(Guid taskId, CancellationToken cancellationToken)
+        => StagedChunkRunAsync(taskId, resumeOffset: null, prefixSha256: null, cancellationToken);
+
+    /// <summary>
+    /// The resuming half (architecture.md Sec 15.3, ADR-010): a demand that
+    /// names an offset and proves the bytes it holds by SHA-256 is answered
+    /// from that seam -- only the unserved remainder crosses the wire again.
+    /// A resume the served payload cannot honor (a prefix that hashes
+    /// differently, an offset past the end) falls back to the whole run from
+    /// 0, and the run's first chunk carries offset 0, the signal a resuming
+    /// implant resets its held bytes on. Every chunk carries its absolute
+    /// byte position, so placement never depends on chunk alignment -- the
+    /// DNS carriage serves answer-sized slices, not 512 KiB ones.
+    /// </summary>
+    public async Task<IReadOnlyList<Frame>> StagedChunkRunAsync(
+        Guid taskId,
+        ulong? resumeOffset,
+        byte[]? prefixSha256,
+        CancellationToken cancellationToken)
     {
         var staged = (await _artifacts.ForTaskAsync(taskId, cancellationToken))
             .FirstOrDefault(a => a.Name == StagedArtifacts.NameFor(taskId));
         var content = staged?.Content ?? Array.Empty<byte>();
 
-        var frames = new List<Frame>((content.Length / StagedChunkSize) + 1);
-        for (var offset = 0; ; offset += StagedChunkSize)
+        var start = 0L;
+        if (resumeOffset is { } demanded
+            && demanded <= (ulong)content.Length
+            && prefixSha256 is { Length: 32 } proof
+            && SHA256.HashData(content.AsSpan(0, (int)demanded)).AsSpan().SequenceEqual(proof))
+        {
+            start = (long)demanded;
+        }
+
+        var frames = new List<Frame>((int)((content.Length - start) / StagedChunkSize) + 1);
+        for (var offset = start; ; offset += StagedChunkSize)
         {
             var end = Math.Min(offset + StagedChunkSize, content.Length);
             var slice = new byte[end - offset];
@@ -172,7 +200,8 @@ internal sealed class BeaconTasking
             var chunk = new StagedChunk
             {
                 TaskId = new TaskId(taskId).ToString(),
-                Sequence = (ulong)(offset / StagedChunkSize),
+                Sequence = (ulong)((offset - start) / StagedChunkSize),
+                Offset = (ulong)offset,
                 Terminal = end == content.Length,
                 Data = ByteString.CopyFrom(slice),
             };
