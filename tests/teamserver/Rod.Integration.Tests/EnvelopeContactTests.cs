@@ -172,6 +172,94 @@ public class EnvelopeContactTests
     }
 
     [Fact]
+    public async Task Envelope_ResumableExfilRun_SpansContacts_AndAnswersWithTheSeam()
+    {
+        // ADR-010's upload arm acceptance: an interrupted run resumes from
+        // the bytes the server already holds. The run splits across two
+        // contacts -- each POST a fresh connection -- and the first
+        // contact's response carries the seam report the second serves the
+        // remainder from, so the artifact materializes from the two halves.
+        await using var env = await TestEnv.StartAsync();
+        var secret = await env.MintDeployTokenAsync();
+        using var implant = await ScratchImplant.EnrollAsync(env.EnrollUrl, secret);
+        await implant.ContactAsync();
+
+        var content = RandomNumberGenerator.GetBytes(1024 * 1024 + 777);
+        var name = "resumable-" + Guid.NewGuid().ToString("N")[..8] + ".bin";
+        var (taskId, _) = await env.IssueTaskAsync(
+            implant.EngagementId, implant.ImplantId, "exfil.push", $"{name} /opt/{name}");
+
+        var contact = await implant.ContactAsync();
+        var request = TaskRequest.Parser.ParseFrom(contact[1].Payload);
+
+        // Contact one carries the result and the first half; the run is
+        // interrupted before the terminal chunk.
+        var half = 512 * 1024;
+        var first = await implant.ContactAsync(new[]
+        {
+            ImplantFrames.TaskResult(request.TaskId, Rod.V1.TaskOutcome.Succeeded, $"{name}: streamed"),
+            ImplantFrames.ExfilSlice(request.TaskId, name, content, 0, half, terminal: false),
+        });
+
+        // The response answers the offset-bearing chunk with its seam report.
+        var progress = first.Skip(1)
+            .Select(f => f.Kind == FrameKind.ExfilProgress ? ExfilProgress.Parser.ParseFrom(f.Payload) : null)
+            .Where(p => p is not null)
+            .Single(p => p!.Name == name);
+        Assert.Equal(taskId, progress!.TaskId);
+        Assert.Equal((ulong)half, progress.HeldBytes);
+
+        // Contact two (a fresh connection, a fresh ingest) serves only the
+        // unheld remainder from the reported seam; the terminal chunk
+        // completes the run and the artifact carries the whole content.
+        await implant.ContactAsync(new[]
+        {
+            ImplantFrames.ExfilSlice(request.TaskId, name, content, half, content.Length - half, terminal: true),
+        });
+
+        var artifacts = env.Host.Services.GetRequiredService<IArtifactStore>();
+        var stored = (await artifacts.ForTaskAsync(Guid.Parse(taskId)))
+            .Single(a => a.Name == name);
+        Assert.Equal(content, stored.Content);
+    }
+
+    [Fact]
+    public async Task Envelope_LegacyExfilRun_StillCompletesWithinOneBody()
+    {
+        // The pre-resume shape (no offset fields) keeps the strict sequence
+        // discipline the per-connection reassembler always ran: community
+        // implants interoperate unchanged.
+        await using var env = await TestEnv.StartAsync();
+        var secret = await env.MintDeployTokenAsync();
+        using var implant = await ScratchImplant.EnrollAsync(env.EnrollUrl, secret);
+        await implant.ContactAsync();
+
+        var content = RandomNumberGenerator.GetBytes(600 * 1024);
+        var name = "legacy-" + Guid.NewGuid().ToString("N")[..8] + ".bin";
+        var (taskId, _) = await env.IssueTaskAsync(
+            implant.EngagementId, implant.ImplantId, "exfil.push", $"{name} /opt/{name}");
+
+        var contact = await implant.ContactAsync();
+        var request = TaskRequest.Parser.ParseFrom(contact[1].Payload);
+
+        var frames = new List<Frame>
+        {
+            ImplantFrames.TaskResult(request.TaskId, Rod.V1.TaskOutcome.Succeeded, name),
+        };
+        frames.AddRange(ImplantFrames.ExfilChunkRun(request.TaskId, name, content));
+        var response = await implant.ContactAsync(frames.ToArray());
+
+        // No offset-bearing chunks crossed, so no kind-bearing progress frame
+        // reached the implant -- the evolution rule's structural gate.
+        Assert.DoesNotContain(response, f => f.Kind == FrameKind.ExfilProgress);
+
+        var artifacts = env.Host.Services.GetRequiredService<IArtifactStore>();
+        var stored = (await artifacts.ForTaskAsync(Guid.Parse(taskId)))
+            .Single(a => a.Name == name);
+        Assert.Equal(content, stored.Content);
+    }
+
+    [Fact]
     public async Task Envelope_StagedPull_IsAnsweredInSameResponse()
     {
         await using var env = await TestEnv.StartAsync();
@@ -865,6 +953,31 @@ public class EnvelopeContactTests
                 if (terminal)
                     yield break;
             }
+        }
+
+        // One resumable slice (ADR-010's upload arm): the bytes [from, from +
+        // length) of the run, placed at their absolute offset with the
+        // declared whole-artifact hash.
+        public static Frame ExfilSlice(
+            string taskId, string name, byte[] content, int from, int length, bool terminal)
+        {
+            var slice = new byte[length];
+            Array.Copy(content, from, slice, 0, length);
+            return new Frame
+            {
+                Kind = FrameKind.ExfilChunk,
+                Payload = ByteString.CopyFrom(new ExfilChunk
+                {
+                    TaskId = taskId,
+                    Name = name,
+                    ContentType = "application/octet-stream",
+                    Sequence = 0,
+                    Terminal = terminal,
+                    Offset = (ulong)from,
+                    PayloadSha256 = ByteString.CopyFrom(SHA256.HashData(content)),
+                    Data = ByteString.CopyFrom(slice),
+                }.ToByteArray()),
+            };
         }
 
         public static Frame StagedPull(string taskId)

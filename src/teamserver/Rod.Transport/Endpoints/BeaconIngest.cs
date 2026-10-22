@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using Google.Protobuf;
 using Rod.Audit;
@@ -71,6 +72,11 @@ internal sealed class BeaconIngest
     private readonly Channels.TaskRelayHub _relays;
     private readonly Channels.SocksProxyHub _socks;
     private readonly BeaconDiagnostics _diagnostics;
+    // The cross-connection exfil reassembly (ADR-010's upload arm): one
+    // bounded store for the whole process, so a run spans connections and
+    // carriages. The channel decoders stay per-connection -- a channel is
+    // session-scoped by contract, an upload run is not.
+    private readonly ExfilStreamStore _exfilStreams;
 
     public BeaconIngest(
         TaskService tasks,
@@ -94,14 +100,16 @@ internal sealed class BeaconIngest
         _relays = relays;
         _socks = socks;
         _diagnostics = diagnostics;
+        _exfilStreams = new ExfilStreamStore(clock);
     }
 
     /// <summary>
-    /// Opens the per-connection ingest: the frame handler plus the exfil
-    /// reassembler and channel decoders scoped to one transport connection.
+    /// Opens the per-connection ingest: the frame handler plus the channel
+    /// decoders scoped to one transport connection, over the shared exfil
+    /// stream store.
     /// </summary>
     public BeaconConnectionIngest OpenConnection()
-        => new(_tasks, _taskRecords, _implants, _audit, _artifacts, _bus, _clock, _relays, _socks, _diagnostics);
+        => new(_tasks, _taskRecords, _implants, _audit, _artifacts, _bus, _clock, _relays, _socks, _diagnostics, _exfilStreams);
 
     // The served-side hash for the both-side check (ADR-010): the staged
     // artifact a task's issuer bound to it, hashed exactly as the implant
@@ -127,10 +135,13 @@ internal sealed class BeaconIngest
 
 /// <summary>
 /// One connection's share of the beacon ingest: the frame dispatch plus the
-/// reassembly state that must die with the connection (a partial exfil buffer
-/// or a half-decoded channel chunk from one connection must never complete on
-/// another's). The caller is the sole ingester for its connection, so the
-/// per-connection state needs no extra synchronization.
+/// per-connection channel decoders over the shared exfil stream store. A
+/// channel's decode state dies with its connection, matching the channel's
+/// session scope; an exfil run's bytes outlive the connection (ADR-010's
+/// upload arm), so they live on the store the whole process shares. The
+/// caller is the sole ingester for its connection; the seam queue the
+/// progress frames drain from is the one concurrent surface (the live
+/// session runner's writer reads it while its reader ingests).
 /// </summary>
 internal sealed class BeaconConnectionIngest
 {
@@ -144,12 +155,17 @@ internal sealed class BeaconConnectionIngest
     private readonly Channels.TaskRelayHub _relays;
     private readonly Channels.SocksProxyHub _socks;
     private readonly BeaconDiagnostics _diagnostics;
-    // Per-connection chunk reassembly buffer; the owning transport loop is the
-    // sole writer, so a plain dictionary is safe without locking.
-    private readonly ExfilReassembler _exfil = new();
+    // The process-wide exfil stream store (see BeaconIngest): placement,
+    // caps, and idle eviction live there; this class contributes the
+    // connection's seam marks for progress reporting.
+    private readonly ExfilStreamStore _exfil;
     // Per-connection incremental UTF-8 decoding for channel output, one decoder
     // per task id; dies with the connection, matching the channel's scope.
     private readonly ChannelDecoders _decoders = new();
+    // The streams this connection touched with offset-bearing chunks, in
+    // arrival order: the seam report a response answers with. Reader-only
+    // writes (the sole ingester enqueues); the response builders drain.
+    private readonly ConcurrentQueue<(Guid TaskId, string Name)> _seams = new();
 
     public BeaconConnectionIngest(
         TaskService tasks,
@@ -161,7 +177,8 @@ internal sealed class BeaconConnectionIngest
         TimeProvider clock,
         Channels.TaskRelayHub relays,
         Channels.SocksProxyHub socks,
-        BeaconDiagnostics diagnostics)
+        BeaconDiagnostics diagnostics,
+        ExfilStreamStore exfil)
     {
         _tasks = tasks;
         _taskRecords = taskRecords;
@@ -173,6 +190,7 @@ internal sealed class BeaconConnectionIngest
         _relays = relays;
         _socks = socks;
         _diagnostics = diagnostics;
+        _exfil = exfil;
     }
 
     /// <summary>
@@ -221,12 +239,18 @@ internal sealed class BeaconConnectionIngest
     /// belongs on this session's stream and is still Dispatched; a transport
     /// with no ack ledger of its own (the poll carriers) passes a no-op.
     /// </param>
+    /// <param name="maxExfilStreamBytes">
+    /// The per-stream byte cap exfil placement enforces for this call's
+    /// chunks -- the frame carriages' default, or the DNS arm's smaller
+    /// ceiling when the datagram grammar carries the run.
+    /// </param>
     public async Task IngestAsync(
         BeaconSessionContext session,
         Frame frame,
         Action<StagedPullDemand> stagedPullSink,
         Action<TaskId> taskAckSink,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int maxExfilStreamBytes = ExfilStreamStore.FrameStreamBytes)
     {
         // The one seam every upstream frame crosses (ADR-008's beacon latency
         // distribution): observe the whole dispatch, whatever it decodes into
@@ -236,7 +260,7 @@ internal sealed class BeaconConnectionIngest
         var started = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
-            await IngestFrameAsync(session, frame, stagedPullSink, taskAckSink, cancellationToken);
+            await IngestFrameAsync(session, frame, stagedPullSink, taskAckSink, maxExfilStreamBytes, cancellationToken);
         }
         finally
         {
@@ -249,12 +273,13 @@ internal sealed class BeaconConnectionIngest
         Frame frame,
         Action<StagedPullDemand> stagedPullSink,
         Action<TaskId> taskAckSink,
+        int maxExfilStreamBytes,
         CancellationToken cancellationToken)
     {
         switch (frame.Kind)
         {
             case FrameKind.ExfilChunk:
-                await HandleExfilChunkAsync(session, frame, cancellationToken);
+                await HandleExfilChunkAsync(session, frame, maxExfilStreamBytes, cancellationToken);
                 return;
             case FrameKind.StagedPull:
                 await HandleStagedPullAsync(session, frame, stagedPullSink, cancellationToken);
@@ -419,15 +444,19 @@ internal sealed class BeaconConnectionIngest
             cancellationToken);
     }
 
-    // An ExfilChunk frame: buffer it in the per-connection reassembler keyed by
-    // (task id, artifact name); on the terminal chunk, build the artifact,
-    // save it scoped to the engagement, and append an ExfilCaptured audit
-    // event. The artifact is bound to the task that triggered the push (the
-    // implant stamps the task id on each chunk before sending), so it lands in
-    // the same engagement-scoped store as operator-attached artifacts.
+    // An ExfilChunk frame: place it in the shared per-(task, artifact) stream
+    // store; on the terminal chunk, build the artifact, save it scoped to the
+    // engagement, and append an ExfilCaptured audit event. The artifact is
+    // bound to the task that triggered the push (the implant stamps the task
+    // id on each chunk before sending), so it lands in the same
+    // engagement-scoped store as operator-attached artifacts. An
+    // offset-bearing chunk (ADR-010's upload arm) also marks the stream's
+    // seam, so the contact's response carries the progress frame the sender
+    // resumes from.
     private async Task HandleExfilChunkAsync(
         BeaconSessionContext session,
         Frame frame,
+        int maxExfilStreamBytes,
         CancellationToken cancellationToken)
     {
         ExfilChunk chunk;
@@ -443,14 +472,20 @@ internal sealed class BeaconConnectionIngest
         if (!Guid.TryParse(chunk.TaskId, out var taskId))
             return;
 
-        if (_exfil.Append(taskId, chunk, out var reassembled) != ExfilAppendResult.Completed)
+        var result = _exfil.Append(taskId, chunk, maxExfilStreamBytes);
+        if (chunk.HasOffset)
+            _seams.Enqueue((taskId, chunk.Name));
+
+        if (result.Outcome != ExfilStreamStore.AppendOutcome.Completed)
             return;
 
-        // The terminal chunk closes the stream. Before materializing an artifact,
-        // verify the task the implant stamped really belongs on this session's
-        // stream -- its own tasking, or a fronted Pivot child's (Sec 5.2) --
-        // otherwise an implant could attach evidence to another engagement's
-        // task ids.
+        // The terminal chunk closed a complete run. Before materializing an
+        // artifact, verify the task the implant stamped really belongs on this
+        // session's stream -- its own tasking, or a fronted Pivot child's
+        // (Sec 5.2) -- otherwise an implant could attach evidence to another
+        // engagement's task ids. The placed bytes stay discarded on a refusal:
+        // the store answered Completed, and a stream this session cannot own
+        // was never theirs to finish.
         var task = await _taskRecords.FindAsync(new TaskId(taskId), cancellationToken);
         if (task is null || !await BelongsToSessionAsync(task, session, cancellationToken))
             return;
@@ -458,6 +493,7 @@ internal sealed class BeaconConnectionIngest
         // Build the artifact from the reassembled bytes, save it scoped to the
         // engagement and bound to the task, and record the capture in the audit
         // trail.
+        var reassembled = result.Reassembled!;
         var artifactId = Guid.NewGuid();
         var now = _clock.GetUtcNow();
         var artifact = new Artifact(
@@ -615,113 +651,38 @@ internal sealed class BeaconConnectionIngest
             cancellationToken);
     }
 
-    // Reassembles ExfilChunk frames into a single byte buffer keyed by
-    // (task id, artifact name). The owning transport loop is the sole writer, so a
-    // plain Dictionary is safe here without extra locking; the per-connection
-    // lifetime keeps incomplete buffers from one session leaking into another. A
-    // terminal chunk flushes the buffer and reports the reassembled bytes back
-    // to the caller.
-    //
-    // The reassembly bounds are a memory-DoS guard, not an input-validation
-    // convenience: the transport carries an authenticated implant, but the total
-    // bytes of an exfil stream are whatever that implant claims, so an
-    // unbounded reassembler would let one implant pin process memory. Chunks
-    // must arrive in sequence; a gap, a repeat, a cap overflow, or an
-    // oversized declaration drops the chunk and evicts its stream, so a
-    // misbehaving connection cannot accumulate.
-    private sealed class ExfilReassembler
+    /// <summary>
+    /// Drains the streams this connection touched with offset-bearing chunks
+    /// into the seam-report frames its response carries (ADR-010's upload
+    /// arm), one frame per stream at the store's freshest held count. Only a
+    /// contact that sent offset-bearing chunks drains anything, so the
+    /// kind-bearing downstream frame never reaches an implant that did not
+    /// opt in structurally by sending one.
+    /// </summary>
+    public IReadOnlyList<Frame> TakeExfilProgress()
     {
-        // One artifact (name, content type) and one stream total a beacon
-        // session can have open at once; a stream over these bounds is dropped
-        // whole. The per-stream byte cap matches the operator attach cap, so
-        // both evidence paths share one ceiling.
-        private const int MaxNameBytes = 256;
-        private const int MaxContentTypeBytes = 128;
-        private const int MaxStreamBytes = 64 * 1024 * 1024;
-        private const int MaxOpenStreams = 16;
+        if (_seams.IsEmpty)
+            return Array.Empty<Frame>();
 
-        private readonly Dictionary<Key, Buffer> _buffers = new();
-
-        public ExfilAppendResult Append(Guid taskId, ExfilChunk chunk, out Reassembled reassembled)
-        {
-            reassembled = default;
-
-            if (chunk.Name.Length == 0 || chunk.Name.Length > MaxNameBytes
-                || chunk.ContentType.Length > MaxContentTypeBytes
-                || chunk.Data.Length == 0)
+        // One frame per stream even when several of its chunks crossed this
+        // connection: arrival order keeps the last mention newest, and the
+        // held count is read fresh from the store at drain time.
+        var latest = new Dictionary<(Guid TaskId, string Name), byte>();
+        while (_seams.TryDequeue(out var seam))
+            latest[seam] = 0;
+        return latest.Keys
+            .Select(seam => new Frame
             {
-                return ExfilAppendResult.Dropped;
-            }
-
-            var key = new Key(taskId, chunk.Name);
-            if (!_buffers.TryGetValue(key, out var buffer))
-            {
-                if (_buffers.Count >= MaxOpenStreams)
-                    return ExfilAppendResult.Dropped;
-
-                buffer = new Buffer(chunk.Name, chunk.ContentType);
-                _buffers[key] = buffer;
-            }
-
-            // Sequence discipline: the first chunk starts the stream at 0 or 1
-            // (both origins have shipped; accept either), every later chunk must
-            // be exactly the next index. Anything else drops the stream so a
-            // repeated or reordered send cannot corrupt the artifact.
-            if (buffer.NextSequence is { } next)
-            {
-                if (chunk.Sequence != next)
+                Kind = FrameKind.ExfilProgress,
+                Payload = ByteString.CopyFrom(new ExfilProgress
                 {
-                    _buffers.Remove(key);
-                    return ExfilAppendResult.Dropped;
-                }
-            }
-            else if (chunk.Sequence != 0 && chunk.Sequence != 1)
-            {
-                _buffers.Remove(key);
-                return ExfilAppendResult.Dropped;
-            }
-
-            if (buffer.Data.Count + chunk.Data.Length > MaxStreamBytes)
-            {
-                _buffers.Remove(key);
-                return ExfilAppendResult.Dropped;
-            }
-
-            buffer.NextSequence = chunk.Sequence + 1;
-            buffer.Data.AddRange(chunk.Data);
-
-            if (!chunk.Terminal)
-                return ExfilAppendResult.Buffered;
-
-            _buffers.Remove(key);
-            reassembled = new Reassembled(buffer.Name, buffer.ContentType, buffer.Data.ToArray());
-            return ExfilAppendResult.Completed;
-        }
-
-        private readonly record struct Key(Guid TaskId, string Name);
-
-        private sealed class Buffer(string name, string contentType)
-        {
-            public string Name { get; } = name;
-            public string ContentType { get; } = contentType;
-            public List<byte> Data { get; } = new();
-            public ulong? NextSequence { get; set; }
-        }
+                    TaskId = new TaskId(seam.TaskId).ToString(),
+                    Name = seam.Name,
+                    HeldBytes = _exfil.Held(seam.TaskId, seam.Name),
+                }.ToByteArray()),
+            })
+            .ToList();
     }
-
-    // What Append did with a chunk: buffered into its stream, completed a
-    // stream (terminal, reassembled payload available), or dropped it.
-    private enum ExfilAppendResult
-    {
-        Buffered,
-        Completed,
-        Dropped,
-    }
-
-    // The reassembled artifact payload handed back from the ExfilReassembler on
-    // a terminal chunk: the name and content type the implant declared plus the
-    // concatenated bytes of every chunk in the stream.
-    private readonly record struct Reassembled(string Name, string ContentType, byte[] Data);
 
     // Incremental UTF-8 decoding for channel output, one decoder per task id.
     // A channel may emit a chunk that splits a multi-byte code point across

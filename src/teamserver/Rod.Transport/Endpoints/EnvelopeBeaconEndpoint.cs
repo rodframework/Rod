@@ -282,6 +282,12 @@ internal sealed class EnvelopeBeaconContact
                 cancellationToken);
         }
 
+        // The exfil seam reports ride ahead of the staged runs and tasking:
+        // offset-bearing chunks placed this contact answer with the byte
+        // count the server holds, so the sender's next body serves only the
+        // unheld remainder (ADR-010's upload arm).
+        outbound.AddRange(connection.TakeExfilProgress());
+
         // Answer each demand with its chunk run in this response, before any
         // new tasking: the implant is blocked on bytes it already accepted a
         // task for (architecture.md Sec 10, the typed arm). A resumed demand

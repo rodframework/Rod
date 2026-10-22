@@ -299,6 +299,12 @@ internal sealed class StreamBeaconBridge
                     cancellationToken);
             }
 
+            // The exfil seam reports ride ahead of the staged runs and
+            // tasking (ADR-010's upload arm): offset-bearing chunks placed
+            // this contact answer with the byte count the server holds, so
+            // the sender's next message serves only the unheld remainder.
+            outbound.AddRange(connection.TakeExfilProgress());
+
             // Answer each demand with its chunk run in this response, before
             // any new tasking: the implant is blocked on bytes it already
             // accepted a task for (architecture.md Sec 10, the typed arm). A
