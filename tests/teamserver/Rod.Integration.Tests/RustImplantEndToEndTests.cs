@@ -6,6 +6,7 @@ using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Rod.Audit;
 using Rod.Transport;
 using Rod.Transport.Endpoints;
 
@@ -155,6 +156,103 @@ public class RustImplantEndToEndTests
     [RustFact]
     public async Task RustImplant_StreamsOverTheWebSocketBeacon_FromTheBake()
         => await BuildRunAndRoundtripAsync("stream", "rod-rust-stream-");
+
+    [Fact]
+    public async Task RustImplant_ExfilsARunPastTheContactBudget_OverThePollCycle()
+    {
+        // The upload arm's implant-side acceptance (ADR-010): a run larger
+        // than one contact's exfil budget (8 MiB) spans POSTs -- the session
+        // slices from the confirmed seam, the seam reports chain the
+        // contacts, and the artifact lands whole with the declared hash.
+        var rustDir = FindRustTree()
+            ?? throw new InvalidOperationException("the Rust implant tree was not found from the test assembly");
+        var build = Process.Start(new ProcessStartInfo
+        {
+            FileName = "cargo",
+            WorkingDirectory = rustDir,
+            ArgumentList = { "build", "--release" },
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        });
+        var buildOutput = (await build!.StandardOutput.ReadToEndAsync())
+            + await build.StandardError.ReadToEndAsync();
+        build.WaitForExit(300_000);
+        Assert.True(build.ExitCode == 0, $"cargo build failed:\n{buildOutput}");
+        var binary = Path.Combine(rustDir, "target", "release", "rod-implant");
+
+        await using var env = await TestEnv.StartAsync();
+        await env.CreateEngagementAsync();
+        var mint = await env.Http.PostAsync(
+            $"/engagements/{env.EngagementId}/deploy-tokens", content: null);
+        mint.EnsureSuccessStatusCode();
+        var token = await mint.Content.ReadFromJsonAsync<MintedToken>();
+
+        var loot = Path.Combine(Path.GetTempPath(), "rod-rust-exfil-" + Guid.NewGuid().ToString("N") + ".bin");
+        var content = new byte[9 * 1024 * 1024 + 123];
+        Random.Shared.NextBytes(content);
+        await File.WriteAllBytesAsync(loot, content);
+
+        var stderr = new StringBuilder();
+        var start = new ProcessStartInfo
+        {
+            FileName = binary,
+            UseShellExecute = false,
+            RedirectStandardError = true,
+        };
+        start.Environment["ROD_ENROLL_URL"] = $"http://127.0.0.1:{env.HttpPort}/implants/enroll";
+        start.Environment["ROD_DEPLOY_TOKEN"] = token!.Secret;
+        start.Environment["ROD_VERBOSE"] = "1";
+        start.Environment["ROD_SLEEP"] = "1";
+        start.Environment["ROD_JITTER"] = "0";
+        start.Environment["ROD_ENVELOPE"] = "none";
+        start.Environment["ROD_VERBS"] = "shell.exec,fs.list,file.pull,beacon.sleep";
+        using var process = Process.Start(start);
+        Assert.NotNull(process);
+        process!.ErrorDataReceived += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
+        process.BeginErrorReadLine();
+
+        try
+        {
+            var implantId = await WaitForOnlineAsync(env, TimeSpan.FromSeconds(60), stderr);
+            Assert.False(string.IsNullOrEmpty(implantId));
+
+            var issued = await env.Http.PostAsJsonAsync(
+                $"/engagements/{env.EngagementId}/tasks",
+                new TaskEndpoints.IssueTaskRequest(implantId, "file.pull", loot));
+            issued.EnsureSuccessStatusCode();
+            var task = await issued.Content.ReadFromJsonAsync<TaskBody>();
+            Assert.NotNull(task);
+
+            // The run spans at least two contacts (9 MiB against the 8 MiB
+            // budget); poll the artifact store until the terminal chunk
+            // landed and verify the bytes whole.
+            var artifacts = env.Host.Services.GetRequiredService<IArtifactStore>();
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(90);
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                var stored = (await artifacts.ForTaskAsync(Guid.Parse(task!.TaskId)))
+                    .FirstOrDefault(a => a.Name == Path.GetFileName(loot));
+                if (stored is not null)
+                {
+                    Assert.Equal(content.Length, stored.Size);
+                    Assert.Equal(content, stored.Content);
+                    return;
+                }
+                await Task.Delay(500);
+            }
+            Assert.Fail($"the exfil run did not land. Implant stderr:\n{stderr}");
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                process.WaitForExit(5000);
+            }
+            try { File.Delete(loot); } catch { }
+        }
+    }
 
     /// The full operable loop through the operator API at the given contact
     /// mode: a language "rust" build bakes the profile (sealed contacts on,

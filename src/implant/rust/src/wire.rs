@@ -14,7 +14,7 @@ pub mod rod {
 }
 
 pub use rod::{
-    ChannelInput, ChannelOutput, EnrollRequest, EnrollResponse, ExfilChunk, Frame,
+    ChannelInput, ChannelOutput, EnrollRequest, EnrollResponse, ExfilChunk, ExfilProgress, Frame,
     HandshakeRequest, HandshakeResponse, ProtocolVersion, StagedChunk, StagedPull, TaskAck,
     TaskRequest, TaskResult,
 };

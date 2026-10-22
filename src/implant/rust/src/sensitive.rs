@@ -357,7 +357,7 @@ fn ok(output: &str) -> HandlerOutput {
     HandlerOutput {
         outcome: Outcome::Succeeded,
         output: output.into(),
-        chunks: Vec::new(),
+        artifact: None,
     }
 }
 
@@ -365,6 +365,6 @@ fn fail(output: &str) -> HandlerOutput {
     HandlerOutput {
         outcome: Outcome::Failed,
         output: output.into(),
-        chunks: Vec::new(),
+        artifact: None,
     }
 }

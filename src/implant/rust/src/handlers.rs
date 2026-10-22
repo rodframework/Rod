@@ -4,7 +4,6 @@ use base64::Engine;
 
 use crate::plugins::Plugins;
 use crate::profile::parse_duration;
-use crate::wire::ExfilChunk;
 
 // The verb registry: string-in, string-out handlers over the shared task
 // grammar, with the argument shapes the operator console and the capability
@@ -75,7 +74,20 @@ const MAX_PUSH_BYTES: usize = 8 << 20;
 pub struct HandlerOutput {
     pub outcome: Outcome,
     pub output: String,
-    pub chunks: Vec<ExfilChunk>,
+    /// The artifact run this task produced, if any: the whole bytes, named
+    /// and typed, handed to the session's upload state (ADR-010's upload
+    /// arm). The carriages slice a run per contact under the body budget
+    /// and resume it from the server's seam reports -- nothing about the
+    /// run rides the outbox's verbatim batch discipline.
+    pub artifact: Option<ArtifactRun>,
+}
+
+/// One exfil upload run's declaration: the logical name, the MIME hint, and
+/// the bytes themselves.
+pub struct ArtifactRun {
+    pub name: String,
+    pub content_type: String,
+    pub data: Vec<u8>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -89,21 +101,21 @@ impl HandlerOutput {
         HandlerOutput {
             outcome: Outcome::Succeeded,
             output,
-            chunks: Vec::new(),
+            artifact: None,
         }
     }
-    fn ok_with_chunks(output: String, chunks: Vec<ExfilChunk>) -> HandlerOutput {
+    fn ok_with_artifact(output: String, artifact: ArtifactRun) -> HandlerOutput {
         HandlerOutput {
             outcome: Outcome::Succeeded,
             output,
-            chunks,
+            artifact: Some(artifact),
         }
     }
     fn fail(output: String) -> HandlerOutput {
         HandlerOutput {
             outcome: Outcome::Failed,
             output,
-            chunks: Vec::new(),
+            artifact: None,
         }
     }
 }
@@ -149,7 +161,7 @@ pub fn dispatch(
             Some((outcome, output)) => HandlerOutput {
                 outcome,
                 output,
-                chunks: Vec::new(),
+                artifact: None,
             },
             None => HandlerOutput::fail(format!(
                 "{verb}: this build carries no handler for the verb"
@@ -226,29 +238,17 @@ fn file_pull(arguments: &str) -> HandlerOutput {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "artifact".into());
-    let mut chunks = Vec::new();
-    for (index, part) in data.chunks(CHUNK_BYTES).enumerate() {
-        chunks.push(ExfilChunk {
-            task_id: String::new(), // the caller stamps the task id
-            name: name.clone(),
-            content_type: "application/octet-stream".into(),
-            sequence: index as u64,
-            terminal: index == data.len().div_ceil(CHUNK_BYTES) - 1,
-            data: part.to_vec(),
-            // The resume arm's fields arrive unset from this builder until
-            // the upload arm's session state takes the run over.
-            offset: None,
-            payload_sha256: None,
-        });
-    }
-    HandlerOutput::ok_with_chunks(
+    let chunks = data.len().div_ceil(CHUNK_BYTES);
+    HandlerOutput::ok_with_artifact(
         format!(
-            "{}: {} bytes, {} chunks streamed to artifact store",
-            path,
-            data.len(),
-            chunks.len()
+            "{path}: {} bytes, {chunks} chunks streamed to artifact store",
+            data.len()
         ),
-        chunks,
+        ArtifactRun {
+            name,
+            content_type: "application/octet-stream".into(),
+            data,
+        },
     )
 }
 
@@ -396,7 +396,7 @@ mod tests {
         let out = dispatch("no.such.verb", "args");
         assert_eq!(out.outcome, Outcome::Failed);
         assert!(out.output.contains("no.such.verb"), "{}", out.output);
-        assert!(out.chunks.is_empty());
+        assert!(out.artifact.is_none());
     }
 
     #[test]
@@ -429,21 +429,19 @@ mod tests {
     }
 
     #[test]
-    fn oversized_pulls_ride_terminal_chunk_streams() {
+    fn oversized_pulls_hand_the_whole_run_to_the_session() {
         let dir = scratch("chunked");
         let path = dir.join("blob.bin");
-        // One byte past the inline cap: the chunked path, in two full
-        // chunks plus a one-byte terminal.
+        // One byte past the inline cap: the run carries the whole artifact
+        // (the session slices it per contact under the body budget,
+        // ADR-010's upload arm) -- two full 512 KiB slices plus a one-byte
+        // tail, counted on the output the operator reads.
         std::fs::write(&path, vec![0u8; MAX_INLINE_BYTES + 1]).expect("blob");
         let out = dispatch("file.pull", path.to_str().unwrap());
         assert_eq!(out.outcome, Outcome::Succeeded, "{}", out.output);
-        assert_eq!(out.chunks.len(), 3);
-        assert_eq!(out.chunks[0].data.len(), CHUNK_BYTES);
-        assert!(!out.chunks[0].terminal);
-        assert_eq!(out.chunks[1].data.len(), CHUNK_BYTES);
-        assert!(!out.chunks[1].terminal);
-        assert!(out.chunks[2].terminal);
-        assert_eq!(out.chunks[2].data.len(), 1);
+        let run = out.artifact.expect("the oversized pull declares a run");
+        assert_eq!(run.data.len(), MAX_INLINE_BYTES + 1);
+        assert!(out.output.contains("3 chunks"), "{}", out.output);
         std::fs::remove_dir_all(&dir).ok();
     }
 

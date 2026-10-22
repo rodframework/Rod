@@ -260,6 +260,63 @@ public class EnvelopeContactTests
     }
 
     [Fact]
+    public async Task Envelope_ExfilRunPastTheBodyCap_SpansContacts()
+    {
+        // The AC's second half: the envelope's one-request-body bound on
+        // exfil runs is gone. A 20 MiB run exceeds the 16 MiB body cap, so
+        // it can never ride one POST -- the sender slices it per contact
+        // (the reference implant's 8 MiB budget), the seam reports chain the
+        // contacts, and the artifact materializes whole.
+        await using var env = await TestEnv.StartAsync();
+        var secret = await env.MintDeployTokenAsync();
+        using var implant = await ScratchImplant.EnrollAsync(env.EnrollUrl, secret);
+        await implant.ContactAsync();
+
+        var content = RandomNumberGenerator.GetBytes(20 * 1024 * 1024);
+        var name = "large-" + Guid.NewGuid().ToString("N")[..8] + ".bin";
+        var (taskId, _) = await env.IssueTaskAsync(
+            implant.EngagementId, implant.ImplantId, "exfil.push", $"{name} /opt/{name}");
+
+        var contact = await implant.ContactAsync();
+        var request = TaskRequest.Parser.ParseFrom(contact[1].Payload);
+
+        await implant.ContactAsync(new[]
+        {
+            ImplantFrames.TaskResult(request.TaskId, Rod.V1.TaskOutcome.Succeeded, $"{name}: streamed"),
+        });
+
+        // Serve the run in budget-sized contacts the way the reference
+        // implant slices it (512 KiB frames, an 8 MiB budget per contact),
+        // advancing from each response's seam report -- a single body or
+        // frame never exceeds its cap.
+        const int budget = 8 * 1024 * 1024;
+        var from = 0;
+        var declared = SHA256.HashData(content);
+        while (from < content.Length)
+        {
+            var take = Math.Min(budget, content.Length - from);
+            var terminalHere = from + take >= content.Length;
+            var frames = ImplantFrames.ExfilSliceRun(request.TaskId, name, content, from, take, terminalHere);
+            var response = await implant.ContactAsync(frames);
+            if (!terminalHere)
+            {
+                var seam = response.Skip(1)
+                    .Select(f => f.Kind == FrameKind.ExfilProgress ? ExfilProgress.Parser.ParseFrom(f.Payload) : null)
+                    .Where(p => p is not null)
+                    .Single(p => p!.Name == name);
+                Assert.Equal((ulong)(from + take), seam!.HeldBytes);
+            }
+            from += take;
+        }
+
+        var artifacts = env.Host.Services.GetRequiredService<IArtifactStore>();
+        var stored = (await artifacts.ForTaskAsync(Guid.Parse(taskId)))
+            .Single(a => a.Name == name);
+        Assert.Equal(content.Length, stored.Size);
+        Assert.Equal(declared, SHA256.HashData(stored.Content));
+    }
+
+    [Fact]
     public async Task Envelope_StagedPull_IsAnsweredInSameResponse()
     {
         await using var env = await TestEnv.StartAsync();
@@ -978,6 +1035,23 @@ public class EnvelopeContactTests
                     Data = ByteString.CopyFrom(slice),
                 }.ToByteArray()),
             };
+        }
+
+        // The same byte range as a frame run: 512 KiB frames -- the
+        // reference implant's slice size, under the per-frame cap -- with
+        // the terminal flag on the range's last frame.
+        public static IEnumerable<Frame> ExfilSliceRun(
+            string taskId, string name, byte[] content, int from, int length, bool terminal)
+        {
+            const int frameBytes = 512 * 1024;
+            for (var at = from; ; at += frameBytes)
+            {
+                var take = Math.Min(frameBytes, from + length - at);
+                var last = at + take >= from + length;
+                yield return ExfilSlice(taskId, name, content, at, take, terminal && last);
+                if (last)
+                    yield break;
+            }
         }
 
         public static Frame StagedPull(string taskId)
