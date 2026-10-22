@@ -91,8 +91,10 @@ fn beacon_url(enroll_url: &str) -> String {
 /// the wire contract states -- channel input routes to the live channel it
 /// names (a task with no live channel is at most a completion race, and is
 /// dropped), any other kind-bearing frame (a staged chunk run, say) is not
-/// for this reader, and only kindless frames take the positional
-/// TaskRequest parse; a staged task enters its pull cycle.
+/// for this reader, and kindless frames take the positional TaskRequest
+/// parse; acceptance handles a staged task by registering its transfer, and
+/// the poll cycle's next demand (or the live carriage's inline exchange)
+/// pulls the payload.
 pub fn accept_tasking(session: &mut Session, inbound: &[crate::wire::Frame], acks: bool) {
     use crate::wire::{ChannelInput, TaskRequest};
     use prost::Message;
@@ -108,13 +110,6 @@ pub fn accept_tasking(session: &mut Session, inbound: &[crate::wire::Frame], ack
             continue;
         }
         if let Ok(task) = TaskRequest::decode(frame.payload.as_ref()) {
-            if task.staged_bytes.is_some() {
-                // The poll batch defers the payload pull to its next cycle:
-                // the demand rides the next request, the chunk run its
-                // response.
-                session.outbox.demand_staged(task);
-                continue;
-            }
             session.accept(&task, acks);
         }
     }

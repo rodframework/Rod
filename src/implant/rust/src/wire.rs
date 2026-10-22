@@ -86,6 +86,7 @@ mod tests {
                 task_id: id.into(),
                 outcome: rod::TaskOutcome::Succeeded as i32,
                 output: output.into(),
+                payload_sha256: None,
             }
             .encode_to_vec(),
             kind: FrameKind::TaskResult as i32,

