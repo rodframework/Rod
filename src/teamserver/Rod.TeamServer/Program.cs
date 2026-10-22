@@ -189,6 +189,13 @@ app.MapBuildStampEndpoints();
 // capability category as tasking from the registry rather than a hardcoded verb
 // table.
 app.MapCapabilityEndpoints();
+// The built-in diagnostics endpoint (architecture.md Sec 15.3, ADR-008):
+// mapped from the composition root for the same layer-separation reason as
+// the catalog above -- its five dimensions live across transport, core
+// state, the operator layer, the build pipeline, and the capabilities
+// layer, and only the composition root sees them all. The deployment
+// admin's read; outside the versioned OpenAPI contract like the catalog.
+app.MapDiagnosticsEndpoints();
 
 // The operator UI shell. The SPA is hash-routed, so the browser only ever
 // requests the root from the server -- there is no catch-all fallback that
