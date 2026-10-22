@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Rod.Audit;
 using Microsoft.AspNetCore.Http;
@@ -30,6 +31,9 @@ namespace Rod.Operators.Mcp;
 /// Results are compact JSON strings -- one object per row, the same field
 /// names the operator API's responses carry -- so any MCP client (an LLM
 /// agent or a plain script) consumes them without a bespoke schema.
+/// Refusals (a malformed id, a foreign engagement) ride the result as
+/// isError carrying their reason, so a directed agent reads why a call
+/// refused instead of a generic invocation error.
 /// </summary>
 [McpServerToolType]
 public sealed class RodReadTools
@@ -67,128 +71,170 @@ public sealed class RodReadTools
 
     [McpServerTool(Name = "list_engagements")]
     [Description("List the engagements the caller can reach (owned or a member of): id, name, state, and creation time. The id scopes every other tool here.")]
-    public async Task<string> ListEngagements(CancellationToken cancellationToken)
+    public async Task<CallToolResult> ListEngagements(CancellationToken cancellationToken)
     {
-        // The toolset rides an operator's own standing (architecture.md
-        // Sec 3): the token's operator sees its engagements and no others --
-        // the same reach the console's listing applies.
-        var operatorId = CurrentOperator();
-        var reach = (await _memberships.ListForOperatorAsync(operatorId, cancellationToken))
-            .Select(m => m.EngagementId)
-            .ToHashSet();
-        var rows = (await _engagements.ListAsync(cancellationToken))
-            .Where(e => e.OwnerId == operatorId || reach.Contains(e.Id));
-        return JsonSerializer.Serialize(rows.Select(e => new
+        try
         {
-            engagementId = e.Id.ToString(),
-            name = e.Name,
-            state = e.IsRetired ? "retired" : e.IsClosed ? "frozen" : "open",
-            createdAt = e.CreatedAt,
-        }), Json);
+            // The toolset rides an operator's own standing (architecture.md
+            // Sec 3): the token's operator sees its engagements and no others --
+            // the same reach the console's listing applies.
+            var operatorId = CurrentOperator();
+            var reach = (await _memberships.ListForOperatorAsync(operatorId, cancellationToken))
+                .Select(m => m.EngagementId)
+                .ToHashSet();
+            var rows = (await _engagements.ListAsync(cancellationToken))
+                .Where(e => e.OwnerId == operatorId || reach.Contains(e.Id));
+            return Text(JsonSerializer.Serialize(rows.Select(e => new
+            {
+                engagementId = e.Id.ToString(),
+                name = e.Name,
+                state = e.IsRetired ? "retired" : e.IsClosed ? "frozen" : "open",
+                createdAt = e.CreatedAt,
+            }), Json));
+        }
+        catch (McpException ex)
+        {
+            return Refused(ex.Message);
+        }
     }
 
     [McpServerTool(Name = "list_implants")]
     [Description("List an engagement's implants: id, class, host details, liveness, and parentage.")]
-    public async Task<string> ListImplants(
+    public async Task<CallToolResult> ListImplants(
         [Description("The engagement id, as returned by list_engagements.")] string engagementId,
         CancellationToken cancellationToken)
     {
-        var engagement = await ResolveEngagementAsync(engagementId, cancellationToken);
-        var rows = await _implants.ListByEngagementAsync(engagement.Id, cancellationToken);
-        return JsonSerializer.Serialize(rows.Select(i => new
+        try
         {
-            implantId = i.Id.ToString(),
-            cls = i.Class.ToString(),
-            hostname = i.Hostname,
-            os = i.Os,
-            arch = i.Arch,
-            username = i.Username,
-            retired = i.IsRetired,
-            lastSeenAt = i.LastSeenAt,
-            parentImplantId = i.ParentImplantId?.ToString(),
-            createdAt = i.CreatedAt,
-        }), Json);
+            var engagement = await ResolveEngagementAsync(engagementId, cancellationToken);
+            var rows = await _implants.ListByEngagementAsync(engagement.Id, cancellationToken);
+            return Text(JsonSerializer.Serialize(rows.Select(i => new
+            {
+                implantId = i.Id.ToString(),
+                cls = i.Class.ToString(),
+                hostname = i.Hostname,
+                os = i.Os,
+                arch = i.Arch,
+                username = i.Username,
+                retired = i.IsRetired,
+                lastSeenAt = i.LastSeenAt,
+                parentImplantId = i.ParentImplantId?.ToString(),
+                createdAt = i.CreatedAt,
+            }), Json));
+        }
+        catch (McpException ex)
+        {
+            return Refused(ex.Message);
+        }
     }
 
     [McpServerTool(Name = "list_sessions")]
     [Description("List an engagement's active implant sessions -- the who-is-alive view.")]
-    public async Task<string> ListSessions(
+    public async Task<CallToolResult> ListSessions(
         [Description("The engagement id, as returned by list_engagements.")] string engagementId,
         CancellationToken cancellationToken)
     {
-        var engagement = await ResolveEngagementAsync(engagementId, cancellationToken);
-        var rows = await _sessions.ListActiveAsync(engagement.Id, cancellationToken);
-        return JsonSerializer.Serialize(rows.Select(s => new
+        try
         {
-            sessionId = s.Id.ToString(),
-            implantId = s.ImplantId.ToString(),
-            startedAt = s.StartedAt,
-            lastSeenAt = s.LastSeenAt,
-            carrier = s.LastCarrier,
-            capabilities = s.Capabilities,
-        }), Json);
+            var engagement = await ResolveEngagementAsync(engagementId, cancellationToken);
+            var rows = await _sessions.ListActiveAsync(engagement.Id, cancellationToken);
+            return Text(JsonSerializer.Serialize(rows.Select(s => new
+            {
+                sessionId = s.Id.ToString(),
+                implantId = s.ImplantId.ToString(),
+                startedAt = s.StartedAt,
+                lastSeenAt = s.LastSeenAt,
+                carrier = s.LastCarrier,
+                capabilities = s.Capabilities,
+            }), Json));
+        }
+        catch (McpException ex)
+        {
+            return Refused(ex.Message);
+        }
     }
 
     [McpServerTool(Name = "list_tasks")]
     [Description("List one page of an engagement's task history, newest first. Walk pages with the returned cursor.")]
-    public async Task<string> ListTasks(
+    public async Task<CallToolResult> ListTasks(
         [Description("The engagement id, as returned by list_engagements.")] string engagementId,
         [Description("Page size, 1-100 (default 25).")] int? limit,
         CancellationToken cancellationToken)
     {
-        var engagement = await ResolveEngagementAsync(engagementId, cancellationToken);
-        var page = await _tasks.ListByEngagementPageAsync(
-            engagement.Id, BoundLimit(limit), cursor: null, cancellationToken);
-        return JsonSerializer.Serialize(new
+        try
         {
-            tasks = page.Items.Select(TaskRow).ToArray(),
-            nextCursor = page.NextCursor,
-        }, Json);
+            var engagement = await ResolveEngagementAsync(engagementId, cancellationToken);
+            var page = await _tasks.ListByEngagementPageAsync(
+                engagement.Id, BoundLimit(limit), cursor: null, cancellationToken);
+            return Text(JsonSerializer.Serialize(new
+            {
+                tasks = page.Items.Select(TaskRow).ToArray(),
+                nextCursor = page.NextCursor,
+            }, Json));
+        }
+        catch (McpException ex)
+        {
+            return Refused(ex.Message);
+        }
     }
 
     [McpServerTool(Name = "get_task")]
     [Description("Read one task in full: verb, arguments, status, outcome, and the captured output transcript.")]
-    public async Task<string> GetTask(
+    public async Task<CallToolResult> GetTask(
         [Description("The engagement id, as returned by list_engagements.")] string engagementId,
         [Description("The task id, as returned by list_tasks.")] string taskId,
         CancellationToken cancellationToken)
     {
-        var engagement = await ResolveEngagementAsync(engagementId, cancellationToken);
-        if (!Guid.TryParse(taskId, out var taskValue))
-            throw new McpException("The task id is not a valid identifier.");
+        try
+        {
+            var engagement = await ResolveEngagementAsync(engagementId, cancellationToken);
+            if (!Guid.TryParse(taskId, out var taskValue))
+                throw new McpException("The task id is not a valid identifier.");
 
-        var task = await _tasks.FindAsync(new TaskId(taskValue), cancellationToken);
-        if (task is null || task.EngagementId != engagement.Id)
-            throw new McpException("No such task in this engagement.");
+            var task = await _tasks.FindAsync(new TaskId(taskValue), cancellationToken);
+            if (task is null || task.EngagementId != engagement.Id)
+                throw new McpException("No such task in this engagement.");
 
-        return JsonSerializer.Serialize(TaskDetail(task), Json);
+            return Text(JsonSerializer.Serialize(TaskDetail(task), Json));
+        }
+        catch (McpException ex)
+        {
+            return Refused(ex.Message);
+        }
     }
 
     [McpServerTool(Name = "list_audit")]
     [Description("List one page of an engagement's audit trail, newest first -- every attributed operational fact. Walk pages with the returned cursor.")]
-    public async Task<string> ListAudit(
+    public async Task<CallToolResult> ListAudit(
         [Description("The engagement id, as returned by list_engagements.")] string engagementId,
         [Description("Page size, 1-100 (default 25).")] int? limit,
         CancellationToken cancellationToken)
     {
-        var engagement = await ResolveEngagementAsync(engagementId, cancellationToken);
-        var page = await _audit.ListPageAsync(
-            engagement.Id.Value, BoundLimit(limit), cursor: null, cancellationToken);
-        return JsonSerializer.Serialize(new
+        try
         {
-            events = page.Items.Select(e => new
+            var engagement = await ResolveEngagementAsync(engagementId, cancellationToken);
+            var page = await _audit.ListPageAsync(
+                engagement.Id.Value, BoundLimit(limit), cursor: null, cancellationToken);
+            return Text(JsonSerializer.Serialize(new
             {
-                at = e.At,
-                kind = e.Kind.ToString(),
-                verb = e.Verb,
-                payload = e.Payload,
-                output = e.Output,
-                outcome = e.Outcome,
-                implantId = e.ImplantId == Guid.Empty ? null : e.ImplantId.ToString(),
-                taskId = e.TaskId == Guid.Empty ? null : e.TaskId.ToString(),
-            }).ToArray(),
-            nextCursor = page.NextCursor,
-        }, Json);
+                events = page.Items.Select(e => new
+                {
+                    at = e.At,
+                    kind = e.Kind.ToString(),
+                    verb = e.Verb,
+                    payload = e.Payload,
+                    output = e.Output,
+                    outcome = e.Outcome,
+                    implantId = e.ImplantId == Guid.Empty ? null : e.ImplantId.ToString(),
+                    taskId = e.TaskId == Guid.Empty ? null : e.TaskId.ToString(),
+                }).ToArray(),
+                nextCursor = page.NextCursor,
+            }, Json));
+        }
+        catch (McpException ex)
+        {
+            return Refused(ex.Message);
+        }
     }
 
     // The single choke point every engagement-scoped tool reads through: the
@@ -218,6 +264,15 @@ public sealed class RodReadTools
 
     private static int BoundLimit(int? limit)
         => Math.Clamp(limit ?? 25, 1, 100);
+
+    // A refusal rides the result as isError carrying its reason; a thrown
+    // McpException would arrive masked as a generic invocation error, the
+    // same shape the write toolset already refuses through.
+    private static CallToolResult Refused(string message)
+        => new() { IsError = true, Content = [new TextContentBlock { Text = message }] };
+
+    private static CallToolResult Text(string value)
+        => new() { Content = [new TextContentBlock { Text = value }] };
 
     private static object TaskRow(Task t) => new
     {

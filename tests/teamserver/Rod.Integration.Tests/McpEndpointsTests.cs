@@ -135,7 +135,9 @@ public class McpEndpointsTests
             Assert.Equal("Completed", row.GetProperty("status").GetString());
             Assert.Equal("operator\n", row.GetProperty("output").GetString());
 
-            // Engagement scoping holds: another engagement's id answers not-found.
+            // Engagement scoping holds: another engagement's id answers
+            // not-found with the reason on the wire -- an isError result,
+            // not a masked invocation error.
             var foreign = await RpcAsync(mcp, new
             {
                 jsonrpc = "2.0",
@@ -143,10 +145,7 @@ public class McpEndpointsTests
                 method = "tools/call",
                 @params = new { name = "list_implants", arguments = new { engagementId = Guid.NewGuid().ToString() } },
             });
-            Assert.True(foreign.TryGetProperty("error", out var error) || foreign.GetProperty("result").GetProperty("isError").GetBoolean(),
-                "A foreign engagement must not read as success.");
-            if (foreign.TryGetProperty("error", out error))
-                Assert.Contains("No such engagement", error.GetProperty("message").GetString());
+            Assert.Contains("No such engagement", RefusalTextOf(foreign));
         }
     }
 
@@ -318,7 +317,7 @@ public class McpEndpointsTests
             Assert.Equal(3, trail.Count(e => e.Kind == Rod.Audit.AuditEventKind.TaskIssued));
 
             // The engagement bar holds: a reader's token (a stranger here)
-            // reads no such engagement on a write tool.
+            // reads no such engagement on a write tool, reason on the wire.
             var foreign = await RpcAsync(mcp, new
             {
                 jsonrpc = "2.0",
@@ -335,8 +334,7 @@ public class McpEndpointsTests
                     },
                 },
             });
-            Assert.True(foreign.TryGetProperty("error", out _) || foreign.GetProperty("result").GetProperty("isError").GetBoolean(),
-                "A foreign engagement must not read as success on a write tool.");
+            Assert.Contains("No such engagement", RefusalTextOf(foreign));
         }
     }
 
