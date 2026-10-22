@@ -67,6 +67,8 @@ public class FrameRoundTrip
         var pull = new StagedPull { TaskId = "t-1" };
         var restoredPull = StagedPull.Parser.ParseFrom(pull.ToByteArray());
         Assert.Equal("t-1", restoredPull.TaskId);
+        Assert.False(restoredPull.HasOffset);
+        Assert.False(restoredPull.HasPrefixSha256);
 
         var chunk = new StagedChunk
         {
@@ -80,6 +82,61 @@ public class FrameRoundTrip
         Assert.Equal(19UL, restoredChunk.Sequence);
         Assert.True(restoredChunk.Terminal);
         Assert.Equal(chunk.Data, restoredChunk.Data);
+        Assert.False(restoredChunk.HasOffset);
+    }
+
+    // The byte-offset resume arm (architecture.md Sec 15.3, ADR-010): a
+    // resuming demand names the bytes it holds and proves them by hash; the
+    // run's chunks carry their absolute byte position. The unset cases keep
+    // the fresh-demand and arrival-order shapes every staged-capable implant
+    // already speaks.
+    [Fact]
+    public void StagedResume_FieldsRoundTrip()
+    {
+        var resumed = new StagedPull
+        {
+            TaskId = "t-1",
+            Offset = 3 * 512 * 1024,
+            PrefixSha256 = ByteString.CopyFrom(new byte[32]),
+        };
+        var restored = StagedPull.Parser.ParseFrom(resumed.ToByteArray());
+        Assert.True(restored.HasOffset);
+        Assert.Equal(3UL * 512 * 1024, restored.Offset);
+        Assert.True(restored.HasPrefixSha256);
+        Assert.Equal(32, restored.PrefixSha256.Length);
+
+        var placed = new StagedChunk
+        {
+            TaskId = "t-1",
+            Sequence = 0,
+            Terminal = false,
+            Data = ByteString.CopyFrom(new byte[] { 0x03 }),
+            Offset = 3 * 512 * 1024,
+        };
+        var restoredPlaced = StagedChunk.Parser.ParseFrom(placed.ToByteArray());
+        Assert.True(restoredPlaced.HasOffset);
+        Assert.Equal(3UL * 512 * 1024, restoredPlaced.Offset);
+    }
+
+    // The both-side verification half: the implant's computed payload hash on
+    // a staged task's result, absent on every ordinary result.
+    [Fact]
+    public void TaskResult_PayloadSha256_RoundTrips()
+    {
+        var staged = new TaskResult
+        {
+            TaskId = "t-1",
+            Outcome = TaskOutcome.Succeeded,
+            Output = "/tmp/tool.bin: 1024 bytes written",
+            PayloadSha256 = "a3f5b9".PadRight(64, '0'),
+        };
+        var restoredStaged = TaskResult.Parser.ParseFrom(staged.ToByteArray());
+        Assert.True(restoredStaged.HasPayloadSha256);
+        Assert.Equal(staged.PayloadSha256, restoredStaged.PayloadSha256);
+
+        var ordinary = new TaskResult { TaskId = "t-2", Outcome = TaskOutcome.Succeeded, Output = "ok" };
+        var restoredOrdinary = TaskResult.Parser.ParseFrom(ordinary.ToByteArray());
+        Assert.False(restoredOrdinary.HasPayloadSha256);
     }
 
     // Handshake messages: the first payload exchanged on a

