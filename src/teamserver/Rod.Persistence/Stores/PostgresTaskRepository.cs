@@ -382,6 +382,22 @@ internal sealed class PostgresTaskRepository : ITaskRepository
         }
     }
 
+    public async System.Threading.Tasks.Task<IReadOnlyDictionary<Rod.CoreState.Tasks.TaskStatus, long>> CountByStatusAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken);
+
+        // The deployment aggregate the diagnostics face reads (ADR-008): one
+        // grouped count over the whole table, no row data, no engagement
+        // dimension. A single aggregate query per diagnostics read.
+        var counts = await db.Tasks
+            .AsNoTracking()
+            .GroupBy(t => t.Status)
+            .Select(g => new { Status = g.Key, Count = g.LongCount() })
+            .ToArrayAsync(cancellationToken);
+        return counts.ToDictionary(c => c.Status, c => c.Count);
+    }
+
     public async System.Threading.Tasks.Task<IReadOnlyList<Task>> ListDispatchedBeforeAsync(
         DateTimeOffset cutoff,
         CancellationToken cancellationToken = default)

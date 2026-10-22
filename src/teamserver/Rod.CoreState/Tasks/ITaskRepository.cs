@@ -164,6 +164,17 @@ public interface ITaskRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// How many tasks the deployment holds per lifecycle status. The port's
+    /// one deployment-wide read: pure counts, never task data, never a
+    /// per-engagement breakdown -- the built-in diagnostics face's queue-depth
+    /// number (architecture.md Sec 15.3, ADR-008), which is a deployment
+    /// aggregate by design. Every other query here stays rooted in an implant
+    /// or engagement; this one crosses them only in the count.
+    /// </summary>
+    System.Threading.Tasks.Task<IReadOnlyDictionary<TaskStatus, long>> CountByStatusAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Every task still Dispatched that was dispatched at or before
     /// <paramref name="cutoff"/> -- the expiry sweep's candidate set
     /// (architecture.md Sec 10.3). The caller decides which candidates are

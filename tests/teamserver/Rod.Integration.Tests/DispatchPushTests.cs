@@ -137,6 +137,10 @@ public class DispatchPushTests
         public System.Threading.Tasks.Task<IReadOnlyList<Rod.CoreState.Tasks.Task>> ListDispatchedBeforeAsync(
             DateTimeOffset cutoff, CancellationToken cancellationToken = default)
             => _inner.ListDispatchedBeforeAsync(cutoff, cancellationToken);
+
+        public System.Threading.Tasks.Task<IReadOnlyDictionary<Rod.CoreState.Tasks.TaskStatus, long>> CountByStatusAsync(
+            CancellationToken cancellationToken = default)
+            => _inner.CountByStatusAsync(cancellationToken);
     }
 
     /// <summary>

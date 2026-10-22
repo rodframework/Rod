@@ -257,6 +257,13 @@ public sealed class InMemoryTaskRepository : ITaskRepository
         => System.Threading.Tasks.Task.FromResult(
             _nonces.AddOrUpdate(implant, 1, (_, last) => last + 1));
 
+    public System.Threading.Tasks.Task<IReadOnlyDictionary<TaskStatus, long>> CountByStatusAsync(
+        CancellationToken cancellationToken = default)
+        => System.Threading.Tasks.Task.FromResult<IReadOnlyDictionary<TaskStatus, long>>(
+            _tasks.Values
+                .GroupBy(t => t.Status)
+                .ToDictionary(g => g.Key, g => (long)g.Count()));
+
     public System.Threading.Tasks.Task<IReadOnlyList<Task>> ListDispatchedBeforeAsync(
         DateTimeOffset cutoff,
         CancellationToken cancellationToken = default)
