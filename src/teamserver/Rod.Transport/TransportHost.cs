@@ -476,7 +476,15 @@ public static class TransportHost
         var transformEntries = configuration?.GetSection(PayloadTransformLoader.TransformsSectionKey)
             .Get<string[]?>() ?? Array.Empty<string?>();
         services.AddSingleton(new PayloadTransformChain(PayloadTransformLoader.Load(transformEntries)));
-        services.AddSingleton<PayloadBuildService>();
+        // The build duration record (architecture.md Sec 15.3, ADR-008): the
+        // ring the diagnostics face reads, registered beside the service that
+        // feeds it so every host composition carries the same counter.
+        services.AddSingleton(new Rod.BuildPipeline.PayloadBuild.BuildDiagnostics());
+        services.AddSingleton(sp => new PayloadBuildService(
+            sp.GetRequiredService<IBuildUnitRegistry>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<PayloadTransformChain>(),
+            sp.GetRequiredService<Rod.BuildPipeline.PayloadBuild.BuildDiagnostics>()));
         // Background payload builds: the same build pipeline behind a job queue,
         // so a toolchain build neither holds a request open nor dies with a
         // browser refresh. Registered as the hosted service too so the worker

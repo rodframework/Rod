@@ -26,6 +26,7 @@ public sealed class PayloadBuildService
     private readonly IBuildUnitRegistry _buildUnits;
     private readonly TimeProvider _clock;
     private readonly PayloadTransformChain _transforms;
+    private readonly BuildDiagnostics? _diagnostics;
 
     // The ceiling on builds in flight. The background job queue is serial by
     // design, but the synchronous endpoint runs whatever arrives: N
@@ -67,6 +68,22 @@ public sealed class PayloadBuildService
     }
 
     /// <summary>
+    /// The diagnostics-recording constructor (architecture.md Sec 15.3,
+    /// ADR-008): the host's composition registers the shared
+    /// <see cref="BuildDiagnostics"/> beside this service and passes it here;
+    /// direct constructions keep the simpler shapes and record nothing.
+    /// </summary>
+    public PayloadBuildService(
+        IBuildUnitRegistry buildUnits,
+        TimeProvider clock,
+        PayloadTransformChain transforms,
+        BuildDiagnostics diagnostics)
+        : this(buildUnits, clock, transforms)
+    {
+        _diagnostics = diagnostics;
+    }
+
+    /// <summary>
     /// Builds a payload for the request's engagement and class. The kill date is
     /// resolved at request time, so two builds of the same request still never
     /// share an artifact (the baked profile and the compiler see to that).
@@ -83,10 +100,25 @@ public sealed class PayloadBuildService
 
         // One gate for both callers (the serial job queue and the synchronous
         // endpoint), so the host never runs an unbounded set of toolchains.
+        _diagnostics?.Started();
         await _buildGate.WaitAsync(cancellationToken);
         try
         {
-            return await BuildUngatedAsync(unit, request, cancellationToken);
+            // Duration prices the build and its transforms, not the wait for
+            // the gate: queue delay shows up as in-flight, not as duration.
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            bool succeeded = false;
+            try
+            {
+                var artifact = await BuildUngatedAsync(unit, request, cancellationToken);
+                succeeded = true;
+                return artifact;
+            }
+            finally
+            {
+                _diagnostics?.Record(
+                    System.Diagnostics.Stopwatch.GetElapsedTime(started), succeeded);
+            }
         }
         finally
         {
