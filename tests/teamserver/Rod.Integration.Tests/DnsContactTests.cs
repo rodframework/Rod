@@ -439,7 +439,7 @@ public class DnsContactTests
         // the task completes with the plaintext the server unwrapped.
         var output = "uid=0(root) gid=0(root)";
         var blob = AesGcmEnvelope.WrapBody(Encoding.UTF8.GetBytes(output), keyId, key, AesGcmEnvelope.DnsResultAad);
-        var chunks = Chunk(blob, 20);
+        var chunks = Chunk(blob, 39);
         for (var i = 0; i < chunks.Count; i++)
         {
             await env.DnsQueryAsync(DnsContactNames.ResultName(
@@ -476,6 +476,128 @@ public class DnsContactTests
             $"/engagements/{implant.EngagementId}/tasks/{issuedPlainBody!.TaskId}");
         Assert.NotNull(plainFetched);
         Assert.NotEqual("Completed", plainFetched!.Status);
+    }
+
+    // The degraded path's staged acceptance (ADR-010): the staged task
+    // claims over DNS (its TaskRequest is small; the payload never rides
+    // the poll), the s./d. exchange carries the transfer, an abandoned
+    // download resumes from the proven seam, and the r.-chunk report rides
+    // the both-side hash on its text tail -- the task completes with the
+    // token stripped and the hash verified.
+    [Fact]
+    public async Task Staged_AnInterruptedTransferResumes_OverTheDegradedPath()
+    {
+        await using var env = await DnsTestEnv.StartAsync();
+        var implant = await env.EnrollImplantAsync();
+        using (var beacon = await WsBeaconClient.ConnectAsync(env.HttpPort, implant.Id.ToString()))
+        {
+            Assert.Equal(HandshakeStatus.Ok, (await beacon.ReceiveHandshakeAsync()).Status);
+        }
+
+        await env.LoginAsync();
+        var content = RandomNumberGenerator.GetBytes(700);
+        var expectedHash = Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
+        var issued = await env.Http.PostAsJsonAsync(
+            $"/engagements/{implant.EngagementId}/tasks",
+            new { ImplantId = implant.Id.ToString(), Verb = "file.push", Arguments = "/tmp/rod-dns-staged", Content = content });
+        issued.EnsureSuccessStatusCode();
+        var issuedBody = await issued.Content.ReadFromJsonAsync<TaskIssuedBody>();
+
+        var pollAnswer = await env.DnsQueryAsync(DnsContactNames.PollName(implant.Id, Zone));
+        Assert.NotNull(pollAnswer);
+        Assert.True(DnsContactNames.TryDecode(pollAnswer, out var framed));
+        Assert.Equal((byte)'t', framed![0]);
+        var request = TaskRequest.Parser.ParseFrom(framed[1..]);
+        Assert.Equal(issuedBody!.TaskId, request.TaskId);
+        Assert.True(request.HasStagedBytes);
+        Assert.Equal((ulong)content.Length, request.StagedBytes);
+        var task = new TaskId(Guid.Parse(request.TaskId));
+
+        // The fresh demand answers a token for the whole payload.
+        var freshToken = await DemandStagedAsync(env, implant, task, 0, null);
+        Assert.NotNull(freshToken);
+
+        // One answer-sized chunk lands, then the download is abandoned -- a
+        // lost cycle, an evicted token: the held bytes are all the implant
+        // keeps.
+        var first = await DownloadChunkAsync(env, freshToken!, 0);
+        Assert.NotNull(first);
+        Assert.False(first!.Value.Terminal);
+        var held = first.Value.Data;
+        Assert.Equal(200, held.Length);
+
+        // The resumed demand names the seam and proves it by hash; the new
+        // token's first chunk serves from the honored offset.
+        var resumedToken = await DemandStagedAsync(env, implant, task, held.Length, SHA256.HashData(held));
+        Assert.NotNull(resumedToken);
+        var resumedFirst = await DownloadChunkAsync(env, resumedToken!, 0);
+        Assert.NotNull(resumedFirst);
+        Assert.Equal(content[200..400], resumedFirst!.Value.Data);
+
+        var payload = new List<byte>(held);
+        for (var sequence = 0; ; sequence++)
+        {
+            var part = await DownloadChunkAsync(env, resumedToken!, sequence);
+            Assert.NotNull(part);
+            payload.AddRange(part!.Value.Data);
+            if (part.Value.Terminal)
+                break;
+        }
+        Assert.Equal(content, payload);
+
+        // The report rides the r-chunks with the payload hash on its tail;
+        // the task completes Succeeded with the token stripped and the
+        // server-side check passed against the served artifact.
+        var report = $"/tmp/rod-dns-staged: {content.Length} bytes written";
+        var blob = Encoding.UTF8.GetBytes(report + "\nsha256:" + expectedHash);
+        var chunks = Chunk(blob, 39);
+        for (var i = 0; i < chunks.Count; i++)
+        {
+            await env.DnsQueryAsync(DnsContactNames.ResultName(
+                implant.Id, task, succeeded: true, sequence: i, terminal: i == chunks.Count - 1, chunks[i], Zone));
+        }
+
+        var fetched = await WaitUntilAsync(async () => await env.Http.GetFromJsonAsync<TaskBody>(
+            $"/engagements/{implant.EngagementId}/tasks/{request.TaskId}"));
+        Assert.NotNull(fetched);
+        Assert.Equal("Succeeded", fetched!.Outcome);
+        Assert.Equal(report, fetched.Output);
+    }
+
+    // One staged demand: the answer's token bytes, or null when the demand
+    // carried no answer.
+    private static async Task<byte[]?> DemandStagedAsync(
+        DnsTestEnv env, Implant implant, TaskId task, long offset, byte[]? prefixSha)
+    {
+        var name = "s." + DnsContactNames.Encode(task.ToString())
+            + "." + offset.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            + "." + (prefixSha is null ? "e" : DnsContactNames.Encode(prefixSha))
+            + "." + DnsContactNames.Encode(implant.Id.ToString())
+            + "." + Zone;
+        var answer = await env.DnsQueryAsync(name);
+        if (answer is null || !DnsContactNames.TryDecode(answer, out var part))
+            return null;
+        var text = Encoding.ASCII.GetString(part!);
+        return text.StartsWith("=") && DnsContactNames.TryDecode(text[1..], out var token)
+            ? token
+            : null;
+    }
+
+    // One staged-download probe: the answer's (terminal, chunk), or null
+    // when the probe carried no answer.
+    private static async Task<(bool Terminal, byte[] Data)?> DownloadChunkAsync(
+        DnsTestEnv env, byte[] token, int sequence)
+    {
+        var answer = await env.DnsQueryAsync(
+            "d." + DnsContactNames.Encode(token) + "." + sequence + "." + Zone);
+        if (answer is null || !DnsContactNames.TryDecode(answer, out var part))
+            return null;
+        var text = Encoding.ASCII.GetString(part!);
+        var dot = text.IndexOf('.');
+        return dot == 1
+            && DnsContactNames.TryDecode(text[(dot + 1)..], out var chunk)
+            ? (text[..dot] == "t", chunk)
+            : null;
     }
 
     [Fact]

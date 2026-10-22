@@ -102,6 +102,27 @@ internal sealed class BeaconIngest
     /// </summary>
     public BeaconConnectionIngest OpenConnection()
         => new(_tasks, _taskRecords, _implants, _audit, _artifacts, _bus, _clock, _relays, _socks, _diagnostics);
+
+    // The served-side hash for the both-side check (ADR-010): the staged
+    // artifact a task's issuer bound to it, hashed exactly as the implant
+    // hashes its reassembled run. No staged bytes at all also mismatches --
+    // a result claiming a hash for a task whose payload is gone is not a
+    // success. Shared by the connection ingest and the DNS bridge, whose
+    // grammar carries the reported hash on the result text's tail instead
+    // of the proto field.
+    internal static async Task<bool> StagedHashMatchesAsync(
+        IArtifactStore artifacts,
+        TaskId taskId,
+        string reportedHex,
+        CancellationToken cancellationToken)
+    {
+        var staged = (await artifacts.ForTaskAsync(taskId.Value, cancellationToken))
+            .FirstOrDefault(a => a.Name == StagedArtifacts.NameFor(taskId.Value));
+        if (staged is null)
+            return false;
+        var served = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(staged.Content));
+        return string.Equals(served, reportedHex, StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 /// <summary>
@@ -338,7 +359,7 @@ internal sealed class BeaconConnectionIngest
         // An absent field is the ordinary result shape and changes nothing.
         if (owned.StagedBytes is not null
             && result.HasPayloadSha256
-            && !await StagedHashMatchesAsync(taskId, result.PayloadSha256, cancellationToken))
+            && !await BeaconIngest.StagedHashMatchesAsync(_artifacts, taskId, result.PayloadSha256, cancellationToken))
         {
             outcome = Rod.CoreState.Tasks.TaskOutcome.Failed;
             output = $"staged payload hash mismatch: implant reported {result.PayloadSha256}: {output}";
@@ -481,23 +502,6 @@ internal sealed class BeaconConnectionIngest
                 payload: $"{task.Verb}: {artifact.Name};{artifact.ContentType}",
                 now),
             cancellationToken);
-    }
-
-    // The served-side hash for the both-side check above: the staged artifact
-    // this task's issuer bound to it, hashed exactly as the implant hashes its
-    // reassembled run. No staged bytes at all also mismatches -- a result
-    // claiming a hash for a task whose payload is gone is not a success.
-    private async Task<bool> StagedHashMatchesAsync(
-        TaskId taskId,
-        string reportedHex,
-        CancellationToken cancellationToken)
-    {
-        var staged = (await _artifacts.ForTaskAsync(taskId.Value, cancellationToken))
-            .FirstOrDefault(a => a.Name == StagedArtifacts.NameFor(taskId.Value));
-        if (staged is null)
-            return false;
-        var served = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(staged.Content));
-        return string.Equals(served, reportedHex, StringComparison.OrdinalIgnoreCase);
     }
 
     // A StagedPull frame: the implant demands a staged task's payload

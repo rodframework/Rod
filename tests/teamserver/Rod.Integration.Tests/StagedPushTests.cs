@@ -112,6 +112,149 @@ public class StagedPushTests
     }
 
 
+    // The resume arm's acceptance (architecture.md Sec 15.3, ADR-010): a
+    // stream that dies mid-run costs the unserved remainder, not the payload
+    // -- the reconnect demands from the proven seam -- and the completing
+    // result carries the payload hash the server verifies against the
+    // artifact it served.
+    [Fact]
+    public async Task InterruptedRun_ResumesToMatchingBothSideHashes()
+    {
+        // 1.5 MiB: three chunks at the 512 KiB budget, so a drop after the
+        // first chunk leaves a proven seam to resume from.
+        var content = RandomNumberGenerator.GetBytes((int)(1.5 * 1024 * 1024));
+        var expectedHash = Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
+
+        await using var env = await TestEnv.StartAsync();
+        var implant = await EngagementSetup.EnrollOwnedImplantAsync(env.Host);
+
+        var targetPath = Path.Combine(Path.GetTempPath(), "rod-staged-" + Guid.NewGuid().ToString("N") + ".bin");
+        await AuthenticatedHost.LoginAsync(env.Http);
+        var issued = await env.Http.PostAsJsonAsync(
+            $"/engagements/{implant.EngagementId}/tasks",
+            new { ImplantId = implant.Id.ToString(), Verb = "file.push", Arguments = targetPath, Content = content });
+        issued.EnsureSuccessStatusCode();
+        var issuedBody = await issued.Content.ReadFromJsonAsync<TaskIssuedBody>();
+
+        using var first = await WsBeaconClient.ConnectAsync(env.HttpPort, implant.Id.ToString());
+        Assert.Equal(HandshakeStatus.Ok, (await first.ReceiveHandshakeAsync()).Status);
+
+        var request = TaskRequest.Parser.ParseFrom(await first.ReceiveSingleFrameAsync());
+        Assert.Equal(issuedBody!.TaskId, request.TaskId);
+        Assert.True(request.HasStagedBytes);
+
+        await first.SendFramesAsync(new[] { new Frame
+        {
+            Payload = ByteString.CopyFrom(new StagedPull { TaskId = request.TaskId }.ToByteArray()),
+            Kind = FrameKind.StagedPull,
+        } });
+
+        // One chunk crosses before the stream dies: the client holds exactly
+        // those bytes, and the rest of the run is lost with the socket.
+        var held = StagedChunk.Parser.ParseFrom(await first.ReceiveSingleFrameAsync());
+        Assert.Equal(0UL, held.Offset);
+        Assert.False(held.Terminal);
+        first.Dispose();
+
+        // The reconnect demands from the seam: the held bytes named by
+        // offset and proved by hash, on a stream that never saw the task.
+        using var resumed = await WsBeaconClient.ConnectAsync(env.HttpPort, implant.Id.ToString());
+        Assert.Equal(HandshakeStatus.Ok, (await resumed.ReceiveHandshakeAsync()).Status);
+        await resumed.SendFramesAsync(new[] { new Frame
+        {
+            Payload = ByteString.CopyFrom(new StagedPull
+            {
+                TaskId = request.TaskId,
+                Offset = (ulong)held.Data.Length,
+                PrefixSha256 = ByteString.CopyFrom(SHA256.HashData(held.Data.ToByteArray())),
+            }.ToByteArray()),
+            Kind = FrameKind.StagedPull,
+        } });
+
+        var payload = new List<byte>(held.Data);
+        StagedChunk chunk;
+        var firstOfRun = true;
+        do
+        {
+            chunk = StagedChunk.Parser.ParseFrom(await resumed.ReceiveSingleFrameAsync());
+            Assert.Equal(request.TaskId, chunk.TaskId);
+            if (firstOfRun)
+            {
+                // The run answered from the seam, not the whole payload: its
+                // first chunk names the honored offset.
+                Assert.Equal((ulong)held.Data.Length, chunk.Offset);
+                firstOfRun = false;
+            }
+            payload.AddRange(chunk.Data);
+        } while (!chunk.Terminal);
+
+        var reassembled = payload.ToArray();
+        Assert.Equal(content, reassembled);
+        Assert.Equal(expectedHash, Convert.ToHexString(SHA256.HashData(reassembled)).ToLowerInvariant());
+
+        // The completing result carries the implant's computed hash: the
+        // server verifies it against the artifact it served -- Succeeded
+        // means both sides held the same bytes.
+        await resumed.SendFramesAsync(new[] { new Frame
+        {
+            Payload = ByteString.CopyFrom(new TaskResult
+            {
+                TaskId = request.TaskId,
+                Outcome = TaskOutcome.Succeeded,
+                Output = $"{targetPath}: {content.Length} bytes written",
+                PayloadSha256 = expectedHash,
+            }.ToByteArray()),
+            Kind = FrameKind.TaskResult,
+        } });
+
+        TaskBody? fetched = null;
+        await WaitUntilAsync(async () => (fetched = await env.Http.GetFromJsonAsync<TaskBody>(
+            $"/engagements/{implant.EngagementId}/tasks/{request.TaskId}")) is { Status: "Completed" });
+        Assert.NotNull(fetched);
+        Assert.Equal("Succeeded", fetched!.Outcome);
+    }
+
+    // The both-side half's refusal: a staged result claiming a hash the
+    // served artifact does not match records the task failed, whatever the
+    // outcome byte said.
+    [Fact]
+    public async Task MismatchedPayloadHash_RecordsTheTaskFailed()
+    {
+        var content = RandomNumberGenerator.GetBytes(2048);
+
+        await using var env = await TestEnv.StartAsync();
+        var implant = await EngagementSetup.EnrollOwnedImplantAsync(env.Host);
+
+        await AuthenticatedHost.LoginAsync(env.Http);
+        var issued = await env.Http.PostAsJsonAsync(
+            $"/engagements/{implant.EngagementId}/tasks",
+            new { ImplantId = implant.Id.ToString(), Verb = "file.push", Arguments = "/tmp/rod-x", Content = content });
+        issued.EnsureSuccessStatusCode();
+        var issuedBody = await issued.Content.ReadFromJsonAsync<TaskIssuedBody>();
+
+        using var beacon = await WsBeaconClient.ConnectAsync(env.HttpPort, implant.Id.ToString());
+        Assert.Equal(HandshakeStatus.Ok, (await beacon.ReceiveHandshakeAsync()).Status);
+        var request = TaskRequest.Parser.ParseFrom(await beacon.ReceiveSingleFrameAsync());
+        await beacon.SendFramesAsync(new[] { new Frame
+        {
+            Payload = ByteString.CopyFrom(new TaskResult
+            {
+                TaskId = request.TaskId,
+                Outcome = TaskOutcome.Succeeded,
+                Output = "lying success",
+                PayloadSha256 = new string('a', 64),
+            }.ToByteArray()),
+            Kind = FrameKind.TaskResult,
+        } });
+
+        var fetched = default(TaskBody);
+        await WaitUntilAsync(async () => (fetched = await env.Http.GetFromJsonAsync<TaskBody>(
+            $"/engagements/{implant.EngagementId}/tasks/{request.TaskId}")) is { Status: "Completed" });
+        Assert.NotNull(fetched);
+        Assert.Equal("Failed", fetched!.Outcome);
+        Assert.Contains("staged payload hash mismatch", fetched.Output);
+    }
+
     private static Frame ResultFrame(string taskId, string output)
         => new()
         {
@@ -135,8 +278,10 @@ public class StagedPushTests
 
     private sealed class TaskBody
     {
+        public string TaskId { get; set; } = "";
         public string Status { get; set; } = "";
         public string? Outcome { get; set; }
+        public string? Output { get; set; }
         public AuditBody[] Audit { get; set; } = Array.Empty<AuditBody>();
     }
 

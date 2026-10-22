@@ -181,15 +181,7 @@ internal sealed class BeaconTasking
         var staged = (await _artifacts.ForTaskAsync(taskId, cancellationToken))
             .FirstOrDefault(a => a.Name == StagedArtifacts.NameFor(taskId));
         var content = staged?.Content ?? Array.Empty<byte>();
-
-        var start = 0L;
-        if (resumeOffset is { } demanded
-            && demanded <= (ulong)content.Length
-            && prefixSha256 is { Length: 32 } proof
-            && SHA256.HashData(content.AsSpan(0, (int)demanded)).AsSpan().SequenceEqual(proof))
-        {
-            start = (long)demanded;
-        }
+        var start = ResolveResumeStart(content, resumeOffset, prefixSha256);
 
         var frames = new List<Frame>((int)((content.Length - start) / StagedChunkSize) + 1);
         for (var offset = start; ; offset += StagedChunkSize)
@@ -210,5 +202,23 @@ internal sealed class BeaconTasking
                 break;
         }
         return frames;
+    }
+
+    /// <summary>
+    /// The resume seam every carriage shares (ADR-010): the byte offset a
+    /// proven demand resumes from, or 0 when the proof cannot be honored --
+    /// the same validation the frame path and the DNS grammar both run, so
+    /// one rule decides where a transfer continues.
+    /// </summary>
+    public static long ResolveResumeStart(byte[] content, ulong? resumeOffset, byte[]? prefixSha256)
+    {
+        if (resumeOffset is { } demanded
+            && demanded <= (ulong)content.Length
+            && prefixSha256 is { Length: 32 } proof
+            && SHA256.HashData(content.AsSpan(0, (int)demanded)).AsSpan().SequenceEqual(proof))
+        {
+            return (long)demanded;
+        }
+        return 0;
     }
 }

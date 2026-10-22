@@ -141,6 +141,25 @@ internal sealed class DnsContactAnswerer
                 else
                     response.ResponseCode = 3; // unknown or expired token
             }
+            else if (DnsContactNames.TryParseStaged(name, _zone) is { } demand)
+            {
+                // The staged arm's demand (ADR-010): the answer names a
+                // token-keyed chunked download, base32-wrapped like every
+                // TXT answer this grammar carries. A demand this listener
+                // cannot serve answers nothing.
+                var token = await _bridge.StagedDemandAsync(
+                    demand.Implant, demand.Task, demand.Offset, demand.PrefixSha, cancellationToken);
+                if (token is not null)
+                    response.Answers.Add(TxtAnswer(name, DnsContactNames.Encode(token)));
+            }
+            else if (DnsContactNames.TryParseStagedDownload(name, _zone) is { } download)
+            {
+                var part = await _bridge.StagedDownloadAsync(download.Token, download.Sequence);
+                if (part is not null)
+                    response.Answers.Add(TxtAnswer(name, DnsContactNames.Encode(part)));
+                else
+                    response.ResponseCode = 3; // unknown or expired token
+            }
             else if (DnsContactNames.TryParseDelivery(name, _zone) is { } delivery)
             {
                 // The retransmission half's confirmation: y once the exact

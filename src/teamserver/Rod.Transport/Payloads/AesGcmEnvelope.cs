@@ -98,6 +98,15 @@ public static class AesGcmEnvelope
     public static ReadOnlySpan<byte> DnsChannelAad => "rod-dns-channel-v1"u8;
 
     /// <summary>
+    /// The staged download's per-chunk tag (ADR-010): each <c>d.</c> answer a
+    /// keyed artifact's staged transfer serves is a raw R1 body under this
+    /// tag, so no other purpose's ciphertext rides the resolver chain as
+    /// payload bytes, and a resumed transfer's chunks seal individually --
+    /// placement does not wait for a whole sealed blob.
+    /// </summary>
+    public static ReadOnlySpan<byte> DnsStagedAad => "rod-dns-staged-v1"u8;
+
+    /// <summary>
     /// The AAD binding the loader tier's sealed payload fetch to its purpose:
     /// the fetch route serves the delivered payload as a raw R1 body under
     /// this tag, so no other purpose's ciphertext (a contact body, an enroll
