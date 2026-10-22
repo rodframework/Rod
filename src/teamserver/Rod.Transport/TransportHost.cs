@@ -465,6 +465,17 @@ public static class TransportHost
         buildUnits.Register(new Rod.BuildPipeline.PayloadBuild.RustBuildUnit(
             rustSourceDirectory,
             settings: buildSettings));
+        // The Go build unit (Sec 12.2, the first community slot's in-tree
+        // reference): the same explicit-config shape -- unset keeps the
+        // walk-up default, a configured-but-missing directory fails
+        // startup loudly. An absent go on PATH does not fail startup (the
+        // unit fails its builds loudly instead).
+        var goSourceDirectory = configuration?["Build:GoSourceDirectory"];
+        if (!string.IsNullOrWhiteSpace(goSourceDirectory)
+            && !Directory.Exists(goSourceDirectory))
+            throw new InvalidOperationException(
+                $"The configured go source directory '{goSourceDirectory}' does not exist.");
+        buildUnits.Register(new Rod.BuildPipeline.PayloadBuild.GoBuildUnit(goSourceDirectory));
         services.AddSingleton<IBuildUnitRegistry>(buildUnits);
         // The post-build transform chain (architecture.md Sec 6, the transform
         // seam): config-listed out-of-tree transforms under Build:Transforms,

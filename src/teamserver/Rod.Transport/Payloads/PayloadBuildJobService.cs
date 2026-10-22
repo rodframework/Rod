@@ -63,6 +63,7 @@ public sealed class PayloadBuildJobService : IHostedService
         try
         {
             RustBuildUnit.SweepAbandonedWorkDirectories();
+            Rod.BuildPipeline.PayloadBuild.GoBuildUnit.SweepAbandonedWorkDirectories();
         }
         catch (Exception ex)
         {
