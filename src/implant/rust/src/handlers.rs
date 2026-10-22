@@ -235,6 +235,10 @@ fn file_pull(arguments: &str) -> HandlerOutput {
             sequence: index as u64,
             terminal: index == data.len().div_ceil(CHUNK_BYTES) - 1,
             data: part.to_vec(),
+            // The resume arm's fields arrive unset from this builder until
+            // the upload arm's session state takes the run over.
+            offset: None,
+            payload_sha256: None,
         });
     }
     HandlerOutput::ok_with_chunks(

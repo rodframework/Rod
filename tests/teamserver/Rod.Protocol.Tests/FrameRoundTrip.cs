@@ -139,6 +139,61 @@ public class FrameRoundTrip
         Assert.False(restoredOrdinary.HasPayloadSha256);
     }
 
+    // The upload arm of the resume (architecture.md Sec 15.3, ADR-010): an
+    // offset-bearing chunk places itself and declares the whole artifact's
+    // hash, and the seam report answers with the server's held count. The
+    // unset case is the legacy chunk every community implant sends -- the
+    // strict sequence discipline's shape, unchanged on the wire.
+    [Fact]
+    public void ExfilResume_FieldsRoundTrip()
+    {
+        var resumable = new ExfilChunk
+        {
+            TaskId = "t-1",
+            Name = "loot.bin",
+            ContentType = "application/octet-stream",
+            Sequence = 0,
+            Terminal = false,
+            Data = ByteString.CopyFrom(new byte[] { 0x07 }),
+            Offset = 2 * 512 * 1024,
+            PayloadSha256 = ByteString.CopyFrom(new byte[32]),
+        };
+        var restored = ExfilChunk.Parser.ParseFrom(resumable.ToByteArray());
+        Assert.True(restored.HasOffset);
+        Assert.Equal(2UL * 512 * 1024, restored.Offset);
+        Assert.True(restored.HasPayloadSha256);
+        Assert.Equal(32, restored.PayloadSha256.Length);
+
+        var legacy = new ExfilChunk
+        {
+            TaskId = "t-1",
+            Name = "loot.bin",
+            ContentType = "application/octet-stream",
+            Sequence = 3,
+            Terminal = true,
+            Data = ByteString.CopyFrom(new byte[] { 0x08 }),
+        };
+        var restoredLegacy = ExfilChunk.Parser.ParseFrom(legacy.ToByteArray());
+        Assert.False(restoredLegacy.HasOffset);
+        Assert.False(restoredLegacy.HasPayloadSha256);
+
+        var progress = new Frame
+        {
+            Kind = FrameKind.ExfilProgress,
+            Payload = ByteString.CopyFrom(new ExfilProgress
+            {
+                TaskId = "t-1",
+                Name = "loot.bin",
+                HeldBytes = 512 * 1024,
+            }.ToByteArray()),
+        };
+        var restoredProgress = Frame.Parser.ParseFrom(progress.ToByteArray());
+        Assert.Equal(FrameKind.ExfilProgress, restoredProgress.Kind);
+        var seam = ExfilProgress.Parser.ParseFrom(restoredProgress.Payload);
+        Assert.Equal("loot.bin", seam.Name);
+        Assert.Equal(512UL * 1024, seam.HeldBytes);
+    }
+
     // Handshake messages: the first payload exchanged on a
     // Contact stream must round-trip with version, identity, and capabilities
     // intact -- these are what the server gates presence on.

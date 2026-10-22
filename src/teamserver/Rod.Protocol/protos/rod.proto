@@ -84,6 +84,16 @@ enum FrameKind {
   // same stream. The only kind-bearing downstream frame besides
   // ChannelInput.
   FRAME_KIND_ENROLL_RESPONSE = 8;
+  // The server's seam report for a resumable exfil upload (architecture.md
+  // Sec 15.3, ADR-010 -- the upload arm), sent downstream only in the
+  // response to a contact whose request carried offset-bearing ExfilChunk
+  // frames. The gating is structural, not negotiated: an implant that never
+  // sets ExfilChunk.offset never receives one, so the kind-bearing-downstream
+  // rule (unknown kinds must not reach an implant that did not opt in) holds
+  // without a handshake arm. The payload is an ExfilProgress naming the
+  // stream and the contiguous bytes the server holds; a resuming implant
+  // serves only the unheld remainder.
+  FRAME_KIND_EXFIL_PROGRESS = 9;
 }
 
 message Frame {
@@ -105,6 +115,19 @@ message Frame {
 // following chunk must be exactly the next index; terminal marks the last
 // chunk. The engagement is bound by the enrollment and the sealed envelope
 // channel, not the wire.
+//
+// offset and payload_sha256 are the byte-offset resume arm (architecture.md
+// Sec 15.3, ADR-010 -- the upload arm, the mirror of StagedChunk.offset):
+// offset is the chunk data's absolute byte position within the artifact, and
+// payload_sha256 (32 bytes) declares the SHA-256 of the whole artifact -- the
+// both-side check the server runs before materializing the run. Placement is
+// idempotent: a chunk the server's held bytes already cover is a no-op, a
+// chunk at offset 0 over a partial hold restarts the run, and a chunk past a
+// gap stays unplaced until the sender re-serves from the seam. A chunk
+// without offset is the pre-resume shape and keeps the strict
+// sequence-discipline semantics above; a stream's first chunk decides its
+// mode, so community implants that never set the fields interoperate
+// unchanged.
 message ExfilChunk {
   string task_id = 1;
   string name = 2;
@@ -112,6 +135,22 @@ message ExfilChunk {
   uint64 sequence = 4;
   bool terminal = 5;
   bytes data = 6;
+  optional uint64 offset = 7;
+  optional bytes payload_sha256 = 8;
+}
+
+// The server's seam report for one resumable exfil stream (ADR-010, the
+// upload arm), sent downstream as kind FRAME_KIND_EXFIL_PROGRESS in the
+// response to a contact whose request carried offset-bearing ExfilChunk
+// frames for the stream. held_bytes is the contiguous-from-zero byte count
+// the server holds: a resuming implant serves only the remainder past that
+// seam, and a report below what the sender already delivered (an evicted or
+// restarted server) rewinds it to re-serve from the named seam. task_id and
+// name echo the stream the report covers.
+message ExfilProgress {
+  string task_id = 1;
+  string name = 2;
+  uint64 held_bytes = 3;
 }
 
 // The implant's demand for a staged task's payload: sent upstream (kind
