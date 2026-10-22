@@ -35,9 +35,10 @@ internal static class EnvelopeFraming
 
     /// <summary>
     /// The whole-body cap for one request: bounds the reassembly and parse cost
-    /// of a single POST regardless of how legal each frame is. An artifact's
-    /// chunk run must complete within one request body at this ceiling -- the
-    /// per-request reassembler drops incomplete buffers (extending/implants.md).
+    /// of a single POST regardless of how legal each frame is. A resumable
+    /// exfil run larger than this ceiling spans contacts -- the shared
+    /// per-task reassembly holds the placed bytes across them
+    /// (extending/implants.md).
     /// </summary>
     public const int MaxBodyBytes = 16 * 1024 * 1024;
 
