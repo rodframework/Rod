@@ -43,6 +43,7 @@ jobs:
       EXTENDED_FILTER: >-
         FullyQualifiedName~Rod.Conformance.Tests
         |FullyQualifiedName~RustImplantEndToEndTests
+        |FullyQualifiedName~GoImplantEndToEndTests
         |FullyQualifiedName~PayloadBuildTests
         |FullyQualifiedName~PayloadJobTests
         |FullyQualifiedName~PayloadTransformChainTests
@@ -60,6 +61,15 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: src/teamserver/Rod.TeamServer/Client/package-lock.json
+      - name: Setup Go
+        # The Go build unit's legs need it: the implant-toolchain lane
+        # builds and runs the Go implant, and the build tests' real-build
+        # arm compiles through the unit when the toolchain is present
+        # (self-skipping otherwise). Pinned like every toolchain here; the
+        # module's go directive (1.25) stays behind the pinned toolchain.
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
       - name: Build operator UI
         # Emits the React bundle into src/teamserver/Rod.TeamServer/wwwroot so
         # the .NET build packages it. The output is gitignored. The test run
@@ -249,6 +259,56 @@ jobs:
           ls -lh "$bin"
           set +e
           "$bin"
+          code=$?
+          set -e
+          test "$code" -eq 2
+
+  go-implant:
+    name: Go implant
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Go
+        # Pinned like the .NET SDK and Node above: an unpinned 'stable'
+        # lets a runner image roll the toolchain under an unchanged tree.
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+      - name: Format check
+        working-directory: src/implant/go
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: Lint
+        working-directory: src/implant/go
+        run: go vet ./...
+      - name: Unit tests
+        # The module's internal suites: the seal, the wire codec, the
+        # profile bake, and the exfil resume arm. The live half -- enroll,
+        # tasking, exfil against a real teamserver -- is the
+        # implant-toolchain lane above.
+        working-directory: src/implant/go
+        run: go test ./...
+      - name: Build the reference crosses
+        # The community unit's shipped shapes (architecture.md Sec 12.2):
+        # one static binary per target, cgo off, the vendored dependency
+        # set answering every import so the build never touches the
+        # network. Building all four keeps the crosses from rotting behind
+        # host-only builds.
+        working-directory: src/implant/go
+        run: |
+          for target in linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            CGO_ENABLED=0 GOOS=${target%/*} GOARCH=${target#*/} \
+              go build -trimpath -ldflags '-s -w' -o /dev/null .
+          done
+      - name: Verify the static binary
+        # The unbaked binary's documented refusal -- no profile, no run,
+        # exit 2 -- proves the static artifact actually executes on the
+        # runner, the same gate the Rust implant's build carries.
+        working-directory: src/implant/go
+        run: |
+          set -e
+          go build -trimpath -o /tmp/rod-go-implant .
+          set +e
+          /tmp/rod-go-implant
           code=$?
           set -e
           test "$code" -eq 2

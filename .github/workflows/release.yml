@@ -54,13 +54,14 @@ jobs:
             -c Release -r linux-x64 --self-contained true -o dist/teamserver
           tar -czf dist/rod-teamserver-linux-x64.tar.gz -C dist/teamserver .
       - name: Pack the payload build source
-        # The minimal deployed tree teamserver.md names -- the implant crate
-        # and the wire protos, with crates.io dependencies vendored beside
-        # them (RustBuildUnit compiles the crate only; plugin-sdk and modules
-        # are not part of the deployed build). The tar's version is tied to
-        # the binary's by the release tag both were cut from, and the vendor
-        # dir means the deploy host needs no registry egress for payload
-        # builds.
+        # The minimal deployed tree teamserver.md names -- the implant
+        # crates and the wire protos. The Rust tree carries crates.io
+        # dependencies vendored beside it (RustBuildUnit compiles the
+        # crate only; plugin-sdk and modules are not part of the deployed
+        # build); the Go module vendors in-tree, so it rides as-is. The
+        # tar's version is tied to the binary's by the release tag both
+        # were cut from, and the vendor dirs mean the deploy host needs no
+        # registry egress for payload builds.
         run: |
           (cd src/implant/rust && cargo vendor vendor > /tmp/vendor-config.toml)
           mkdir -p src/implant/rust/.cargo
@@ -71,7 +72,7 @@ jobs:
           } > src/implant/rust/.cargo/config.toml
           tar -czf dist/rod-src.tar.gz \
             --exclude 'target' \
-            src/implant/rust src/teamserver/Rod.Protocol/protos
+            src/implant/rust src/implant/go src/teamserver/Rod.Protocol/protos
       - name: Create the release
         # gh is first-party and preinstalled on the runner; the token is the
         # job's own, scoped by the permissions block above. A suffixed
