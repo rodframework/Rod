@@ -45,6 +45,25 @@ public sealed class InMemoryLiveEventBus : ILiveEventBus
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// How many operator SSE streams are connected right now, across every
+    /// engagement (the diagnostics face's connection count, architecture.md
+    /// Sec 15.3, ADR-008). A deliberately deployment-wide total: the count is
+    /// an aggregate with no per-engagement breakdown, so the diagnostics red
+    /// line holds by construction. Diagnostic-grade snapshot -- a subscriber
+    /// leaving mid-read is counted or missed, never double-counted.
+    /// </summary>
+    public int ConnectedSubscribers
+    {
+        get
+        {
+            var total = 0;
+            foreach (var set in _engagements.Values)
+                total += set.SubscriberCount;
+            return total;
+        }
+    }
+
     public async IAsyncEnumerable<LiveEvent> SubscribeAsync(
         EngagementId engagement,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -93,6 +112,19 @@ public sealed class InMemoryLiveEventBus : ILiveEventBus
         private bool _removed;
 
         public SubscriberSet(int capacity) => _capacity = capacity;
+
+        // The set's current subscriber count, under the same lock add/remove
+        // serialize on, so the diagnostics read never sees a torn value.
+        public int SubscriberCount
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _subscribers.Count;
+                }
+            }
+        }
 
         public Channel<LiveEvent>? Add()
         {
