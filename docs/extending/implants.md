@@ -323,6 +323,22 @@ the last, 512 KiB data slices). Reassemble, verify the sha256 against the
 arguments token, then run the verb against the reassembled bytes and report the
 `TaskResult` as usual. Nothing bulk ever flows downstream unasked.
 
+**Byte-offset resume (ADR-010).** A run that dies mid-transfer does not restart
+from zero: demand again with `offset` set to the byte count you hold and
+`prefix_sha256` set to the SHA-256 of exactly those bytes. The server answers
+from that seam when the proof matches; when it cannot honor the proof it
+answers the whole run from 0, and every `StagedChunk` carries its `offset` --
+the absolute byte position of its data -- so a first chunk at offset 0 means
+"reset your held bytes and take this run whole". Place chunks by their offset
+(a duplicate is a no-op; a gap is unplaceable -- re-demand), and treat
+offset-less chunks (a pre-resume server) with the sequence-0-over-held-bytes
+fallback. On dispatch, report the payload's hash as
+`TaskResult.payload_sha256` (hex): the server compares it against the artifact
+it served, and a staged task records Succeeded only when both sides held the
+same bytes. Over DNS the same capability rides the `s.`/`d.` grammar below,
+and the payload hash travels on the result text's tail
+(`"\nsha256:<hex>"`, stripped server-side).
+
 ### Interactive channels (the streaming task shape)
 
 `shell.interact` is `shell.exec`'s live shape, and `tunnel.forward` /
@@ -461,6 +477,8 @@ channel chunk: c.<b32(task id)>.<seq>.<t|m>.<b32(chunk)>.<b32(implant id)>.<zone
 enroll chunk:  e.<b32(stream id)>.<seq>.<t|m>.<b32(chunk)>.<zone>
 enroll answer: a.<b32(token)>.<seq>.<zone>
 delivery probe:n.<b32(task id)>.<b32(sha128)>.<b32(implant id)>.<zone>
+staged demand: s.<b32(task id)>.<offset>.<b32(sha256) | e>.<b32(implant id)>.<zone>
+staged get:    d.<b32(token)>.<seq>.<zone>
 ```
 
 **Sealing (a build that baked an envelope key).** The contact carriage
@@ -510,6 +528,21 @@ frame pending until `y` and re-send the whole chunk sequence on later
 cycles -- first-wins recording makes the re-send idempotent, and the
 restarted-server case is one redundant re-send. The reference implant's
 flush loop does exactly this.
+
+**Staged transfers (the resumable download, ADR-010).** A staged task the
+poll claims is served over this grammar: demand
+`s.<b32(task id)>.<offset>.<b32(sha256 of held) | e>.<b32(implant id)>.<zone>`
+(the offset decimal, the bare `e` label on a fresh demand), answered
+`=<b32 token>`; then drain `d.<b32(token)>.<seq>.<zone>` sequentially --
+each answer `<t|m>.<b32 chunk>` is a 200-byte slice from the honored
+seam, and the same prefix-proof rule the frame carriages run decides that
+seam. A lost download (an evicted token, a dead front) re-demands on the
+next cycle from wherever placement stopped: resume on the query-rate
+cadence. For a keyed artifact each chunk seals as a raw R1 body under the
+`rod-dns-staged-v1` purpose tag -- open per chunk, place at its offset,
+never wait on a whole sealed blob. The completing report rides the
+`r.`-chunks with the payload hash on the text's tail
+(`"\nsha256:<hex>"`), verified and stripped server-side.
 
 **Record types beyond TXT (the cover).** An A query anywhere under the
 zone answers one A record -- the bind's own host when the bind is a

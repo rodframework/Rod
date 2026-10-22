@@ -1106,7 +1106,12 @@ OPSEC is a design axis, not a feature flag. The architecture bakes in:
   contact contract ([extending/implants.md](extending/implants.md)); the
   responses ride EDNS0 so a signed TaskRequest fits the datagram, and a task
   too large for the budget is not claimed over DNS: it stays queued for a
-  stream transport. **Delivery confirmation:** a lost chunk drops a
+  stream transport. **Staged transfers ride the same grammar (ADR-010):** a
+  staged task the poll claims is demanded at a byte offset with a SHA-256
+  prefix proof (`s.<b32(task)>.<offset>.<b32(proof)|e>.<b32(implant)>`),
+  answered by a token whose `d.` probes drain the remainder chunk by chunk --
+  the same resume rule the frame carriages run, at the query-rate cadence,
+  per-chunk sealed for a keyed artifact under the staged purpose tag. **Delivery confirmation:** a lost chunk drops a
   report's reassembly whole, so the sender probes
   `n.<b32(task)>.<b32(sha128 of the plaintext)>.<b32(implant)>` after
   chunking and keeps the frame pending until the `y` answer -- the
@@ -1742,7 +1747,13 @@ a `StagedPull` and the stream answers with a chunked run, the mirror of exfil
 chunking in the other direction. Nothing bulk flows downstream unasked: an
 implant that never implemented the arm ignores the unknown field and fails the
 verb on its own grammar, so the addition costs a Tier 0 implant nothing
-(extending/implants.md).
+(extending/implants.md). The demand is resumable (Sec 15.3, ADR-010): an
+interrupted run re-demands naming the bytes it holds with their SHA-256 as the
+prefix proof, the answer serves only the unserved remainder (a proof it cannot
+honor restarts the run whole, the first chunk's absolute offset the reset
+signal), and the completing result carries the payload's hash, which the
+server verifies against the artifact it served -- a staged task records
+Succeeded only when both sides held the same bytes.
 
 ### 10.1 Capability categories
 
@@ -3048,7 +3059,7 @@ Where the program touches the existing layers:
 |-------|--------------|
 | `Rod.CoreState` | Verbs gain the ATT&CK technique mapping (ADR-007; shipped -- the kernel data file behind the `IVerbTechniqueResolver` port, with the class platform surface beside the class verb sets); comment and chat aggregates (ADR-005; shipped, with the credential landing store and the task-reference resolver); the output-taxonomy resolver port ships (shipped with Sec 15.2's trilogy). |
 | `Rod.Audit` | Chain semantics tighten: mutable content never enters the chain (ADR-005). |
-| `Rod.Protocol` | Frame-negotiation fields for the optional transports (ADR-004). |
+| `Rod.Protocol` | Frame-negotiation fields for the optional transports (ADR-004); the staged-transfer resume fields (ADR-010; shipped). |
 | `Rod.Transport` | `ITransportProvider` abstraction; the four in-tree families become the reference implementations; optional mTLS and WireGuard, default-disabled (ADR-004). The `/api/v1` versioned alias, the OpenAPI 3.1 contract generation, and the token-scope floor gate (ADR-006; shipped). |
 | `Rod.BuildPipeline` | The build contract gains a transport-enable-set parameter; a Go build unit joins the community slots. |
 | `Rod.Operators` | Collaboration metadata APIs (ADR-005; shipped); MCP read-write under token scopes (ADR-006; shipped, the operate floor and Sec 10.4's unattended red line held at the tool level); token-scope claim stamping (ADR-006; shipped with the transport-side floor and gate). |
@@ -3128,9 +3139,15 @@ Where the program touches the existing layers:
   the payload), mapped from the composition root because its dimensions
   span layers transport cannot reference, and outside the versioned OpenAPI
   contract like the capability catalog.
-- **Resumable transfers** (ADR-010). The chunked staged pull gains
-  byte-offset resume and both-side hash verification, and the DNS degraded
-  path carries the same capability.
+- **Resumable transfers** (ADR-010; shipped, the download arm). The chunked
+  staged pull carries byte-offset resume and both-side hash verification: a
+  demand names the bytes an interrupted run left held and proves them by
+  SHA-256, the answer serves only the unserved remainder, and the completing
+  result carries the payload hash the server verifies against the artifact it
+  served. The DNS degraded path carries the same capability over its `s.`/
+  `d.` grammar -- one resume rule on every wire. The upload arm (exfil
+  chunking) keeps its whole-run-in-one-body shape and is the follow-up item's
+  own scope.
 
 ### 15.4 Product disciplines (ADR-011 through ADR-015)
 
