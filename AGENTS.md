@@ -37,11 +37,13 @@ toolchain and language boundaries in Sec 12.2, capability surface in Sec 13.
 - **Redirectors: .NET (Native AOT).** The in-tree single-file forwarder
   lives in `src/redirector/dotnet/` (runbook:
   `docs/operations/redirectors.md`).
-- **Implants: Rust.** The reference crate under `src/implant/rust/` builds
-  against the wire protocol -- the long-lived, language-neutral contract.
-  Community implants in other languages arrive out-of-tree.
-- **Build units: one in-tree -- Rust.** Other languages plug in out-of-tree
-  through the build contract and the `Language` enum.
+- **Implants: Rust (the reference) and Go (the community-slot
+  reference).** The Rust crate under `src/implant/rust/` and the Go module
+  under `src/implant/go/` build against the wire protocol -- the
+  long-lived, language-neutral contract. Further community implants arrive
+  out-of-tree.
+- **Build units: two in-tree -- Rust and Go.** Other languages plug in
+  out-of-tree through the build contract and the `Language` enum.
 - **In-tree capability modules: .NET, under `modules/` (server-side) and
   `src/implant/rust/modules/` (implant-side).** They are module-layer work,
   not kernel work: nothing under `src/teamserver` references them, and they
@@ -62,8 +64,8 @@ toolchain and language boundaries in Sec 12.2, capability surface in Sec 13.
 - Prefer the **latest LTS** version for runtimes, libraries, packages, and
   tooling unless an owner picks otherwise.
 
-Anything not named above -- a Go or C++ component, a .NET implant or stager,
-a second in-tree language -- is a rejected alternative (Sec 12.2), not a gap
+Anything not named above -- a C or C++ component, a .NET implant or stager,
+a third in-tree language -- is a rejected alternative (Sec 12.2), not a gap
 to fill.
 
 ## 4. Command-line first
@@ -87,6 +89,7 @@ rather than a dependency operation, and is hand-written).
 | Add a Rust dependency | `cargo add <crate>` -- version lands in `Cargo.toml`, lock in `Cargo.lock`; both are tracked |
 | Add a cross target | `rustup target add <triple>` (never hand-install toolchains) |
 | Lint / format (Rust) | `cargo clippy`, `cargo fmt` |
+| Lint / format / test (Go) | `go vet ./...`, `gofmt -l .`, `go test ./...` (in `src/implant/go`) |
 | Format (.NET) | `dotnet format Rod.slnx --verify-no-changes` |
 
 Toolchain caveats (observed SDK behavior, not preference):

@@ -197,6 +197,7 @@ standard `Section__Key` mapping):
 | `Capabilities:Modules` | Capability modules, each a `Namespace.Type, AssemblyName` entry. The in-tree reference modules under `modules/` ship listed and load through this same list, exactly like an operator's external modules; see [extending/modules.md](../extending/modules.md). | The shipped list carries the in-tree reference module set; absent the section entirely, the built-in placeholders alone. |
 | `Build:Transforms` | Out-of-tree post-build payload transforms, each a `Namespace.Type, AssemblyName` entry, applied in listed order; the fingerprint and `PayloadBuilt` audit event cover the transformed bytes. | The empty chain (no transform runs; bytes stored as built). |
 | `Build:RustSourceDirectory` | An installed teamserver (a publish with no repo above it) names the Rust crate the build unit compiles at request time. | The repo walk-up a checkout uses (`src/implant/rust`). |
+| `Build:GoSourceDirectory` | The Go build unit's twin: names the Go module the unit compiles at request time. | The repo walk-up a checkout uses (`src/implant/go`). |
 | `Llm` | The opt-in LLM triage client (architecture.md Sec 11): `Enabled`, `BaseUrl` (any OpenAI-compatible chat-completions endpoint, cloud or local), `ApiKey` (bind through the environment, `Llm__ApiKey`), `Model`, plus `RequestTimeoutSeconds`/`MaxInputChars`/`MaxOutputTokens` budgets. Every summarize request is engagement-scoped and audited; the egress decision is the operator's -- see [llm.md](llm.md) before enabling. | Disabled (the summarize route answers 503). |
 | `Recon` | The external recon workbench's halves (architecture.md Sec 11.4): `RdapBaseUrl`, `CtBaseUrl`, `DohBaseUrl`, and `WhoisServer` arm the passive lookups; `ScanOrigin` (`Teamserver` is the only shipped origin) arms the port scan; `RequestTimeoutSeconds` and the `Max*`/`Scan*` caps bound each run. Naming an endpoint is the egress decision -- see [recon.md](recon.md) before arming any half; the scan additionally gates on the engagement's ROE target scope. | Every half closed (each route answers 503 naming this section). |
 | `RuntimeSettings` | Where the operator-facing runtime settings persist: `FilePath` for the session-staleness pair, `BuildFilePath` for the build section (the shared cargo target dir). Best-effort persistence of operator preferences, not engagement data. | `runtime-settings.json` / `runtime-build-settings.json` beside the working directory. |
@@ -279,7 +280,7 @@ reset-failed rod-teamserver` before starting again.
 
 The install path above, executed by a script: a release carries the
 self-contained teamserver tarball, the payload build source (implant crate,
-wire protos, crates.io dependencies vendored beside them), and
+Go module, wire protos, dependencies vendored beside them), and
 `scripts/install.sh`. CI builds the assets on a clean runner
 (`.github/workflows/release.yml`), so no developer host's paths or state
 ever touch what ships, and the release tag is verified against RodVersion
@@ -309,22 +310,25 @@ Two more install-shape facts, both walked end to end on the supervised
 install:
 
 **Payload builds compile from source at request time**, and the install
-tree has no repo above it, so the deployment names its build source tree
-with `Build:RustSourceDirectory`
+tree has no repo above it, so the deployment names its build source trees
+with `Build:RustSourceDirectory` and `Build:GoSourceDirectory`
 (a configured-but-missing directory fails the build loudly). The minimal
-deployed tree the key can point at:
+deployed tree the keys can point at:
 
 ```
 /opt/rod/src/
   src/implant/rust/                                 # the build source, no target/
-  src/teamserver/Rod.Protocol/protos/               # the wire contract the implant compiles against
+  src/implant/go/                                   # the Go module, vendor/ included
+  src/teamserver/Rod.Protocol/protos/               # the wire contract the implants compile against
 ```
 
 The service user also needs the Rust toolchain (`cargo`, `rustc`, and the
 cross linkers) on PATH and a warm cargo cache
 (`/var/lib/rod/.cargo`) -- the build spawns `cargo build` and pulls crates
 into that cache. On a host without registry egress, copy the cache from
-the build host at install time.
+the build host at install time. The Go unit needs only the Go toolchain
+on PATH: its module vendors its dependencies, so `go build` never touches
+the network.
 
 Acceptance from the executed walk: an implant built through the
 supervised install returned its fingerprint, and the downloaded

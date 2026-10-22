@@ -35,8 +35,6 @@ so the queue moved up by the file's own mechanics.
 - **Transport-provider abstraction + optional mTLS/WireGuard, default
   disabled** (Sec 8, Sec 15.3, ADR-004). _AC:_ the three-platform build
   matrix includes a WireGuard-enabled profile.
-- **Go build unit** -- the first community slot (Sec 12.2). _AC:_ a Go
-  implant completes enroll, task, and exfil end to end.
 - **Kernel/module layering landed** -- browser-hook assets and phishing
   templates load as modules (Sec 15.1). _AC:_ both asset families load as
   modules; the kernel tests contain none of their logic.

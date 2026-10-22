@@ -837,17 +837,19 @@ The flow: **operator build request -> teamserver emits build params -> the
 language's build unit compiles -> artifact returned -> fingerprinted and
 recorded.**
 
-- **One in-tree build unit (Rust); polyglot by contract.** `RustBuildUnit`
-  drives cargo for the reference implant (Sec 12.2); the .NET unit that
-  once built the managed implant is deleted with them. The
-  teamserver drives the unit through the **uniform build contract** and is
+- **Two in-tree build units (Rust the reference, Go the community slot); polyglot by contract.** `RustBuildUnit`
+  drives cargo for the reference implant (Sec 12.2); `GoBuildUnit` drives
+  the Go toolchain for the community-slot reference under
+  `src/implant/go/` -- the same uniform build contract, the same baked
+  base64url profile (overwritten into the staging copy's `baked.go`),
+  vendored dependencies so a payload build never touches the network. The
+  teamserver drives each unit through the **uniform build contract** and is
   coupled to it only by that contract, so a community build unit in Go,
   C/C++, or Nim can register and compile against the same contract with no
   in-language coupling (the `Language` enum keeps those slots, Sec 12.2).
-  The Rust unit maps the target onto a cargo triple, bakes the same
-  base64url profile into the staging copy's `src/baked.rs`, and refuses the
-  stager class (retired with the .NET tree) with the fix named at parse
-  time.
+  The Rust unit maps the target onto a cargo triple and
+  refuses the stager class (retired with the .NET tree) with the fix
+  named at parse time.
 - **The format is a build request knob; over the Rust unit it is recorded
   metadata, not a compile mode.** `ArtifactFormat` rides the build
   contract beside the class and target, and the unit maps it onto one
@@ -2688,9 +2690,9 @@ never the lure's content tradecraft.
 |---------|--------|-----|
 | Teamserver (monolithic kernel) | .NET 10 (LTS), ASP.NET Core | Strong async networking, strong typing, mature web UI. LTS to ~2028. |
 | Data store | PostgreSQL (opt-in; in-memory default) | Authoritative teamserver state; per-engagement audit. PostgreSQL is the authoritative store when configured (`ConnectionStrings:Postgres`); absent it, in-memory adapters remain the default for tests and dev deployments (see Sec 12.1). |
-| Build units | Rust (in-tree, implemented); Go/C/C++/Nim via out-of-tree community units (see Sec 12.2) | One in-tree toolchain; polyglot by contract, no teamserver-language coupling. |
+| Build units | Rust and Go (in-tree references; Go is the first community-slot reference, Sec 12.2); C/C++/Nim via out-of-tree community units | Two in-tree toolchains sharing one build contract; polyglot by contract, no teamserver-language coupling. |
 | Redirectors | .NET Native AOT (shipped), single static binary | Tiny VPS footprint, no runtime install. The opaque L4 forwarder ships in two postures -- the hand-deployed manual rule and the enrolled mode that dials home and serves pushed rules -- and the enrolled-fleet control plane (Sec 8) drives it from the teamserver; deploy/rotate runbook in [operations/redirectors.md](operations/redirectors.md). |
-| Implants | Rust (the reference implant shipped; the Android carrier leg shipped with it -- `carrier/`, Sec 12.2); Go/C/C++/Nim via out-of-tree community units -- per target | One Rust reference implant, static and cross-platform, plus its in-process library leg for Android carriers; community implants slot in by contract for targets it does not fit. |
+| Implants | Rust (the reference implant shipped; the Android carrier leg shipped with it -- `carrier/`, Sec 12.2); Go (the community-slot reference, `src/implant/go/`); C/C++/Nim via out-of-tree community units -- per target | One Rust reference implant, static and cross-platform, plus its in-process library leg for Android carriers; the Go reference proves the community slot against the same wire; community implants slot in by contract for targets neither fits. |
 | Operator UI | Web (React + TypeScript, Vite), served same-origin by the teamserver | React sources in `src/teamserver/Rod.TeamServer/Client/`; the production build emits into the host's `wwwroot/`, served as static files with an SPA fallback so the client owns deep links, and Vite's dev server proxies the operator API in development. Chosen over Blazor for the larger React ecosystem and audience reach, trading away Blazor's .NET-native service reuse and adding a Node/Vite step to CI. The UI talks to the operator HTTP API over `fetch` (no direct .NET injection), keeping the API the single integration point. |
 
 The wire protocol and capability registry are the long-lived, language-neutral
@@ -2765,7 +2767,15 @@ devices building on the Linux host unchanged --
 [operations/android.md](operations/android.md)). The `Language` enum
 (Go/DotNet/Rust/C/Nim) and build contract stay, so a community implant in
 any language registers a build unit and compiles against the same
-contract.
+contract. The Go slot carries its in-tree reference (the first community
+slot, `src/implant/go/`, built by `GoBuildUnit`): a Tier 0 wire client --
+enroll, the envelope POST cycle, tasking -- plus the ADR-010 exfil upload
+arm with byte-offset resume, over the web family only, one static binary
+per GOOS/GOARCH with the dependency set vendored. It couples to the
+platform through nothing but rod.proto and the baked profile, and its
+acceptance is the end-to-end arc -- enroll, task, and exfil against a
+live teamserver, in both the dev shape and the pipeline-baked artifact
+with sealed contacts.
 
 The .NET implant and the .NET stager that preceded this shape are deleted:
 their history is the commit record, and their delivery answers -- the
