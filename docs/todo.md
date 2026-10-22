@@ -37,17 +37,6 @@ so the queue moved up by the file's own mechanics.
   matrix includes a WireGuard-enabled profile.
 - **Go build unit** -- the first community slot (Sec 12.2). _AC:_ a Go
   implant completes enroll, task, and exfil end to end.
-- **Resumable exfil uploads** -- ADR-010's upload arm (Sec 15.3, Sec 10.1
-  exfil): the download arm shipped (byte-offset resume, both-side hashes,
-  the DNS degraded path); the upload arm still re-sends whole runs inside
-  one request body and carries no exfil carriage over DNS at all. Server
-  state must move from per-connection reassembly to bounded per-task
-  reassembly without weakening the DoS caps, and the DNS upstream is a new
-  spoofable surface whose shape (sealed-only for keyed artifacts, or a
-  named byte cap) is a decision to take when the item starts.
-  _AC:_ an interrupted exfil stream resumes from the bytes the server
-  already holds, and the envelope's one-request-body bound on exfil runs
-  is gone.
 - **Kernel/module layering landed** -- browser-hook assets and phishing
   templates load as modules (Sec 15.1). _AC:_ both asset families load as
   modules; the kernel tests contain none of their logic.

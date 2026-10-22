@@ -1029,7 +1029,8 @@ internal sealed class DnsBeaconBridge
     // Strips the staged report's tail token ("\nsha256:<64 hex>", the
     // grammar this carriage carries the both-side hash on); false when the
     // text carries no well-formed token.
-    private static bool TryStripStagedHash(string report, out string hash, out string stripped)    {
+    private static bool TryStripStagedHash(string report, out string hash, out string stripped)
+    {
         const string marker = "\nsha256:";
         hash = string.Empty;
         stripped = report;

@@ -199,7 +199,7 @@ under, and a note on its current state are listed.
 | `Rod.CoreState` | The teamserver's authoritative domain core: typed ids, the `Engagement` aggregate, operators, implants, tasks, deploy tokens, the implant session registry, the task queue and history, and the per-engagement implant certificate authority. The use cases (`EngagementService`, `EnrollmentService`, `HandshakeService`, `TaskService`, `ImplantService`) orchestrate these ports and define the operational behavior everything else consumes. The per-class reduced verb sets (`ImplantClassCapabilities`, Sec 5.2) live here as the inner-ring authority both the build pipeline and tradecraft read. | Inner ring -- depends on nothing in-house. | Implemented. In-memory adapters behind every port; the durable pair lives in `Rod.Persistence`. Task issuance gates each verb on the implant's class reduced set, enforces the kill date and retirement at handshake, and claims tasks atomically from the queue (Sec 5.2, Sec 10.3). |
 | `Rod.Audit` | The append-only, per-engagement audit trail: hash-chained `AuditEvent` records and the `IAuditStore` port, plus the `IArtifactStore` for first-class evidence objects attached to tasks. The evidence backbone (Sec. 11); the source for timeline and report export. | Inner ring -- depends on nothing in-house (crosses the layer boundary with primitive `Guid` ids, never core-state types). | Implemented. In-memory and file-backed (`Audit:DataDirectory`) adapters for the trail and the artifact store; the file store verifies each engagement's chain on recovery and refuses a tampered trail. Also hosts the payload store for built artifacts (Sec 6). |
 | `Rod.Protocol` | **Not a layer.** The protobuf wire protocol: frames and the enrollment/handshake/tasking messages (Sec. 8). The long-lived, language-neutral contract implants of every language build against. | Not a layer -- depends on nothing in-house; never leaks into `Rod.CoreState`. | Implemented. Versioned handshake (major.minor), a status code for every enrollment/handshake refusal, and the chunked exfil frame kind (Sec 8, Sec 10.1). |
-| `Rod.Transport` | Listeners that terminate C2 transports and map core-state use cases onto the operator HTTP API and the implant beacon stream. Owns endpoint routing, TLS termination, and the mapping of use-case failures to wire status codes. | Layer 2 -- may depend on `Rod.CoreState`, `Rod.Protocol`, `Rod.Audit`, `Rod.BuildPipeline`. | Implemented. HTTP(S), DNS, and raw-TCP listeners with the bind decoupled from the public endpoint (a repoint swaps a burned redirector without touching the socket); the full operator API (engagements, deploy tokens, implants with notes and retirement, tasks with queued-task cancellation, artifacts, audit, timeline/report, payloads) and the beacon stream with bounded frames, capped exfil reassembly, and atomic task dispatch (Sec 8, Sec 10.3, Sec 11); the browser hook's mint and guid-gated serving edge with the Origin-only CORS posture (Sec 5.2, Sec 8); the delivery-campaign surface (Sec 11.5) -- per-recipient lure builds through the build pipeline, the SMTP send engine, and the lure-serving public edge. The task, audit, and artifact listings are paged (limit + opaque cursor, newest window first) so a long engagement never grows a listing response without bound; the operator UI walks pages. The operator API also carries the versioned `/api/v1` prefix alias, the first-party OpenAPI 3.1 contract over it, and the token-scope floor gate (Sec 15.3, ADR-006). |
+| `Rod.Transport` | Listeners that terminate C2 transports and map core-state use cases onto the operator HTTP API and the implant beacon stream. Owns endpoint routing, TLS termination, and the mapping of use-case failures to wire status codes. | Layer 2 -- may depend on `Rod.CoreState`, `Rod.Protocol`, `Rod.Audit`, `Rod.BuildPipeline`. | Implemented. HTTP(S), DNS, and raw-TCP listeners with the bind decoupled from the public endpoint (a repoint swaps a burned redirector without touching the socket); the full operator API (engagements, deploy tokens, implants with notes and retirement, tasks with queued-task cancellation, artifacts, audit, timeline/report, payloads) and the beacon stream with bounded frames, capped resumable exfil reassembly, and atomic task dispatch (Sec 8, Sec 10.3, Sec 11); the browser hook's mint and guid-gated serving edge with the Origin-only CORS posture (Sec 5.2, Sec 8); the delivery-campaign surface (Sec 11.5) -- per-recipient lure builds through the build pipeline, the SMTP send engine, and the lure-serving public edge. The task, audit, and artifact listings are paged (limit + opaque cursor, newest window first) so a long engagement never grows a listing response without bound; the operator UI walks pages. The operator API also carries the versioned `/api/v1` prefix alias, the first-party OpenAPI 3.1 contract over it, and the token-scope floor gate (Sec 15.3, ADR-006). |
 | `Rod.BuildPipeline` | Drives the external, per-language build units to compile polyglot implants on demand through the uniform build contract, fingerprinting and recording each artifact (Sec. 6). | Layer 3 -- may depend on `Rod.CoreState`. | Implemented. `RustBuildUnit` -- the sole in-tree unit (the .NET unit is deleted with the .NET implant) -- compiles the Rust reference implant in a per-build hermetic staging copy (the build target mapped onto a cargo triple; the retired stager class refused with the fix named at parse time), baking the profile (contact mode, beacon parameters, class verb set) without any key material; loader-tier requests compile the no_std loader crate beside it instead, baked with fetch constants and the delivery seal (Sec 6); the built bytes land in the payload store for operator download (Sec 6). |
 | `Rod.Operators` | Multiplayer operator sessions over the operator API: shared live engagement state, task ownership and attribution, and real-time push to the operator UI. | Layer 4 -- may depend on `Rod.CoreState`, `Rod.Audit`. | Implemented. Cookie-authenticated operator sessions (login/logout/me; the bootstrap-seeded admin of Sec 4.5; hash-only credential port) and the per-engagement SSE live-event bus, with the automation engine (Sec 10.4) and the webhook forwarder (Sec 4.4) beside it as the bus's engine-side consumers. Cookies were chosen over JWT (no client-side token store for a same-origin SPA); ASP.NET Core Identity was rejected (its own user/role tables conflict with the layered stores). Access is the membership model of Sec 4.5 (per-engagement reader/writer tiers granted by the owner) beside the deployment-role split of the account machinery (bootstrap admin, console-created members); the exclusive interaction claims and activity presence mark who drives what; a per-handle login throttle slows brute force. The layer also owns the two agent-facing surfaces the operator front carries: the MCP server (`/mcp`, Streamable HTTP, stateless -- the toolset an external agent client drives through an operator API token: reads at any scope, task-issuing tools behind their own deployment gate, the operate scope floor, and Sec 10.4's unattended red line; runbook [operations/mcp.md](operations/mcp.md)) and the opt-in OpenAI-compatible LLM triage client behind `Microsoft.Extensions.AI`'s `IChatClient` (Sec 11.3; runbook [operations/llm.md](operations/llm.md)), plus the external recon workbench (Sec 11.4; runbook [operations/recon.md](operations/recon.md)) -- the pre-foothold lookups and scan whose findings land as task-less engagement artifacts. |
 | `Rod.Capabilities` | Pluggable post-exploitation capability modules, including the evasion/exploit category contracts (Sec. 10, Sec. 13). Concrete implementations arrive as modules -- in-tree reference modules (`modules/`, loaded through the same path external modules take) or registry modules (Sec 15) -- over the contract, registration path, and gate this layer holds. | Layer 6 -- may depend on `Rod.CoreState`, `Rod.Audit`. | Implemented. The capability contract (`ICapabilityModule`, a registration-only contract: a descriptor, no execution surface -- Sec 10.2), the registry, and the registry-backed task-issuance resolver and sensitive-verb policy; every framework verb ships as a placeholder descriptor carrying its OPSEC attributes, and `GET /capabilities` exposes the catalog to the UI. The in-tree module host (Sec 15.1) is in place: reference modules deploy beside the binary by the teamserver build and load through the `Capabilities:Modules` config path exactly like external ones. Sensitive behavior arrives as modules and stays disabled by default (Sec 10.2, Sec 13, Sec 15). |
@@ -1111,7 +1111,17 @@ OPSEC is a design axis, not a feature flag. The architecture bakes in:
   prefix proof (`s.<b32(task)>.<offset>.<b32(proof)|e>.<b32(implant)>`),
   answered by a token whose `d.` probes drain the remainder chunk by chunk --
   the same resume rule the frame carriages run, at the query-rate cadence,
-  per-chunk sealed for a keyed artifact under the staged purpose tag. **Delivery confirmation:** a lost chunk drops a
+  per-chunk sealed for a keyed artifact under the staged purpose tag. **The
+  upload arm rides the same grammar's discipline, sealed-only
+  (ADR-010):** an exfil run probes its seam
+  (`x.<b32(task)>.<b32(sha128 of name)>.<b32(implant)>`, answered with the
+  held byte count) and serves one datagram-sized blob per cycle as an
+  e.-shaped `u.` upload stream -- a single sealed `ExfilChunk` slice under
+  the `rod-dns-exfil-v1` tag placing at its offset in the shared per-task
+  store, under a 1 MiB per-stream ceiling. The seal is the arm's
+  spoofing boundary: the task id rides the query name in the clear, and a
+  plaintext upload would forge evidence onto real tasks, so a blob no
+  baked key verifies drops whole. **Delivery confirmation:** a lost chunk drops a
   report's reassembly whole, so the sender probes
   `n.<b32(task)>.<b32(sha128 of the plaintext)>.<b32(implant)>` after
   chunking and keeps the frame pending until the `y` answer -- the
@@ -1302,10 +1312,11 @@ OPSEC is a design axis, not a feature flag. The architecture bakes in:
   language with an HTTP client and a protobuf codec
   ([extending/implants.md](extending/implants.md)). A channel task claims
   over the envelope under the store-and-forward discipline every poll
-  artifact advertises (Sec 10.3; only the DNS datagram poll refuses one),
-  and an artifact's exfil chunk run must
-  complete within one request body -- the poll-transport bounds, documented
-  with the wire grammar.
+  artifact advertises (Sec 10.3; only the DNS datagram poll refuses one).
+  An exfil run rides the resumable upload arm (ADR-010): each body carries
+  the slices its budget admits, the response's seam reports chain the
+  contacts, and a run larger than one body spans them -- the
+  one-request-body bound on exfil runs is gone.
 - **The browser-hook serving edge is a public route on the implant-facing
   listeners, gated by an unguessable id.** A Browser-class hook (Sec 5.2)
   is minted per engagement (`POST /engagements/{id}/hooks`): the mint
@@ -3059,7 +3070,7 @@ Where the program touches the existing layers:
 |-------|--------------|
 | `Rod.CoreState` | Verbs gain the ATT&CK technique mapping (ADR-007; shipped -- the kernel data file behind the `IVerbTechniqueResolver` port, with the class platform surface beside the class verb sets); comment and chat aggregates (ADR-005; shipped, with the credential landing store and the task-reference resolver); the output-taxonomy resolver port ships (shipped with Sec 15.2's trilogy). |
 | `Rod.Audit` | Chain semantics tighten: mutable content never enters the chain (ADR-005). |
-| `Rod.Protocol` | Frame-negotiation fields for the optional transports (ADR-004); the staged-transfer resume fields (ADR-010; shipped). |
+| `Rod.Protocol` | Frame-negotiation fields for the optional transports (ADR-004); the resumable-transfer fields, both arms (ADR-010; shipped). |
 | `Rod.Transport` | `ITransportProvider` abstraction; the four in-tree families become the reference implementations; optional mTLS and WireGuard, default-disabled (ADR-004). The `/api/v1` versioned alias, the OpenAPI 3.1 contract generation, and the token-scope floor gate (ADR-006; shipped). |
 | `Rod.BuildPipeline` | The build contract gains a transport-enable-set parameter; a Go build unit joins the community slots. |
 | `Rod.Operators` | Collaboration metadata APIs (ADR-005; shipped); MCP read-write under token scopes (ADR-006; shipped, the operate floor and Sec 10.4's unattended red line held at the tool level); token-scope claim stamping (ADR-006; shipped with the transport-side floor and gate). |
@@ -3139,15 +3150,22 @@ Where the program touches the existing layers:
   the payload), mapped from the composition root because its dimensions
   span layers transport cannot reference, and outside the versioned OpenAPI
   contract like the capability catalog.
-- **Resumable transfers** (ADR-010; shipped, the download arm). The chunked
+- **Resumable transfers** (ADR-010; shipped, both arms). The chunked
   staged pull carries byte-offset resume and both-side hash verification: a
   demand names the bytes an interrupted run left held and proves them by
   SHA-256, the answer serves only the unserved remainder, and the completing
   result carries the payload hash the server verifies against the artifact it
   served. The DNS degraded path carries the same capability over its `s.`/
-  `d.` grammar -- one resume rule on every wire. The upload arm (exfil
-  chunking) keeps its whole-run-in-one-body shape and is the follow-up item's
-  own scope.
+  `d.` grammar -- one resume rule on every wire. The upload arm gives the
+  exfil channel the same semantics in reverse: offset-bearing chunks with a
+  declared whole-artifact hash place idempotently into one bounded
+  cross-connection store, the seam reports (`ExfilProgress` on the frame
+  carriers, the `x.` probe over DNS) chain contacts so an interrupted run
+  resumes from the bytes the server already holds, and the DNS upstream is
+  sealed-only under the `rod-dns-exfil-v1` tag with a 1 MiB per-stream
+  ceiling -- the spoofing decision the item carried (a task id rides the
+  DNS query name in the clear, and a plaintext MB-scale upload would forge
+  evidence onto real tasks).
 
 ### 15.4 Product disciplines (ADR-011 through ADR-015)
 

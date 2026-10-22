@@ -167,12 +167,14 @@ per-artifact key the build baked (below). One POST is one poll contact:
   artifact key, a counter at or below the accepted floor, or a plaintext body
   from an implant bound to a key answers `401`.
 - **Response body:** the same seal, under the response's own purpose tag --
-  the `HandshakeResponse` frame first, then the `StagedChunk` run answering
-  each request-body `StagedPull` (in demand order), then dispatched
-  `TaskRequest` frames in queue order while the 4 MiB dispatch budget lasts
-  -- what does not fit is requeued and rides the next contact. A non-OK
-  handshake response is the only frame in the body: the contact is refused,
-  and every non-OK status is permanent exactly as on the stream.
+  the `HandshakeResponse` frame first, then the `ExfilProgress` seam reports
+  for any offset-bearing `ExfilChunk` frames the request placed, then the
+  `StagedChunk` run answering each request-body `StagedPull` (in demand
+  order), then dispatched `TaskRequest` frames in queue order while the
+  4 MiB dispatch budget lasts -- what does not fit is requeued and rides the
+  next contact. A non-OK handshake response is the only frame in the body:
+  the contact is refused, and every non-OK status is permanent exactly as on
+  the stream.
 - **Poll discipline:** contact, drain, close, sleep the baked interval with
   jitter, repeat. Every POST re-handshakes; the server reuses the session
   across contacts, so the cadence neither churns session entities nor
@@ -181,11 +183,12 @@ per-artifact key the build baked (below). One POST is one poll contact:
   response must carry a fresh counter, and the batch semantics make the
   retransmission itself idempotent (a re-sent result for a completed task is
   a no-op server-side).
-- **The envelope's bounds:** an artifact's `ExfilChunk` run must begin and
-  end inside one request body (the reassembler is per-request), and a
-  channel task (`shell.interact`) claims over the envelope under the
-  degraded discipline below -- only DNS never claims one, because a
-  datagram poll has no stream to carry the input half.
+- **The envelope's bounds:** a resumable exfil run (below) spans contacts --
+  each body carries the slices its budget admits and the response's seam
+  reports chain the contacts -- while a channel task (`shell.interact`)
+  claims over the envelope under the degraded discipline below -- only DNS
+  never claims one, because a datagram poll has no stream to carry the
+  input half.
 
 **The degraded channel discipline (always carried).** Every poll-mode
 build advertises the `channels.poll` capability in its handshake, and the
@@ -306,9 +309,27 @@ A `TaskResult` echoes the task id with an outcome (`1` succeeded, `2` failed)
 and an output string. Bulk data (file contents, large captures) does **not**
 ride the output string: emit `ExfilChunk` frames after the `TaskResult`, each
 carrying the task id, an artifact name, a MIME content type, a 0-origin
-sequence, and a terminal flag on the last one. The teamserver reassembles
-strictly by sequence into the engagement artifact store. Keep chunks at or
-under 512 KiB.
+sequence, and a terminal flag on the last one. Keep chunks at or under
+512 KiB.
+
+**Byte-offset resume (ADR-010, the upload arm).** Offset-less chunks (the
+shape above) still complete within one contact under the strict sequence
+discipline; a resumable run instead carries, on every chunk, its absolute
+`offset` within the artifact and the run's declared `payload_sha256` (32
+bytes, the SHA-256 of the whole artifact). The server places slices
+idempotently at their offsets -- a duplicate is a no-op, a first chunk at
+offset 0 over a partial hold restarts the run, and the run materializes only
+when its terminal chunk places and the reassembled bytes hash to the
+declaration. A contact whose request carried offset-bearing chunks is
+answered with one `ExfilProgress` frame (kind
+`FRAME_KIND_EXFIL_PROGRESS`) per touched stream naming the contiguous bytes
+the server holds: serve only the remainder past that seam, and a report
+behind what you sent (an evicted or restarted server) rewinds you to
+re-serve from it. Slice your run to a per-contact budget (the reference
+implant sends 8 MiB of slices per contact, 512 KiB per frame) so a run
+larger than one body spans contacts -- the seam reports chain them. The
+structural gate keeps the arm additive: an implant that never sets `offset`
+never receives the kind-bearing progress frame.
 
 ### Staged uploads (downstream bulk)
 
@@ -479,6 +500,8 @@ enroll answer: a.<b32(token)>.<seq>.<zone>
 delivery probe:n.<b32(task id)>.<b32(sha128)>.<b32(implant id)>.<zone>
 staged demand: s.<b32(task id)>.<offset>.<b32(sha256) | e>.<b32(implant id)>.<zone>
 staged get:    d.<b32(token)>.<seq>.<zone>
+exfil seam:    x.<b32(task id)>.<b32(sha128 of name)>.<b32(implant id)>.<zone>
+exfil upload:  u.<b32(stream id)>.<seq>.<t|m>.<b32(sealed chunk)>.<b32(implant id)>.<zone>
 ```
 
 **Sealing (a build that baked an envelope key).** The contact carriage
@@ -543,6 +566,28 @@ cadence. For a keyed artifact each chunk seals as a raw R1 body under the
 never wait on a whole sealed blob. The completing report rides the
 `r.`-chunks with the payload hash on the text's tail
 (`"\nsha256:<hex>"`), verified and stripped server-side.
+
+**Exfil uploads (the resumable upload, ADR-010 -- sealed-only).** A keyed
+artifact's exfil run rides the same resume discipline at the query-rate
+cadence, one datagram-sized blob per contact. Probe the seam first:
+`x.<b32(task id)>.<b32(first 16 bytes of SHA-256 over the artifact name)>.
+<b32(implant id)>.<zone>` answers the decimal byte count the server holds
+(the name itself cannot ride a DNS label; its hash maps back through the
+placements the server saw -- a probe ahead of the first blob answers `0`,
+which is the held truth anyway). Then serve one blob from that seam as a
+`u.` upload stream -- `u.<b32(stream id, client-chosen per blob)>.<seq>.
+<t|m>.<b32(sealed chunk)>.<b32(implant id)>.<zone>`, e.-shaped in-order
+chunks answered `+` -- whose terminal chunk assembles one raw R1 body
+under the `rod-dns-exfil-v1` purpose tag wrapping a single offset-bearing
+`ExfilChunk` frame (the same frame grammar the stream carriages carry,
+including the declared `payload_sha256`). The server places the slice
+through the shared per-task reassembly under a 1 MiB per-stream ceiling;
+a lost blob never moved the seam, so the next probe re-serves it. The arm
+is sealed-only by design: the task id rides the query name in the clear,
+so a plaintext upload would let anyone who can query the listener forge
+artifacts onto real tasks -- a blob that does not resolve a baked key and
+verify under the tag drops whole, and a run past the cap (or a bake with
+no key) needs a stream carriage.
 
 **Record types beyond TXT (the cover).** An A query anywhere under the
 zone answers one A record -- the bind's own host when the bind is a
