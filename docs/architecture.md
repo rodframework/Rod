@@ -3119,11 +3119,15 @@ Where the program touches the existing layers:
   same resolver), and the matrix shows operators *what can be done*.
   Coverage advances module by module, ordered by real engagement need --
   the matrix is a dashboard, not a completion deadline.
-- **Built-in observability** (ADR-008). No Prometheus. A diagnostics
+- **Built-in observability** (ADR-008; shipped). No Prometheus. A diagnostics
   endpoint and a UI stats page over PG and in-process counters: beacon
   latency distribution, task queue depth, SSE connection count, build
   durations, module load state. Export, if an engagement ever demands it,
-  arrives as a module -- never as a standing component.
+  arrives as a module -- never as a standing component. The endpoint is the
+  deployment admin's aggregate read (no engagement dimension anywhere in
+  the payload), mapped from the composition root because its dimensions
+  span layers transport cannot reference, and outside the versioned OpenAPI
+  contract like the capability catalog.
 - **Resumable transfers** (ADR-010). The chunked staged pull gains
   byte-offset resume and both-side hash verification, and the DNS degraded
   path carries the same capability.

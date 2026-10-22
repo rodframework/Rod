@@ -40,8 +40,6 @@ so the queue moved up by the file's own mechanics.
 - **Resumable file transfer** (Sec 15.3, ADR-010). _AC:_ an interrupted
   transfer resumes to matching both-side hashes; the DNS degraded path
   passes.
-- **Built-in diagnostics and stats page** (Sec 15.3, ADR-008). _AC:_
-  ships with no new external dependency.
 - **Kernel/module layering landed** -- browser-hook assets and phishing
   templates load as modules (Sec 15.1). _AC:_ both asset families load as
   modules; the kernel tests contain none of their logic.
