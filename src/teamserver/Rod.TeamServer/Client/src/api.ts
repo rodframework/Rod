@@ -2675,6 +2675,48 @@ export async function getSystemInfo(): Promise<SystemInfo> {
   return jsonOrThrow(await fetch('system'))
 }
 
+// --- Diagnostics ------------------------------------------------
+//
+// The deployment's own health read (architecture.md Sec 15.3, ADR-008): the
+// five dimensions over in-process counters and aggregate store reads -- no
+// Prometheus, no exporter. The deployment admin's alone; every number is a
+// deployment-wide aggregate with no engagement dimension.
+
+export interface DiagnosticsReport {
+  beacons: {
+    // Cumulative since process start: one row per latency bound, in order.
+    latencyBuckets: { label: string; count: number }[]
+  }
+  taskQueue: {
+    queued: number
+    dispatched: number
+    completed: number
+    cancelled: number
+  }
+  operatorStreams: {
+    connectedStreams: number
+  }
+  builds: {
+    inFlight: number
+    total: number
+    succeeded: number
+    failed: number
+    minMs: number | null
+    meanMs: number | null
+    maxMs: number | null
+    p95Ms: number | null
+  }
+  modules: {
+    loaded: { name: string; verbs: string[] }[]
+    verbsRegistered: number
+    verbsPlaceholder: number
+  }
+}
+
+export async function getDiagnostics(): Promise<DiagnosticsReport> {
+  return jsonOrThrow(await fetch('diagnostics'))
+}
+
 // --- Runtime settings -----------------------------------------
 //
 // Operator-adjustable server settings. The session-presence pair (the

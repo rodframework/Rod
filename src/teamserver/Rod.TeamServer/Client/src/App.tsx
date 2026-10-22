@@ -13,6 +13,7 @@ import { SettingsView } from './views/SettingsView'
 import { SystemView } from './views/SystemView'
 import { RedirectorsView } from './views/RedirectorsView'
 import { CoverageView } from './views/CoverageView'
+import { DiagnosticsView } from './views/DiagnosticsView'
 import { LoginView } from './views/LoginView'
 
 // Operator UI shell: the topbar carries what is global -- the breadcrumb,
@@ -37,6 +38,7 @@ type Route =
   | { kind: 'settings' }
   | { kind: 'system' }
   | { kind: 'redirectors' }
+  | { kind: 'diagnostics' }
 
 function parseHash(): Route {
   const hash = window.location.hash.replace(/^#/, '')
@@ -56,6 +58,7 @@ function parseHash(): Route {
   if (/^\/coverage\/?$/.test(hash)) return { kind: 'coverage' }
   if (/^\/settings\/?$/.test(hash)) return { kind: 'settings' }
   if (/^\/system\/?$/.test(hash)) return { kind: 'system' }
+  if (/^\/diagnostics\/?$/.test(hash)) return { kind: 'diagnostics' }
   // Everything else -- the bare hash, #/home, and any unrecognized link --
   // lands on the dashboard, so the console opens and falls back somewhere
   // orienting.
@@ -226,9 +229,18 @@ function Topbar({
       <div className="topbar-crumb">
         {route.kind === 'home' && <span className="current">Home</span>}
         {route.kind === 'engagement' && <EngagementCrumb engagementId={route.engagementId} />}
-        {(route.kind === 'settings' || route.kind === 'system' || route.kind === 'redirectors') && (
+        {(route.kind === 'settings' ||
+          route.kind === 'system' ||
+          route.kind === 'redirectors' ||
+          route.kind === 'diagnostics') && (
           <span className="current">
-            {route.kind === 'settings' ? 'Settings' : route.kind === 'redirectors' ? 'Redirectors' : 'System'}
+            {route.kind === 'settings'
+              ? 'Settings'
+              : route.kind === 'redirectors'
+                ? 'Redirectors'
+                : route.kind === 'diagnostics'
+                  ? 'Diagnostics'
+                  : 'System'}
           </span>
         )}
         {route.kind === 'coverage' && <span className="current">Coverage</span>}
@@ -318,9 +330,19 @@ function Topbar({
           href="#/system"
           title="The host and its build environment -- detected toolchains and what is missing"
         >
-          <Icon name="activity" />
+          <Icon name="cpu" />
           <span className="label">System</span>
         </a>
+        {operator.role === 'admin' && (
+          <a
+            className={`topbar-link${route.kind === 'diagnostics' ? ' active' : ''}`}
+            href="#/diagnostics"
+            title="The deployment's own health -- beacon turnaround, queue depth, operator streams, build durations, loaded modules"
+          >
+            <Icon name="activity" />
+            <span className="label">Diagnostics</span>
+          </a>
+        )}
         <Identity operator={operator} onLogout={onLogout} />
       </div>
     </header>
@@ -508,6 +530,14 @@ function App() {
             <RedirectorsView operator={operator} />
           ) : route.kind === 'coverage' ? (
             <CoverageView />
+          ) : route.kind === 'diagnostics' ? (
+            operator.role === 'admin' ? (
+              <DiagnosticsView />
+            ) : (
+              // The route answers the admin claim with 403 for everyone else;
+              // say so plainly instead of rendering a page of errors.
+              <p className="muted">Diagnostics is the deployment admin's surface.</p>
+            )
           ) : (
             <EngagementView
               engagementId={route.engagementId}

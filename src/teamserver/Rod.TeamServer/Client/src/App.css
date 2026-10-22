@@ -1125,6 +1125,18 @@ a:hover {
   word-break: break-word;
 }
 
+/* The diagnostics page's latency histogram: a count column with the
+   distribution's shape beside it, so where frames land reads at a glance
+   instead of off a number ladder. */
+.latency-bar {
+  display: inline-block;
+  height: 8px;
+  margin-left: 8px;
+  vertical-align: baseline;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
 .sessions {
   list-style: none;
   margin: 8px 0 0;
