@@ -237,7 +237,8 @@ internal sealed class BeaconConnectionIngest
         try
         {
             await IngestFrameAsync(session, frame, stagedPullSink, taskAckSink, cancellationToken);
-        }        finally
+        }
+        finally
         {
             _diagnostics.Observe(System.Diagnostics.Stopwatch.GetElapsedTime(started));
         }
