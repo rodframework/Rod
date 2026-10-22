@@ -23,6 +23,7 @@ pub const DNS_POLL_AAD: &str = "rod-dns-poll-v1";
 pub const DNS_RESULT_AAD: &str = "rod-dns-result-v1";
 pub const DNS_CHANNEL_AAD: &str = "rod-dns-channel-v1";
 pub const DNS_STAGED_AAD: &str = "rod-dns-staged-v1";
+pub const DNS_EXFIL_AAD: &str = "rod-dns-exfil-v1";
 
 /// The baked envelope key split into its halves: standard base64 of
 /// keyId(16) || key(32); None when absent or malformed -- a bad bake falls

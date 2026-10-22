@@ -64,6 +64,13 @@ const EXFIL_IDLE_CYCLES: u32 = 3;
 /// always ran, under the frame-layer sizing rule.
 const EXFIL_CHUNK_BYTES: usize = 512 * 1024;
 
+/// The pending-run snapshot the DNS carriage's drive walks.
+pub struct ExfilStreamView {
+    pub task: String,
+    pub name: String,
+    pub total: usize,
+}
+
 /// The exfil byte budget one contact carries: the envelope's body cap is
 /// 16 MiB of wire bytes (base64-expanded when sealed), so the run's slices
 /// leave room for the handshake, results, and demands beside them. A run
@@ -655,6 +662,51 @@ impl Session {
     /// signal, so a run keeps slicing while the connection parks.
     pub fn exfil_pending(&self) -> bool {
         !self.exfil.is_empty()
+    }
+
+    /// The pending runs as a read-only snapshot -- the DNS carriage's drive
+    /// iterates them to probe each run's seam (its grammar has no frames,
+    /// so it walks the runs by name instead of slicing by budget).
+    pub fn exfil_streams(&self) -> Vec<ExfilStreamView> {
+        self.exfil
+            .iter()
+            .map(|run| ExfilStreamView {
+                task: run.task.clone(),
+                name: run.name.clone(),
+                total: run.data.len(),
+            })
+            .collect()
+    }
+
+    /// One datagram-sized blob for the named run: the next slice from its
+    /// confirmed seam as a single encoded ExfilChunk frame (offset, declared
+    /// hash, terminal on the run's tail) -- the DNS carriage seals the frame
+    /// whole and uploads it as one u. stream. The seam moves only on the
+    /// probe's report, never on this send.
+    pub fn exfil_blob(&mut self, task: &str, name: &str, max_bytes: usize) -> Option<Vec<u8>> {
+        let run = self
+            .exfil
+            .iter()
+            .find(|r| r.task == task && r.name == name)?;
+        if run.confirmed >= run.data.len() {
+            return None;
+        }
+        let from = run.confirmed;
+        let take = max_bytes.min(run.data.len() - from);
+        let terminal = from + take == run.data.len();
+        Some(
+            ExfilChunk {
+                task_id: run.task.clone(),
+                name: run.name.clone(),
+                content_type: run.content_type.clone(),
+                sequence: 0,
+                terminal,
+                offset: Some(from as u64),
+                payload_sha256: Some(run.sha.clone()),
+                data: run.data[from..from + take].to_vec(),
+            }
+            .encode_to_vec(),
+        )
     }
 
     /// One seam report (an ExfilProgress frame): the server's held count is

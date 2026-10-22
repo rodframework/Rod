@@ -111,6 +111,15 @@ internal sealed class BeaconIngest
     public BeaconConnectionIngest OpenConnection()
         => new(_tasks, _taskRecords, _implants, _audit, _artifacts, _bus, _clock, _relays, _socks, _diagnostics, _exfilStreams);
 
+    /// <summary>
+    /// The contiguous-from-zero byte count a (task, name) stream holds --
+    /// the seam the DNS grammar's exfil probe names. Carriages that answer
+    /// seam reports as frames read them off their connection ingest; the
+    /// datagram grammar has no frames, so it reads the store directly.
+    /// </summary>
+    public ulong ExfilHeld(Guid taskId, string name)
+        => _exfilStreams.Held(taskId, name);
+
     // The served-side hash for the both-side check (ADR-010): the staged
     // artifact a task's issuer bound to it, hashed exactly as the implant
     // hashes its reassembled run. No staged bytes at all also mismatches --
