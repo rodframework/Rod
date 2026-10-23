@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Rod.Audit;
 using Rod.BuildPipeline.PayloadBuild;
 using Rod.CoreState.Application;
+using Rod.CoreState.Assets;
 using Rod.CoreState.Engagements;
 using Rod.CoreState.Implants;
 using Rod.CoreState.Live;
@@ -364,6 +365,13 @@ public static class TransportHost
         // AddRodCapabilities replaces this with the registry-backed resolver
         // so module declarations override the file per verb.
         services.AddSingleton<IVerbTechniqueResolver, DefaultVerbTechniqueResolver>();
+
+        // Module assets -> the empty default. Asset modules (the hook script,
+        // the phishing templates, architecture.md Sec 15.1) load through the
+        // capabilities layer from the Capabilities:AssetModules list, which
+        // AddRodCapabilities resolves; until then every lookup fails and the
+        // consuming endpoints answer their loud refusal -- open is not on.
+        services.AddSingleton<IModuleAssetStore, NoModuleAssets>();
 
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<EngagementService>();

@@ -34,13 +34,30 @@ public class ModuleBoundaryTests
         throw new InvalidOperationException("Could not locate the repo root from the test assembly.");
     }
 
+    // Server module assemblies live at modules/<name>/<Name>.csproj; the
+    // module-owned test projects under modules/<name>/tests/ are not module
+    // assemblies (they ride along with the module, loading nothing at
+    // runtime), so only the top-level project of each module counts.
     private static readonly string[] ServerModuleProjects = Directory
-        .GetFiles(Path.Combine(RepoRoot, "modules"), "*.csproj", SearchOption.AllDirectories)
+        .GetDirectories(Path.Combine(RepoRoot, "modules"))
+        .SelectMany(directory => Directory.GetFiles(directory, "*.csproj"))
         .OrderBy(p => p)
         .ToArray();
 
     public static IEnumerable<object[]> ServerModuleProjectCases =>
         ServerModuleProjects.Select(p => new object[] { p });
+
+    // Asset modules (Sec 15.1's content half) are directories, not
+    // assemblies: a rod-module.toml whose entry kind is "assets" plus the
+    // declared files. Recognized by a manifest line scan, deliberately --
+    // the architecture tests read the tree, they do not link the tooling.
+    private static readonly string[] AssetModuleDirectories = Directory
+        .GetDirectories(Path.Combine(RepoRoot, "modules"))
+        .Where(directory => File.Exists(Path.Combine(directory, "rod-module.toml"))
+            && File.ReadAllLines(Path.Combine(directory, "rod-module.toml"))
+                .Any(line => line.Trim().Equals("entry = \"assets\"", StringComparison.OrdinalIgnoreCase)))
+        .OrderBy(directory => directory)
+        .ToArray();
 
     private static string[] ReadProjectReferences(string projectFile)
         => XDocument.Load(projectFile).Descendants()
@@ -143,5 +160,100 @@ public class ModuleBoundaryTests
     {
         Assert.True(ServerModuleProjects.Length > 0,
             "modules/ holds no server module; the in-tree module host would be dead code.");
+    }
+
+    // The same what-ships-loads rule for the content half: every asset module
+    // under modules/ is named in the shipped Capabilities:AssetModules list
+    // (the in-tree set rides the operator's config path by default), and
+    // every named entry corresponds to an asset module that exists -- a
+    // removed module must not leave a stale entry that aborts startup, and a
+    // new module that is not listed is content the shipped server cannot
+    // serve. Entries are module directory paths relative to the application
+    // base, so "modules/<name>" is the in-tree spelling.
+    [Fact]
+    public void ShippedConfig_ListsExactlyTheInTreeAssetModules()
+    {
+        var settingsPath = Path.Combine(
+            RepoRoot, "src", "teamserver", "Rod.TeamServer", "appsettings.json");
+        using var document = JsonDocument.Parse(
+            File.ReadAllText(settingsPath),
+            new JsonDocumentOptions
+            {
+                CommentHandling = JsonCommentHandling.Skip,
+                AllowTrailingCommas = true,
+            });
+
+        var listed = document.RootElement
+            .TryGetProperty("Capabilities", out var capabilities)
+            && capabilities.TryGetProperty("AssetModules", out var assetModules)
+            ? assetModules.EnumerateArray().Select(e => e.GetString()!).ToList()
+            : [];
+        var inTree = AssetModuleDirectories
+            .Select(directory => "modules/" + Path.GetFileName(directory))
+            .ToList();
+
+        Assert.True(!listed.Except(inTree).Any() && !inTree.Except(listed).Any(),
+            "The shipped Capabilities:AssetModules list and the asset modules under modules/ disagree: " +
+            $"shipped [{string.Join(", ", listed)}] vs tree [{string.Join(", ", inTree)}].");
+    }
+
+    // A declared asset must be present in the tree it ships in, and its path
+    // must stay inside the module directory -- the no-escape rule the host,
+    // the manifest validator, and the installer each enforce on their side.
+    // One fact over the whole set (small by design): the shipped-config rule
+    // above holds the set and the shipped list to the same shape.
+    [Fact]
+    public void AssetModules_DeclareFilesThatExistInside()
+    {
+        foreach (var directory in AssetModuleDirectories)
+        {
+            var name = Path.GetFileName(directory);
+            var manifest = File.ReadAllLines(Path.Combine(directory, "rod-module.toml"));
+
+            var declared = new List<(string Name, string Path)>();
+            for (var i = 0; i < manifest.Length; i++)
+            {
+                if (!manifest[i].Trim().Equals("[[assets]]", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var assetName = ReadKeyValue(manifest, i + 1, "name");
+                var assetPath = ReadKeyValue(manifest, i + 1, "path");
+                if (assetName is null || assetPath is null)
+                    continue; // the host and the CLI both refuse this loudly at load
+                declared.Add((assetName, assetPath));
+            }
+
+            Assert.True(declared.Count > 0, $"{name} declares no [[assets]] rows.");
+            foreach (var (assetName, assetPath) in declared)
+            {
+                Assert.False(
+                    assetPath.Contains('\\') || Path.IsPathRooted(assetPath)
+                        || assetPath.Split('/').Any(segment => segment is ".." or ""),
+                    $"{name}'s asset '{assetName}' carries the escaping path '{assetPath}'.");
+                Assert.True(
+                    File.Exists(Path.Combine(directory, assetPath.Replace('/', Path.DirectorySeparatorChar))),
+                    $"{name} declares '{assetName}' at '{assetPath}', but the file is missing.");
+            }
+        }
+    }
+
+    // Reads `key = "value"` from the lines after a table header, before the
+    // next table starts.
+    private static string? ReadKeyValue(string[] lines, int start, string key)
+    {
+        for (var i = start; i < lines.Length; i++)
+        {
+            var line = lines[i].Trim();
+            if (line.StartsWith('['))
+                return null;
+            if (line.StartsWith(key + " =", StringComparison.OrdinalIgnoreCase)
+                && line.Length > key.Length + 3)
+            {
+                var value = line[(key.Length + 3)..].Trim();
+                return value.StartsWith('"') && value.EndsWith('"') && value.Length >= 2
+                    ? value[1..^1]
+                    : null;
+            }
+        }
+        return null;
     }
 }

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Rod.CoreState.Assets;
 using Rod.CoreState.Implants;
 using Rod.Capabilities.Browser;
 using Rod.Capabilities.Collect;
@@ -130,6 +131,15 @@ public static class RodCapabilitiesHost
         // Navigator layer all read the one resulting mapping.
         services.Replace(ServiceDescriptor.Singleton<IVerbTechniqueResolver>(sp =>
             new CapabilityRegistryVerbTechniqueResolver(sp.GetRequiredService<ICapabilityRegistry>())));
+
+        // And on the content axis (Sec 15.1): the module-backed asset store,
+        // built from the Capabilities:AssetModules list. A null configuration
+        // keeps the default the host registered (the empty store) -- the
+        // open-not-on posture holds until an operator lists modules.
+        if (configuration is not null)
+        {
+            services.Replace(ServiceDescriptor.Singleton<IModuleAssetStore>(ModuleAssetStore.Load(configuration)));
+        }
 
         return services;
     }

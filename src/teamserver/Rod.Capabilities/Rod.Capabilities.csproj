@@ -4,6 +4,7 @@
     <ProjectReference Include="..\Rod.CoreState\Rod.CoreState.csproj" />
   </ItemGroup>
 
+
   <!-- The capabilities layer exposes the operator-facing capability catalog
        endpoint (the UI surfaces every capability category as
        tasking, driven by the registry rather than a hardcoded verb table). It
@@ -16,6 +17,13 @@
        resolver against, so no separate abstractions package is needed. -->
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- Tomlyn: the asset-module host reads the [module] name and [[assets]]
+       rows out of a module directory's rod-module.toml (the manifest's full
+       grammar stays the CLI's, architecture.md Sec 15.2). -->
+  <ItemGroup>
+    <PackageReference Include="Tomlyn" />
   </ItemGroup>
 
   <PropertyGroup>
