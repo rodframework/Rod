@@ -10,6 +10,11 @@ publish = false
 # so no WireGuard cryptography is ever written in C#, and the audited
 # implementation stays the only crypto in the process.
 
+[features]
+# Client-side helpers the managed integration tests drive through the
+# same C ABI; never built for release.
+test-client = []
+
 [lib]
 name = "rod_wg"
 crate-type = ["cdylib", "rlib"]

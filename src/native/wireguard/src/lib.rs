@@ -507,3 +507,196 @@ pub mod ffi {
         )
     }
 }
+
+/// The client-side helper the managed integration tests drive before the
+/// implant's own carriage exists (cargo feature `test-client`): one
+/// initiator tunnel against a server key, the same poll discipline the
+/// implant will run -- handshake exchange first, payloads over the
+/// session after. Never compiled into a release library.
+#[cfg(feature = "test-client")]
+pub mod test_client {
+    use super::*;
+    use std::sync::Mutex;
+
+    struct Client {
+        tunn: Tunn,
+    }
+
+    /// One client tunnel: the implant's stand-in for tests.
+    pub struct WgTestClient {
+        inner: Mutex<Client>,
+    }
+
+    const MAX_PACKET: usize = 65535;
+
+    impl WgTestClient {
+        /// Build a client over its 32-byte static private key against the
+        /// server's 32-byte static public key.
+        pub fn new(client_private: [u8; 32], server_public: [u8; 32]) -> WgTestClient {
+            let private = x25519::StaticSecret::from(client_private);
+            let public = x25519::PublicKey::from(server_public);
+            WgTestClient {
+                inner: Mutex::new(Client {
+                    tunn: Tunn::new(private, public, None, None, 0, None),
+                }),
+            }
+        }
+
+        /// One contact out: a handshake initiation when no session stands,
+        /// else the wrapped payload as a data packet.
+        pub fn contact(&self, payload: &[u8]) -> Vec<u8> {
+            let mut client = self.inner.lock().expect("client lock");
+            let mut buf = [0u8; MAX_PACKET];
+            match client.tunn.encapsulate(&wrap_inner(payload), &mut buf) {
+                TunnResult::WriteToNetwork(written) => written.to_vec(),
+                _ => Vec::new(),
+            }
+        }
+
+        /// Feed a server datagram; the drained inner payload, when the
+        /// datagram carried one, comes back.
+        pub fn receive(&self, datagram: &[u8]) -> Vec<u8> {
+            let mut client = self.inner.lock().expect("client lock");
+            let mut buf = [0u8; MAX_PACKET];
+            let mut feed = Some(datagram);
+            for _ in 0..4 {
+                let src = feed.take().unwrap_or_default();
+                match client.tunn.decapsulate(None, src, &mut buf) {
+                    TunnResult::WriteToNetwork(_) => feed = Some(&[]),
+                    TunnResult::WriteToTunnelV4(inner, _)
+                    | TunnResult::WriteToTunnelV6(inner, _) => {
+                        return unwrap_inner(inner).map(|p| p.to_vec()).unwrap_or_default();
+                    }
+                    _ => return Vec::new(),
+                }
+            }
+            Vec::new()
+        }
+    }
+
+    /// The client's static public key for its private half, for the peer
+    /// registration on the router side.
+    ///
+    /// # Safety
+    ///
+    /// `private` must point to 32 readable bytes and `out` to 32 writable
+    /// bytes, for the duration of the call.
+    #[no_mangle]
+    pub unsafe extern "C" fn rod_wg_test_public(private: *const u8, out: *mut u8) -> i32 {
+        if private.is_null() || out.is_null() {
+            return -7;
+        }
+        let slice = unsafe { std::slice::from_raw_parts(private, 32) };
+        let mut key = [0u8; 32];
+        key.copy_from_slice(slice);
+        let secret = x25519::StaticSecret::from(key);
+        let public = x25519::PublicKey::from(&secret);
+        unsafe {
+            std::ptr::copy_nonoverlapping(public.as_bytes().as_ptr(), out, 32);
+        }
+        0
+    }
+
+    /// Build a test client over the private/server-public key pair.
+    ///
+    /// # Safety
+    ///
+    /// Each key pointer must address 32 readable bytes for the duration
+    /// of the call; the returned handle belongs to
+    /// [`rod_wg_test_free`] alone.
+    #[no_mangle]
+    pub unsafe extern "C" fn rod_wg_test_new(
+        client_private: *const u8,
+        server_public: *const u8,
+    ) -> *mut WgTestClient {
+        let read = |ptr: *const u8| -> Option<[u8; 32]> {
+            if ptr.is_null() {
+                return None;
+            }
+            let slice = unsafe { std::slice::from_raw_parts(ptr, 32) };
+            let mut key = [0u8; 32];
+            key.copy_from_slice(slice);
+            Some(key)
+        };
+        match (read(client_private), read(server_public)) {
+            (Some(private), Some(public)) => {
+                Box::into_raw(Box::new(WgTestClient::new(private, public)))
+            }
+            _ => std::ptr::null_mut(),
+        }
+    }
+
+    /// One contact out; the datagram lands in `out`.
+    ///
+    /// # Safety
+    ///
+    /// `client` must be a live handle; `payload` must point to
+    /// `payload_len` readable bytes and `out` to `out_cap` writable ones.
+    #[no_mangle]
+    pub unsafe extern "C" fn rod_wg_test_contact(
+        client: *mut WgTestClient,
+        payload: *const u8,
+        payload_len: usize,
+        out: *mut u8,
+        out_cap: usize,
+        out_len: *mut usize,
+    ) -> i32 {
+        if client.is_null() || payload.is_null() || out.is_null() {
+            return -7;
+        }
+        let client = unsafe { &*client };
+        let payload = unsafe { std::slice::from_raw_parts(payload, payload_len) };
+        let datagram = client.contact(payload);
+        if datagram.len() > out_cap {
+            return -4;
+        }
+        unsafe { std::ptr::copy_nonoverlapping(datagram.as_ptr(), out, datagram.len()) };
+        if let Some(n) = out_len.as_mut() {
+            *n = datagram.len();
+        }
+        0
+    }
+
+    /// Feed a server datagram; the drained payload lands in `out`.
+    ///
+    /// # Safety
+    ///
+    /// `client` must be a live handle; `datagram` must point to
+    /// `datagram_len` readable bytes and `out` to `out_cap` writable ones.
+    #[no_mangle]
+    pub unsafe extern "C" fn rod_wg_test_receive(
+        client: *mut WgTestClient,
+        datagram: *const u8,
+        datagram_len: usize,
+        out: *mut u8,
+        out_cap: usize,
+        out_len: *mut usize,
+    ) -> i32 {
+        if client.is_null() || datagram.is_null() || out.is_null() {
+            return -7;
+        }
+        let client = unsafe { &*client };
+        let datagram = unsafe { std::slice::from_raw_parts(datagram, datagram_len) };
+        let payload = client.receive(datagram);
+        if payload.len() > out_cap {
+            return -4;
+        }
+        unsafe { std::ptr::copy_nonoverlapping(payload.as_ptr(), out, payload.len()) };
+        if let Some(n) = out_len.as_mut() {
+            *n = payload.len();
+        }
+        0
+    }
+
+    /// Drop a test client.
+    ///
+    /// # Safety
+    ///
+    /// `client` must be a handle from [`rod_wg_test_new`] not yet freed.
+    #[no_mangle]
+    pub unsafe extern "C" fn rod_wg_test_free(client: *mut WgTestClient) {
+        if !client.is_null() {
+            drop(unsafe { Box::from_raw(client) });
+        }
+    }
+}
