@@ -253,6 +253,88 @@ public sealed class WireGuardContactTests
         Assert.Equal("wireguard", active.LastCarrier);
     }
 
+    // The build half's rules (Sec 15.3 ADR-004 as amended), driven directly
+    // through the shared parser: a wireguard listener bakes the wg:// dial
+    // with the minted pair, the deployment's readiness names its refusals,
+    // and the carrier's limits (Rust reference, poll-only) are refused with
+    // the fix rather than baked.
+    [Fact]
+    public async Task AWireGuardBuildMintsItsPairAndRefusesWhatItCannotServe()
+    {
+        var options = new WireGuardOptions
+        {
+            Enabled = true,
+            ListenerKeys = new Dictionary<string, string>
+            {
+                [ListenerName] = Convert.ToBase64String(WireGuardTestClient.SeededKey(21)),
+            },
+        };
+        await using var tunnels = new WireGuardTunnelRegistry();
+        var engagement = Rod.CoreState.EngagementId.New(); var registry = new InMemoryListenerRegistry();
+        var listener = Listener.Define(
+            ListenerId.New(), ListenerName, "wireguard",
+            "127.0.0.1:51820", "10.0.0.7:51820", DateTimeOffset.UtcNow, engagement);
+        await registry.RegisterAsync(listener);
+        // The router the build's peer registration lands on -- the same key
+        // the options provision, so the listener is the deployment's shape.
+        tunnels.OpenListener(listener.Id, WireGuardTestClient.SeededKey(21));
+
+        var ca = new Rod.CoreState.Pki.DevCertificateAuthority();
+        var payloads = new Rod.Audit.InMemoryPayloadStore();
+        var request = new PayloadEndpoints.BuildPayloadRequest(
+            Language: "rust", Class: null, TargetOs: null, TargetArch: null,
+            ListenerId: listener.Id.ToString(), Mode: "poll");
+
+        var (parsed, error) = await PayloadBuildRequestParser.ParseAsync(
+            request, engagement, Rod.CoreState.OperatorId.New(), registry,
+            ca!, payloads, CancellationToken.None, options, tunnels);
+        Assert.Null(error);
+        Assert.Equal("wg://10.0.0.7:51820", parsed!.Transport.Endpoint);
+        Assert.NotNull(parsed.WireGuardPrivateKey);
+        Assert.Equal(32, parsed.WireGuardPrivateKey!.Length);
+        // The baked server half is the provisioned key's public counterpart,
+        // derived where the curve lives -- the native library.
+        Assert.Equal(WireGuardTestClient.PublicOf(21), parsed.WireGuardServerPublicKey);
+        Assert.NotNull(parsed.WireGuardArtifactPublicKey);
+
+        // A non-Rust build is refused: the carriage ships in the reference
+        // implant, and another language's artifact would bake a dial it
+        // cannot serve.
+        var (go, goError) = await PayloadBuildRequestParser.ParseAsync(
+            request with { Language = "go" }, engagement, Rod.CoreState.OperatorId.New(),
+            registry, ca!, payloads, CancellationToken.None, options, tunnels);
+        Assert.NotNull(goError);
+        Assert.Contains("rust", goError, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(go);
+
+        // The carrier is one-answer-one-poll: a stream-mode bake is refused
+        // with the fix, the DNS family's own rule.
+        var (stream, streamError) = await PayloadBuildRequestParser.ParseAsync(
+            request with { Mode = "stream" }, engagement, Rod.CoreState.OperatorId.New(),
+            registry, ca!, payloads, CancellationToken.None, options, tunnels);
+        Assert.NotNull(streamError);
+        Assert.Contains("one-answer-one-poll", streamError, StringComparison.OrdinalIgnoreCase);
+
+        // The validation shape mints nothing: a stored build profile parsed
+        // at creation time resolves the dial and checks the deployment
+        // without registering a peer whose private half is discarded.
+        var (validation, validationError) = await PayloadBuildRequestParser.ParseAsync(
+            request, engagement, Rod.CoreState.OperatorId.New(), registry,
+            ca!, payloads, CancellationToken.None, options, tunnels, mintWireGuard: false);
+        Assert.Null(validationError);
+        Assert.Equal("wg://10.0.0.7:51820", validation!.Transport.Endpoint);
+        Assert.Null(validation.WireGuardPrivateKey);
+
+        // A disabled transport refuses the build with the deployment fix:
+        // the conservative default an unregistered name keeps everywhere.
+        var (disabled, disabledError) = await PayloadBuildRequestParser.ParseAsync(
+            request, engagement, Rod.CoreState.OperatorId.New(), registry,
+            ca!, payloads, CancellationToken.None);
+        Assert.NotNull(disabledError);
+        Assert.Contains("not enabled", disabledError, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(disabled);
+    }
+
     /// <summary>
     /// One envelope contact body: the delimited frame sequence the HTTP
     /// route also carries, opening with the handshake for the named
