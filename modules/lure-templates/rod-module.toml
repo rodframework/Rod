@@ -1,0 +1,36 @@
+# The phishing-template asset module (architecture.md Sec 15.1): reusable
+# lure message templates, the content family that chases the SMTP
+# ecosystem's look and feel -- module-layer churn, not kernel work. A
+# campaign's creation resolves "lure-templates/<asset>" and stores the
+# rendered text on the campaign row; the merge grammar itself
+# ({{link}}, {{pixel}}, {{email}}, {{name}}) is the kernel's rendering
+# contract and stays there.
+#
+# File shape (the campaign consumer's contract): the first line is
+# "Subject: <text>", one blank line follows, the rest is the body; the
+# declared path's extension selects plain (.txt) against HTML (.html).
+
+[module]
+name = "lure-templates"
+version = "1.0.0"
+entry = "assets"
+license = "Apache-2.0"
+description = "Reference phishing lure templates: benign, generic message pairs the campaign creation resolves by name and merges per recipient."
+
+[compatibility]
+teamserver = "1.0.0"
+
+[[assets]]
+name = "document-review"
+path = "assets/document-review.txt"
+
+[[assets]]
+name = "security-notice"
+path = "assets/security-notice.html"
+
+[opsec]
+lands-on-disk = false
+notes = "Message content the campaign engine sends through the operator's SMTP relay; nothing runs on the teamserver or the target."
+
+[package]
+include = ["rod-module.toml", "assets/**"]

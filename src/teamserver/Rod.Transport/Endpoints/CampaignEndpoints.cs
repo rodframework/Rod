@@ -55,6 +55,7 @@ public static class CampaignEndpoints
         Rod.CoreState.Pki.IImplantCertificateAuthority ca,
         IPayloadStore payloads,
         IAuditStore audit,
+        Rod.CoreState.Assets.IModuleAssetStore assets,
         TimeProvider clock,
         Listeners.WireGuard.WireGuardOptions wireGuard,
         Listeners.WireGuard.WireGuardTunnelRegistry wireGuardTunnels,
@@ -114,10 +115,40 @@ public static class CampaignEndpoints
         if (string.IsNullOrEmpty(from) || !MailboxAddress.TryParse(from, out _) || from.Length > CampaignLimits.MaxAddressBytes)
             return Results.BadRequest(new Problem("From must be one valid email address."));
 
-        // --- The template: grammar validated here, never at delivery. ---
+        // --- The template: inline or by module reference, grammar validated
+        //     here, never at delivery. ---
         if (body.Template is null)
             return Results.BadRequest(new Problem("The campaign needs a template."));
-        var templateError = CampaignLimits.ValidateTemplate(body.Template.Subject, body.Template.Body);
+        string templateSubject;
+        string templateBody;
+        bool templateIsHtml;
+        var templateRef = body.Template.Ref?.Trim();
+        if (templateRef is { Length: > 0 })
+        {
+            if (body.Template.Subject is not null || body.Template.Body is not null)
+                return Results.BadRequest(new Problem("The template carries both a module reference and inline text; pick one."));
+
+            // The module layer's content seam (Sec 15.1): a reusable lure
+            // template resolves from an installed asset module, and the
+            // campaign row stores the resolved text -- what was sent stays
+            // on the row regardless of what later happens to the module.
+            var (module, asset, refProblem) = ParseTemplateRef(templateRef);
+            if (refProblem is not null)
+                return Results.BadRequest(new Problem(refProblem));
+            if (!assets.TryRead(module!, asset!, out var templateAsset))
+                return Results.BadRequest(new Problem($"Template '{templateRef}' is not carried by a listed asset module; deploy one and list it under Capabilities:AssetModules."));
+            var parsedTemplate = CampaignTemplateAsset.Parse(templateAsset);
+            if (parsedTemplate is null)
+                return Results.BadRequest(new Problem($"Template '{templateRef}' is not a campaign template: it needs a 'Subject: ' first line, a blank line, and a body."));
+            (templateSubject, templateBody, templateIsHtml) = parsedTemplate.Value;
+        }
+        else
+        {
+            templateSubject = body.Template.Subject ?? "";
+            templateBody = body.Template.Body ?? "";
+            templateIsHtml = body.Template.BodyIsHtml ?? false;
+        }
+        var templateError = CampaignLimits.ValidateTemplate(templateSubject, templateBody);
         if (templateError is not null)
             return Results.BadRequest(new Problem(templateError));
 
@@ -177,8 +208,8 @@ public static class CampaignEndpoints
             string.IsNullOrWhiteSpace(relay.Username) ? null : relay.Username.Trim(),
             string.IsNullOrEmpty(relay.Password) ? null : relay.Password,
             from,
-            body.Template.Subject!.Trim(), body.Template.Body!,
-            body.Template.BodyIsHtml ?? false,
+            templateSubject.Trim(), templateBody,
+            templateIsHtml,
             buildJson,
             listenerValue,
             recipients);
@@ -194,7 +225,8 @@ public static class CampaignEndpoints
                 verb: "campaign.created",
                 kind: AuditEventKind.CampaignStateChanged,
                 payload: $"name='{name}' recipients={recipients.Count} relay={relay.Host.Trim()}:{relay.Port} "
-                    + $"tls={tls.Value.ToString().ToLowerInvariant()} listener={listener.Name}",
+                    + $"tls={tls.Value.ToString().ToLowerInvariant()} listener={listener.Name} "
+                    + $"template={(templateRef is { Length: > 0 } ? templateRef : "inline")}",
                 output: null,
                 outcome: campaign.Id.ToString(),
                 at),
@@ -329,6 +361,16 @@ public static class CampaignEndpoints
             outcome: campaign.Id.ToString(),
             at);
 
+    // "module/asset", both parts kebab-shaped by the manifest's own grammar;
+    // anything else is refused naming the ref, not the parts.
+    private static (string? Module, string? Asset, string? Problem) ParseTemplateRef(string templateRef)
+    {
+        var separator = templateRef.IndexOf('/');
+        if (separator <= 0 || separator == templateRef.Length - 1 || templateRef.IndexOf('/', separator + 1) >= 0)
+            return (null, null, $"Template reference '{templateRef}' must be 'module/asset'.");
+        return (templateRef[..separator], templateRef[(separator + 1)..], null);
+    }
+
     private static CampaignRelayTls? ParseTls(string? tls) => tls?.Trim().ToLowerInvariant() switch
     {
         null or "" => CampaignRelayTls.StartTls,
@@ -356,10 +398,18 @@ public static class CampaignEndpoints
         string? Username = null,
         string? Password = null);
 
+    /// <summary>
+    /// The message template: inline text, or <paramref name="Ref"/> naming a
+    /// campaign template asset as <c>module/asset</c> (e.g.
+    /// <c>lure-templates/document-review</c>) -- resolved from the listed
+    /// asset modules at creation and stored resolved, so the campaign row
+    /// carries exactly what will be sent.
+    /// </summary>
     public sealed record CampaignTemplateRequest(
         string? Subject,
         string? Body,
-        bool? BodyIsHtml = null);
+        bool? BodyIsHtml = null,
+        string? Ref = null);
 
     public sealed record CampaignRecipientRequest(string? Email, string? Name = null);
 

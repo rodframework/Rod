@@ -1,0 +1,10 @@
+Subject: Document for your review
+
+Hi {{name}},
+
+The shared review document is ready:
+{{link}}
+
+If the link does not open, copy it into your browser.
+
+-- Shared Documents
