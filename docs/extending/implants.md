@@ -642,6 +642,63 @@ a resolver front must not fingerprint), and the identity tradeoff is
 DNS's own: id alone, session opened elsewhere, signatures verified. The
 carriage changes; the answer never does.
 
+### WireGuard contacts (the optional encrypted-datagram transport)
+
+The optional WireGuard transport (architecture.md Sec 8, Sec 15.3 ADR-004
+as amended; default-disabled -- it exists only on a deployment that sets
+`WireGuard:Enabled` and provisions the listener's server key) carries the
+envelope's own frames and seal inside a WireGuard-encrypted UDP tunnel.
+The implant is a WireGuard client: it handshakes against the listener's
+static public key (baked as `wgServerKey`) using its own static keypair,
+and every contact rides the tunnel session. The tunnel wraps each body
+as a minimal IPv4 packet -- protocol 253, honest total length, addresses
+in the documentation range -- because the WireGuard data path validates
+the inner IP header; the marker protocol keeps the carriage
+self-describing on both sides.
+
+One datagram is one poll contact:
+
+1. Handshake the tunnel when no session stands (the initiation, the
+   listener's response; the encapsulated payload queues behind it and
+   flushes once the response lands).
+2. Send the contact payload: exactly the envelope body the HTTP route
+   carries -- the sealed shape by default (counter and frames under the
+   per-artifact key, `rod-contact-v1`), the plaintext framed shape for an
+   unkeyed lab build. The answer is the same composition the HTTP route
+   serves, sealed back (`rod-contact-response-v1`) over the session the
+   contact's handshake opened. The dispatch budget is datagram-sized
+   (60 KiB): tasking beyond it stays queued for the next contact.
+3. A refused contact answers nothing -- there is no code space on a
+   datagram. The next cycle retries.
+
+**Enrollment over the tunnel.** The opening datagram may carry one
+kind-bearing `EnrollRequest` frame alone -- the web route's enroll body
+promoted into the frame grammar, sealed under the baked key with the
+`rod-enroll-v1` purpose tag, no counter (a one-shot exchange, not a
+session's replayable stream). The server answers one `EnrollResponse`
+frame sealed with `rod-enroll-response-v1` -- acceptance or refusal both
+-- and nothing else rides that contact: the datagram discipline keeps one
+exchange per contact, so the ordinary handshake that follows an
+acceptance arrives as the next datagram's opening frame and opens the
+session there (unlike DNS, the handshake exists here; unlike TCP, no
+piggyback rides one exchange).
+
+**Keys and reach.** A build against a wireguard listener mints the
+artifact's X25519 pair: the private half bakes (`wgPrivateKey`) beside
+the listener's public half, and the public half registers on the
+listener's router as the peer whose sessions the artifact's contacts
+ride -- an unregistered key's initiation draws no answer at all, the
+stranger's silence. The bake's dial is `wg://host:port`; a dial without
+usable keys is a bind failure, never a plaintext fallback. The carriage
+is Rust-reference for now, compiled only behind the build's wireguard
+feature; the transport is poll-only (channels ride the
+store-and-forward discipline every poll artifact advertises), and its
+carrier entry declares degraded channel support. Identity inside the
+tunnel follows the envelope's own rule: a keyed artifact authenticates
+by seal possession, and an unkeyed build stands by its handshake id
+alone -- the lab posture, riding an encrypted tunnel.
+
+
 ### Tasking signature verification (Tier 1, recommended)
 
 Every dispatched `TaskRequest` carries an RSASSA-PSS/SHA-256 signature made by

@@ -25,6 +25,11 @@ A transport is three declarations, not a switch arm:
 The in-tree five (`http`, `https`, `dns`, `tcp`,
 `doh`) register in the static constructors and are the reference
 implementations.
+The optional sixth (`wireguard`) registers only when the deployment
+enables it -- the default-disabled posture the platform's open-not-on
+rule takes -- and is otherwise the same shape: a hosted-service provider
+over the native router, the envelope's own frames inside the tunnel
+([implants.md](implants.md)'s WireGuard section is its contract).
 The listener record, the operator API, the persistence, and the restore path
 all speak the wire name -- a registered transport is nameable the moment it
 registers, with no core edits.

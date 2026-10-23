@@ -1069,11 +1069,22 @@ OPSEC is a design axis, not a feature flag. The architecture bakes in:
   whatever carriage it holds, so no pipe exists to name). The frozen wire
   contract keeps the QUIC-only frame kinds reserved; a community unit
   reviving a family registers a provider against the same contracts.
-  _(future)_ The program (Sec 15.3) adds **WireGuard** as an in-tree
-  optional transport over the provider seam the surface already runs on
-  (`ITransportProvider`; the registration manual is
+  _(shipped)_ **WireGuard** is the in-tree optional transport over the
+  provider seam the surface runs on (`ITransportProvider`; the
+  registration manual is
   [extending/transports.md](extending/transports.md)): default-disabled,
-  enabled per build profile. mTLS stays retired with QUIC and SMB -- the
+  enabled by the deployment and named per build -- a build against a
+  wireguard listener is the transport-enable set. The envelope's own
+  frames and seal ride WireGuard-encrypted UDP, one datagram per contact
+  on the datagram budget; enrollment rides the tunnel's opening exchange
+  (the EnrollRequest frame promoted into the rod.v1 grammar, the same
+  full-independence step the stream and DNS carriages took); the tunnel
+  state is the native boringtun router behind a small C ABI, so no
+  WireGuard cryptography exists in C#, and a build mints the artifact's
+  X25519 pair -- the private half baked, the public half registered on
+  the listener's router and restored from the payload store on a restart.
+  The wire contract is [extending/implants.md](extending/implants.md)'s
+  WireGuard section. mTLS stays retired with QUIC and SMB -- the
   reopening ADR-004 once carried is rescinded (Sec 15.3): the retirement's
   reasoning has only strengthened since, so an operator who wants it
   anyway takes the out-of-tree provider registration that is any
@@ -3084,35 +3095,34 @@ Where the program touches the existing layers:
 | `Rod.CoreState` | Verbs gain the ATT&CK technique mapping (ADR-007; shipped -- the kernel data file behind the `IVerbTechniqueResolver` port, with the class platform surface beside the class verb sets); comment and chat aggregates (ADR-005; shipped, with the credential landing store and the task-reference resolver); the output-taxonomy resolver port ships (shipped with Sec 15.2's trilogy). |
 | `Rod.Audit` | Chain semantics tighten: mutable content never enters the chain (ADR-005). |
 | `Rod.Protocol` | Frame-negotiation fields for the optional transports (ADR-004); the resumable-transfer fields, both arms (ADR-010; shipped). |
-| `Rod.Transport` | `ITransportProvider` abstraction (shipped -- the in-tree families are its reference implementations); optional WireGuard, default-disabled (ADR-004, amended: mTLS stays retired). The `/api/v1` versioned alias, the OpenAPI 3.1 contract generation, and the token-scope floor gate (ADR-006; shipped). |
-| `Rod.BuildPipeline` | The build contract gains a transport-enable-set parameter; a Go build unit joins the community slots. |
+| `Rod.Transport` | `ITransportProvider` abstraction (shipped -- the in-tree families are its reference implementations); optional WireGuard, default-disabled, shipped (ADR-004, amended: mTLS stays retired). The `/api/v1` versioned alias, the OpenAPI 3.1 contract generation, and the token-scope floor gate (ADR-006; shipped). |
+| `Rod.BuildPipeline` | The build contract's transport-enable set, shipped as the named front itself -- a build against a wireguard listener mints the per-artifact pair and enables the carriage's compile; a Go build unit joined the community slots (shipped). |
 | `Rod.Operators` | Collaboration metadata APIs (ADR-005; shipped); MCP read-write under token scopes (ADR-006; shipped, the operate floor and Sec 10.4's unattended red line held at the tool level); token-scope claim stamping (ADR-006; shipped with the transport-side floor and gate). |
 | `Rod.Capabilities` | Contract registry + in-tree module host (ADR-001; shipped, with the first reference module under `modules/`). |
 | `Rod.Persistence` | `tsvector` full-text indexes; comment and chat tables (ADR-005; shipped, generated columns under GIN on tasks, comments, chat, credentials, and artifacts). |
 | `Rod.TeamServer` | Mounts the new components; the built-in diagnostics endpoint (ADR-008). |
 | `rod-cli` (shipped, `src/cli/dotnet/`) | `rod mod init/search/info/install/verify/publish` over the manifest, signature, registry, and lock contracts (ADR-002, ADR-009); no in-house references. |
 
-- **Optional transports** (ADR-004; amended -- the abstraction shipped,
-  the mTLS reopening rescinded). `ITransportProvider` landed with the
-  in-tree families as its reference implementations, out-of-tree
-  registration included ([extending/transports.md](extending/transports.md)).
-  What remains of the item is **WireGuard** as an in-tree optional
-  transport, disabled by default and enabled per build profile, with the
-  listener configuration model learning enable/disable per family. mTLS
+- **Optional transports** (ADR-004; amended -- shipped). The
+  `ITransportProvider` abstraction landed with the in-tree families as its
+  reference implementations, out-of-tree registration included
+  ([extending/transports.md](extending/transports.md)), and **WireGuard**
+  is the in-tree optional transport it carries: disabled by default,
+  enabled by the deployment (`WireGuard:Enabled`, the listener's server
+  key provisioned under `WireGuard:ListenerKeys`), named per build. mTLS
   stays retired with QUIC and SMB: nothing has countered the retirement's
   reasoning (redundant with the WebSocket beacon, a `CertificateRequest`
   itself a fingerprint), and the per-artifact key seal has since covered
   a keyed artifact's mutual authentication on every carriage -- an
   operator who wants it regardless registers a provider out-of-tree
   against the same contracts. The WireGuard dependency PoC ADR-004
-  required has run: boringtun 0.7.1 (BSD-3-Clause) builds clean on all
-  three implant cross targets, adds 110 KiB to the musl release binary
-  with the full handshake and data path linked, and ships a C-ABI cdylib
-  (`new_tunnel`, `wireguard_read`/`write`/`tick`) that gives the .NET
-  side the tunnel without any in-tree novel crypto. The upstream is
-  dormant; Mullvad's gotatun is the active lineage and the recorded
-  migration watch-item -- its public API has moved behind its device
-  machinery and its default crypto backend is C-compiled, so the
+  required ran and became the shipped seam: boringtun 0.7.1
+  (BSD-3-Clause) builds clean on all three implant cross targets with the
+  full handshake and data path linked, and ships as the C-ABI cdylib
+  (`rod_wg`) the .NET side drives without any in-tree novel crypto. The
+  upstream is dormant; Mullvad's gotatun is the active lineage and the
+  recorded migration watch-item -- its public API has moved behind its
+  device machinery and its default crypto backend is C-compiled, so the
   migration is a deliberate port, not a version bump.
 - **Collaboration metadata** (ADR-005; shipped). Mutable process knowledge is
   modeled apart from the immutable evidence: **comments** (on tasks,
@@ -3280,7 +3290,7 @@ Where the program touches the existing layers:
 | 001 | Capability modules fully in-tree; `Rod.Capabilities` | Sec 15.1 |
 | 002 | Ecosystem: git index registry + signed manifests + `rod mod` CLI | Sec 15.2 |
 | 003 | Ecosystem from zero; capability contract first-class (schema, output taxonomy, versions) | Sec 15.2 |
-| 004 | Transport provider abstraction (shipped); optional WireGuard, default off; mTLS reopening rescinded | Sec 8, Sec 15.3 |
+| 004 | Transport provider abstraction (shipped); optional WireGuard, default off (shipped); mTLS reopening rescinded | Sec 8, Sec 15.3 |
 | 005 | Collaboration metadata modeled apart from the audit chain | Sec 15.3 |
 | 006 | Versioned `/api/v1`, OpenAPI, Python/Go SDKs, scoped tokens, MCP read-write | Sec 15.3 |
 | 007 | ATT&CK coverage matrix as the capability north star | Sec 15.3 |
