@@ -394,6 +394,7 @@ public static class TransportHost
         // The plain-HTTP envelope contact handler (architecture.md Sec 8):
         // one POST is one poll contact, the same frames the live carriages
         // carry as delimited sequences in ordinary request/response bodies.
+        services.AddSingleton<Endpoints.EnvelopeContactCore>();
         services.AddSingleton<Endpoints.EnvelopeBeaconContact>();
         // The store-and-forward half of the degraded channel discipline
         // (architecture.md Sec 10.3): the parking queue operator input waits
