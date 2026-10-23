@@ -31,3 +31,9 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+[features]
+# The implant core's optional WireGuard transport, forwarded so an android
+# build against a wireguard listener compiles the tunnel carriage into the
+# cdylib the build unit enables it on.
+wireguard = ["rod-implant/wireguard"]

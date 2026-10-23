@@ -3,6 +3,8 @@ pub mod http;
 pub(crate) mod live;
 pub mod rawtcp;
 pub mod stream;
+#[cfg(feature = "wireguard")]
+pub mod wireguard;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -131,13 +133,17 @@ pub fn contact_dial(enroll_url: &str) -> String {
 }
 
 /// The non-web families' front shapes: the socket's dial is the bare
-/// tcp://authority (no route), and the DNS family's is resolver plus zone
+/// tcp://authority (no route), the DNS family's is resolver plus zone
 /// (the envelope-derived path dropped for the first path segment -- the
-/// zone is the dial's own data, not a route).
+/// zone is the dial's own data, not a route), and the WireGuard family's
+/// is its bare authority -- the listener the tunnel dials.
 fn normalize_fronts(front: String) -> String {
-    if let Some(rest) = front.strip_prefix("tcp://") {
-        let authority = rest.split('/').next().unwrap_or(rest);
-        return format!("tcp://{authority}");
+    for scheme in ["tcp", "wg"] {
+        let prefix = format!("{scheme}://");
+        if let Some(rest) = front.strip_prefix(&prefix) {
+            let authority = rest.split('/').next().unwrap_or(rest);
+            return format!("{scheme}://{authority}");
+        }
     }
     for scheme in ["dns", "doh"] {
         let prefix = format!("{scheme}://");
@@ -161,11 +167,16 @@ fn normalize_fronts(front: String) -> String {
 
 /// The carriage one walked dial names: the socket family's dial picks the
 /// raw-TCP client (the mode choosing its poll or live shape), the DNS
-/// family's the datagram exchange, and otherwise the baked mode picks the
-/// web client -- poll's POST cycle or stream's WebSocket.
+/// family's the datagram exchange, the WireGuard family's the tunnel
+/// carriage (the feature-gated build), and otherwise the baked mode picks
+/// the web client -- poll's POST cycle or stream's WebSocket.
 pub fn carriage_for(dial: &str, profile: &Profile) -> Box<dyn Contact> {
     if dial.starts_with("tcp://") {
         return Box::new(rawtcp::RawTcp::new(dial, profile));
+    }
+    #[cfg(feature = "wireguard")]
+    if dial.starts_with("wg://") {
+        return Box::new(wireguard::WireGuard::new(dial, profile));
     }
     if dial.starts_with("dns://") || dial.starts_with("doh://") {
         return match dns::Dns::new(dial, profile) {
@@ -201,6 +212,8 @@ mod tests {
             envelope: "aesgcm".into(),
             contact_envelope: "none".into(),
             envelope_key: String::new(),
+            wg_private_key: String::new(),
+            wg_server_key: String::new(),
             token: String::new(),
             verbs: Vec::new(),
         }
@@ -244,6 +257,12 @@ mod tests {
         assert_eq!(
             contact_dial("tcp://10.0.0.9:8443/anything"),
             "tcp://10.0.0.9:8443"
+        );
+        // The WireGuard family's dial is its bare authority: the listener
+        // the tunnel dials, route dropped.
+        assert_eq!(
+            contact_dial("wg://10.0.0.9:51820/ignored"),
+            "wg://10.0.0.9:51820"
         );
         // The web family: the route derived off the front.
         assert_eq!(

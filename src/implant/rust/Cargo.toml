@@ -19,6 +19,7 @@ path = "src/main.rs"
 [dependencies]
 aes-gcm = "0.10"
 base64 = "0.22"
+boringtun = { version = "0.7", default-features = false, optional = true }
 p256 = { version = "0.13", features = ["ecdsa"] }
 prost = "0.13"
 rand = "0.8"
@@ -31,6 +32,13 @@ tungstenite = { version = "0.26", default-features = false, features = ["handsha
 ureq = { version = "2", default-features = false, features = ["tls"] }
 webpki-roots = "0.26"
 x509-parser = { version = "0.16", default-features = false }
+
+[features]
+# The optional WireGuard transport (architecture.md Sec 8, Sec 15.3
+# ADR-004 as amended): default off, enabled per build profile. The gate is
+# the build contract's transport-enable set -- a profile that does not
+# name wireguard compiles no tunnel code at all.
+wireguard = ["dep:boringtun"]
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

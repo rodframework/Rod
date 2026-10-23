@@ -139,6 +139,8 @@ mod tests {
             envelope: "none".into(),
             contact_envelope: contact_envelope.into(),
             envelope_key: envelope_key.into(),
+            wg_private_key: String::new(),
+            wg_server_key: String::new(),
             token: String::new(),
             verbs: Vec::new(),
         }

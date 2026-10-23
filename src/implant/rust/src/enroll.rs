@@ -166,11 +166,16 @@ pub fn enroll(url: &str, profile: &Profile, keys: &KeyPair) -> Result<Enrollment
 }
 
 /// The enroll dispatcher the run walk calls: the socket family's fronts
-/// (tcp://) enroll over their own stream contact, everything else over the
-/// web route's JSON body. Error prefixes stay the walk's vocabulary.
+/// (tcp://) enroll over their own stream contact, the WireGuard family's
+/// (wg://) over its tunnel, everything else over the web route's JSON
+/// body. Error prefixes stay the walk's vocabulary.
 pub fn enroll_any(url: &str, profile: &Profile, keys: &KeyPair) -> Result<Enrollment, String> {
     if url.starts_with("tcp://") {
         return enroll_over_socket(url, profile, keys);
+    }
+    #[cfg(feature = "wireguard")]
+    if url.starts_with("wg://") {
+        return crate::transport::wireguard::enroll_over_wireguard(url, profile, keys);
     }
     if url.starts_with("dns://") || url.starts_with("doh://") {
         return crate::transport::dns::enroll_over_dns(url, profile, keys);

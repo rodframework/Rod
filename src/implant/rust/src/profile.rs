@@ -28,6 +28,18 @@ pub struct Profile {
     pub envelope: String,
     pub contact_envelope: String,
     pub envelope_key: String,
+    /// The artifact's WireGuard private half (base64 of 32 bytes), minted
+    /// per artifact by a WireGuard-enabled build and registered -- as its
+    /// public counterpart -- on the listener it builds against. Empty on
+    /// every other bake; a wg:// dial with no usable pair is a bind
+    /// failure, never a plaintext fallback.
+    #[cfg_attr(not(feature = "wireguard"), allow(dead_code))]
+    pub wg_private_key: String,
+    /// The listener's WireGuard public key (base64 of 32 bytes) the
+    /// artifact's tunnel initiates against -- the public half of the
+    /// deployment-provisioned server key.
+    #[cfg_attr(not(feature = "wireguard"), allow(dead_code))]
+    pub wg_server_key: String,
     pub token: String,
     pub verbs: Vec<String>,
 }
@@ -81,6 +93,8 @@ impl Profile {
             envelope: field(&map, "envelope").unwrap_or("aesgcm").to_string(),
             contact_envelope: field(&map, "contactEnvelope").unwrap_or("none").to_string(),
             envelope_key: field(&map, "envelopeKey").unwrap_or("").to_string(),
+            wg_private_key: field(&map, "wgPrivateKey").unwrap_or("").to_string(),
+            wg_server_key: field(&map, "wgServerKey").unwrap_or("").to_string(),
             token: field(&map, "token").unwrap_or("").to_string(),
             verbs: field(&map, "verbs")
                 .unwrap_or("")
@@ -123,6 +137,8 @@ impl Profile {
                 std::env::var("ROD_CONTACT_ENVELOPE").unwrap_or_else(|_| "aesgcm".into())
             },
             envelope_key,
+            wg_private_key: std::env::var("ROD_WG_PRIVATE_KEY").unwrap_or_default(),
+            wg_server_key: std::env::var("ROD_WG_SERVER_KEY").unwrap_or_default(),
             token: std::env::var("ROD_DEPLOY_TOKEN").unwrap_or_default(),
             verbs: std::env::var("ROD_VERBS")
                 .unwrap_or_default()
@@ -165,7 +181,10 @@ impl Profile {
 /// non-web families carry their own dial data in the path -- the DNS zone
 /// above all -- so the web knob never touches them.
 pub fn apply_path(url: &str, path: &str) -> String {
-    if url.starts_with("tcp://") || url.starts_with("dns://") || url.starts_with("doh://") {
+    if ["tcp://", "dns://", "doh://", "wg://"]
+        .iter()
+        .any(|scheme| url.starts_with(scheme))
+    {
         return url.to_string();
     }
     let Some(scheme_at) = url.find("://") else {
@@ -260,6 +279,8 @@ mod tests {
             envelope: "aesgcm".into(),
             contact_envelope: "none".into(),
             envelope_key: String::new(),
+            wg_private_key: String::new(),
+            wg_server_key: String::new(),
             token: String::new(),
             verbs: Vec::new(),
         }
