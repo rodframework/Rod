@@ -32,9 +32,6 @@ Phase P1 -- long-board parity (architecture.md Sec 15). P0 (the
 replacement threshold, ADR-007) shipped; the parking condition cleared,
 so the queue moved up by the file's own mechanics.
 
-- **Kernel/module layering landed** -- browser-hook assets and phishing
-  templates load as modules (Sec 15.1). _AC:_ both asset families load as
-  modules; the kernel tests contain none of their logic.
 - **Entity-relationship model in storage** -- the explicit foreign keys of
   Sec 15.4's unified entity model (ReconAsset, Recipient, and the rest of
   the link set). _AC:_ a recon asset is directly selectable as a campaign

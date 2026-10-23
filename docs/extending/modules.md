@@ -162,6 +162,74 @@ or a same-named dll in the application directory) -- it never scans
 directories. A module reaches the process exactly when an operator built it,
 placed it, and named it.
 
+## Asset modules: ship content, not code
+
+The module layer's second half is content (architecture.md Sec 15.1): hook
+scripts and phishing templates chase browser versions and the SMTP
+ecosystem, churn no kernel should absorb. An asset module is pure files --
+no assembly, nothing executes on the teamserver:
+
+```toml
+[module]
+name = "my-lures"
+version = "1.0.0"
+entry = "assets"
+license = "Apache-2.0"
+description = "Lure templates for the quarterly engagements."
+
+[compatibility]
+teamserver = "1.0.0"
+
+[[assets]]
+name = "renewal-notice"
+path = "assets/renewal-notice.txt"
+```
+
+Each `[[assets]]` row binds a logical name to a package-relative file. Drop
+the directory on the host and list it under `Capabilities:AssetModules`
+(paths are relative to the teamserver binary; the build deploys the in-tree
+set under `modules/` beside the binary):
+
+```json
+{
+  "Capabilities": {
+    "AssetModules": [ "modules/lure-templates", "/opt/rod/modules/my-lures" ]
+  }
+}
+```
+
+The host reads the manifest's module name and asset rows at startup and
+serves the bytes by `module/asset` name. Failures are loud, matching the
+assembly loader: a listed directory that is missing, a manifest that does
+not parse, an asset path that escapes the module tree, or a declared file
+that is absent each aborts startup. Two modules claiming one name resolve
+last-listed-wins -- the authority rule every module seam applies. `rod mod
+init --entry assets` scaffolds the whole shape, the asset rows ride the
+signed canonical form like verb rows, and the file bytes ride it through
+the per-file digests, so the trust chain is the same one an assembly
+module rides.
+
+What an asset *means* is the consumer's contract, and each consumer names
+its own:
+
+- **The browser hook** (module `browser-hook`, asset `hook`): a JavaScript
+  template that carries the `__ROD_BAKE_JSON__` placeholder exactly once.
+  The mint substitutes one compact camelCase JSON bake object (endpoints,
+  credential, seal, cadence, verbs) and serves the result. A served hook is
+  reviewable as "the template plus this bake" and nothing else; while no
+  module is listed, the mint refuses with 503 naming the config section.
+- **Campaign templates** (any module, referenced as `module/asset` in the
+  campaign's `template.ref`): one file per template -- a `Subject: ` first
+  line, one blank line, then the body; the declared path's extension
+  selects plain (`.txt`) against HTML (`.html`/`.htm`). Creation resolves
+  the reference, runs the result through the same validation as inline
+  text (the merge grammar `{{link}}`, `{{pixel}}`, `{{email}}`, `{{name}}`
+  is the kernel's contract), and stores the resolved subject and body on
+  the campaign row.
+
+The in-tree reference pair ships under `modules/browserhook` and
+`modules/lure-templates`; both load through exactly this path.
+
 ## Implant-side half: write a plugin module
 
 The crate fork (below) adds a handler at build time. The plugin seam adds

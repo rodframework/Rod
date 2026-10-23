@@ -67,6 +67,14 @@ Neither names a relay; the campaign body does.
    `publicEndpoint` fronts the lure (the same front the artifact's
    baked endpoint dials), give the relay and the from address, the
    subject/body template, the build profile, and the recipient list.
+   The template arrives either inline or as `template.ref`, a
+   `module/asset` reference into the asset modules listed under
+   `Capabilities:AssetModules` (architecture.md Sec 15.1; the in-tree
+   reference set is `modules/lure-templates`) -- a reference resolves
+   to subject and body at creation and the campaign row stores the
+   resolved text, so what was sent is always on the row. A template
+   file is a `Subject: ` first line, a blank line, then the body; the
+   file's extension selects plain (`.txt`) against HTML (`.html`).
    Creation validates what delivery would otherwise discover too late:
    the template's merge fields (`{{link}}`, `{{pixel}}`, `{{email}}`,
    `{{name}}` -- `{{link}}` required in the body, unknown fields

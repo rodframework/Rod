@@ -49,6 +49,10 @@ toolchain and language boundaries in Sec 12.2, capability surface in Sec 13.
   not kernel work: nothing under `src/teamserver` references them, and they
   load through the same config-listed path external modules take
   (architecture.md Sec 15.1); the architecture tests hold that boundary.
+  Asset modules (hook scripts, phishing templates -- pure file trees with a
+  `rod-module.toml`) live under `modules/` too and load through
+  `Capabilities:AssetModules`; their content tests travel with the module
+  (under `modules/<name>/tests/`), not with the kernel suites.
 - **Operator CLI: .NET console (`rod`).** `src/cli/dotnet/` -- the
   `rod mod` module-lifecycle suite (init/search/info/install/verify/
   publish). It references nothing in-house: it couples to the platform

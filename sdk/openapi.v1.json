@@ -5165,6 +5165,12 @@
               "null",
               "boolean"
             ]
+          },
+          "ref": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

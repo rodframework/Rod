@@ -1336,7 +1336,8 @@ OPSEC is a design axis, not a feature flag. The architecture bakes in:
 - **The browser-hook serving edge is a public route on the implant-facing
   listeners, gated by an unguessable id.** A Browser-class hook (Sec 5.2)
   is minted per engagement (`POST /engagements/{id}/hooks`): the mint
-  renders the hook script from the in-tree template with the enroll URL,
+  renders the hook script from the listed hook asset module (Sec 15.1; the
+  mint refuses loudly while no module is listed) with the enroll URL,
   deploy token, seal key, cadence, and verb list baked in, and stores the
   rendered artifact as an engagement payload record, so the serving route
   reads the same store every artifact route does.
@@ -2624,6 +2625,10 @@ credentials, and the from address), the recipient list (email and an
 optional display name, capped -- spear-phish scale, not bulk), the
 message template (subject and body, plain or HTML), the build profile,
 and the listener whose `publicEndpoint` fronts the lure. The template
+arrives either inline or as a `module/asset` reference into the listed
+asset modules (Sec 15.1); a reference resolves to subject and body at
+creation, and the row stores the resolved text -- the merge grammar below
+stays the kernel's rendering contract either way. The template
 merges per recipient and is validated at creation, not at delivery: an
 unknown field or a body without the link field is refused when the
 campaign is created, the same fail-at-the-seam discipline webhook
@@ -2952,6 +2957,25 @@ in the tree compile-references them, and the architecture tests hold that
 line. The seams stay the public, stable contract, and the tree eats its own
 dogfood. A kernel PR must answer *why it cannot be a module*.
 
+The content half rides the same rule (**shipped**): the two asset families
+this section names -- browser-hook scripts and phishing templates -- load
+as **asset modules**, pure file trees (a `rod-module.toml` whose
+`[[assets]]` rows name the files) listed under `Capabilities:AssetModules`,
+with no assembly at all. `Rod.Capabilities` hosts them: it resolves bytes
+by module name plus asset name at startup, fails loudly on anything listed
+but broken, and resolves name collisions last-listed-wins -- the loading
+contract the assembly seam already keeps. The kernel consumers stay thin:
+the hook mint renders its bake into the `browser-hook` module's template
+and refuses (503 naming the section) while no module is listed; campaign
+creation resolves a `module/asset` template reference to subject and body
+at the seam and stores the resolved text on the row, while the merge
+grammar (`{{link}}` and friends, Sec 11.5) remains the kernel's rendering
+contract. The in-tree reference set ships under `modules/browserhook` and
+`modules/lure-templates`; nothing under `src/teamserver` embeds a script
+or template asset (the architecture tests hold that line too), and the
+content's tests travel with the module while the kernel suites pin the
+seam.
+
 ### 15.2 The module ecosystem: registry, manifest, CLI (ADR-002, ADR-003, ADR-009)
 
 The ecosystem ports Mythic's play -- independent module repositories,
@@ -3013,9 +3037,12 @@ every pin will name, not a recovery flow the platform owes.
 **The manifest** (`rod-module.toml`): name, version, a compatibility
 matrix (implant class / platform / arch, minimum teamserver version),
 OPSEC metadata, ATT&CK mapping, the entry kind (server module, implant
-module, or build unit), the verb rows of the version matrix (each verb's
-module-scoped version and optional per-verb teamserver floor), license,
-packaging rules, and signature. The
+module, build unit, or asset module), the verb rows of the version matrix
+(each verb's module-scoped version and optional per-verb teamserver
+floor), the asset rows (`[[assets]]`, each binding a logical name a
+consumer resolves as `module/asset` to a package-relative file -- they
+ride the signed canonical form like verb rows, and the file bytes ride it
+through the per-file digests), license, packaging rules, and signature. The
 registry is a git repository in the Homebrew-tap shape -- one JSON file
 per module under `modules/`, contributed by pull request, no server, no
 database, an optional GitHub Pages mirror; the lock file
@@ -3098,7 +3125,7 @@ Where the program touches the existing layers:
 | `Rod.Transport` | `ITransportProvider` abstraction (shipped -- the in-tree families are its reference implementations); optional WireGuard, default-disabled, shipped (ADR-004, amended: mTLS stays retired). The `/api/v1` versioned alias, the OpenAPI 3.1 contract generation, and the token-scope floor gate (ADR-006; shipped). |
 | `Rod.BuildPipeline` | The build contract's transport-enable set, shipped as the named front itself -- a build against a wireguard listener mints the per-artifact pair and enables the carriage's compile; a Go build unit joined the community slots (shipped). |
 | `Rod.Operators` | Collaboration metadata APIs (ADR-005; shipped); MCP read-write under token scopes (ADR-006; shipped, the operate floor and Sec 10.4's unattended red line held at the tool level); token-scope claim stamping (ADR-006; shipped with the transport-side floor and gate). |
-| `Rod.Capabilities` | Contract registry + in-tree module host (ADR-001; shipped, with the first reference module under `modules/`). |
+| `Rod.Capabilities` | Contract registry + in-tree module host (ADR-001; shipped, with the first reference module under `modules/`), plus the asset-module host behind `Capabilities:AssetModules` (Sec 15.1; shipped, carrying the hook and lure-template reference modules). |
 | `Rod.Persistence` | `tsvector` full-text indexes; comment and chat tables (ADR-005; shipped, generated columns under GIN on tasks, comments, chat, credentials, and artifacts). |
 | `Rod.TeamServer` | Mounts the new components; the built-in diagnostics endpoint (ADR-008). |
 | `rod-cli` (shipped, `src/cli/dotnet/`) | `rod mod init/search/info/install/verify/publish` over the manifest, signature, registry, and lock contracts (ADR-002, ADR-009); no in-house references. |
