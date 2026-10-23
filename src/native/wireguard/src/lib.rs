@@ -51,6 +51,9 @@ pub struct Injected {
     pub network: Vec<u8>,
     /// The inner payload a data packet carried, IP wrap stripped.
     pub tunnel: Vec<u8>,
+    /// The peer whose session carried the tunnel payload: the addressee a
+    /// response seals to. Set only when `tunnel` is not empty.
+    pub peer: Option<[u8; 32]>,
 }
 
 /// One listener's WireGuard state: the server key and the peer set.
@@ -160,6 +163,7 @@ impl Router {
                 TunnResult::WriteToTunnelV4(inner, _) | TunnResult::WriteToTunnelV6(inner, _) => {
                     if let Some(payload) = unwrap_inner(inner) {
                         result.tunnel = payload.to_vec();
+                        result.peer = Some(public);
                     }
                     // Anything else is not this carriage's traffic; drop.
                     return;
@@ -344,8 +348,10 @@ pub mod ffi {
 
     /// Feed one received datagram. Network bytes to send back land in
     /// `net_out` (capacity `net_cap`), the carried inner payload in
-    /// `tun_out` (capacity `tun_cap`); the written lengths land in the
-    /// out-params, cleared to zero first in every case.
+    /// `tun_out` (capacity `tun_cap`), and the peer whose session carried
+    /// it in `peer_out` (32 bytes, zeroed first; all zeroes means no peer
+    /// -- nothing to answer). The written lengths land in the out-params,
+    /// cleared to zero first in every case.
     ///
     /// # Safety
     ///
@@ -363,6 +369,7 @@ pub mod ffi {
         tun_out: *mut u8,
         tun_cap: usize,
         tun_len: *mut usize,
+        peer_out: *mut u8,
     ) -> i32 {
         guard(
             || {
@@ -376,6 +383,9 @@ pub mod ffi {
                 if let Some(t) = tun_len.as_mut() {
                     *t = 0;
                 }
+                if !peer_out.is_null() {
+                    unsafe { std::ptr::write_bytes(peer_out, 0, 32) };
+                }
                 if datagram.is_null() || net_out.is_null() || tun_out.is_null() {
                     return ERR_NULL;
                 }
@@ -383,6 +393,12 @@ pub mod ffi {
                 let injected = router.inject(datagram);
                 if injected.network.len() > net_cap || injected.tunnel.len() > tun_cap {
                     return ERR_OUTPUT_TOO_SMALL;
+                }
+                if let Some(peer) = injected.peer {
+                    if peer_out.is_null() {
+                        return ERR_NULL;
+                    }
+                    unsafe { std::ptr::copy_nonoverlapping(peer.as_ptr(), peer_out, 32) };
                 }
                 unsafe {
                     if !injected.network.is_empty() {

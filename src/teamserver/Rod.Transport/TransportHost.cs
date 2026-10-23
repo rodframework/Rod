@@ -407,6 +407,17 @@ public static class TransportHost
         // and sealed the way the envelope contact is.
         services.AddSingleton<Endpoints.WebSocketBeaconStream>();
 
+        // The optional WireGuard transport's services (Sec 15.3 ADR-004 as
+        // amended): the tunnel registry and the beacon bridge register
+        // unconditionally (cheap, inert without a listener). The transport
+        // provider itself registers through RegisterOptionalProviders -- at
+        // builder time, not build time, because the startup listener
+        // section's name resolution runs eagerly.
+        services.AddSingleton<Listeners.WireGuard.WireGuardTunnelRegistry>();
+        services.AddSingleton<Listeners.WireGuard.WireGuardBeaconBridge>();
+        services.AddSingleton(Listeners.WireGuard.WireGuardOptions.FromConfiguration(configuration));
+        RegisterOptionalProviders(configuration);
+
         // Session staleness sweep (architecture.md Sec 10.3): the live values
         // are always registered -- the settings endpoints read them and the
         // composition root seeds them from the Sessions:Staleness section
@@ -860,12 +871,44 @@ public static class TransportHost
     /// <c>Audit:DataDirectory</c> section. Null keeps the in-memory
     /// adapters, matching every existing caller.
     /// </param>
+    /// <summary>
+    /// Registers the optional transports the configuration enables (Sec 15.3
+    /// ADR-004 as amended): default-disabled, so an unregistered name answers
+    /// "unknown transport" at a create or a startup entry -- the
+    /// conservative default the registry gives. Runs at builder time (the
+    /// startup listener section resolves its transport names eagerly, before
+    /// any service collection does) and is idempotent, so every composition
+    /// entry point can call it unconditionally.
+    /// </summary>
+    public static void RegisterOptionalProviders(
+        Microsoft.Extensions.Configuration.IConfiguration? configuration)
+    {
+        if (!Listeners.WireGuard.WireGuardOptions.FromConfiguration(configuration).Enabled)
+            return;
+        if (TransportProviders.Find("wireguard") is not null)
+            return;
+
+        TransportProviders.Register(new HostedServiceTransportProvider(
+            "wireguard",
+            new HostedBindShape(BindReservation.UdpPort, PublicEndpointShape.HostPort),
+            new[] { Rod.CoreState.Transports.TransportCapabilities.WireGuardName },
+            (services, registry, listener) => new Listeners.WireGuard.WireGuardListenerService(
+                listener,
+                services.GetRequiredService<Listeners.WireGuard.WireGuardTunnelRegistry>(),
+                services.GetRequiredService<Listeners.WireGuard.WireGuardBeaconBridge>(),
+                services.GetRequiredService<Listeners.WireGuard.WireGuardOptions>(),
+                registry,
+                services.GetRequiredService<ILoggerFactory>().CreateLogger<Listeners.WireGuard.WireGuardListenerService>())));
+    }
+
     public static IHostBuilder CreateHostBuilder(
         string[]? args = null,
         Action<IServiceCollection>? configureServices = null,
         Action<IEndpointRouteBuilder>? mapEndpoints = null,
         Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
-    => Host.CreateDefaultBuilder(args ?? Array.Empty<string>())
+    {
+        RegisterOptionalProviders(configuration);
+        return Host.CreateDefaultBuilder(args ?? Array.Empty<string>())
         .ConfigureWebHostDefaults(web => web
             .ConfigureServices(services =>
             {
@@ -892,6 +935,7 @@ public static class TransportHost
                     MapRodEndpoints(endpoints);
                     mapEndpoints?.Invoke(endpoints);
                 })));
+    }
 
     /// <summary>
     /// The transport-critical middleware core every Rod host runs, in order:

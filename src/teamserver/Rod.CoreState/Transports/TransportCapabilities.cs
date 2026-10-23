@@ -101,6 +101,9 @@ public static class TransportCapabilities
     /// <summary>The wire name of <see cref="MessagePipe"/>.</summary>
     public const string MessagePipeName = "message-pipe";
 
+    /// <summary>The wire name of <see cref="WireGuard"/>.</summary>
+    public const string WireGuardName = "wireguard";
+
     /// <summary>The live beacon stream (the WebSocket beacon, the held
     /// socket session): the native channel carrier.</summary>
     public static readonly CarrierCapabilities BeaconStream = new(ChannelSupport.Native);
@@ -125,6 +128,14 @@ public static class TransportCapabilities
     /// </summary>
     public static readonly CarrierCapabilities MessagePipe = new(ChannelSupport.Degraded);
 
+    /// <summary>The optional WireGuard transport's datagram contact: the
+    /// envelope's frames sealed inside WireGuard-encrypted UDP, one exchange
+    /// per contact -- the poll discipline on the datagram budget, with the
+    /// store-and-forward channels riding the contacts (Sec 8, Sec 15.3
+    /// ADR-004 as amended). Default-disabled; the carrier registers with the
+    /// transport that serves it.</summary>
+    public static readonly CarrierCapabilities WireGuard = new(ChannelSupport.Degraded);
+
     // Keyed by carrier wire name so a carrier the core does not know can
     // declare itself without editing this file; case-insensitive because the
     // name crosses operator input and persistence as a plain string.
@@ -135,6 +146,7 @@ public static class TransportCapabilities
             [EnvelopeName] = Envelope,
             [DnsName] = Dns,
             [MessagePipeName] = MessagePipe,
+            [WireGuardName] = WireGuard,
         };
 
     /// <summary>

@@ -39,7 +39,7 @@ internal sealed class WireGuardRouterHandle : SafeHandle
 /// the socket and the inner payload a data packet carried, either
 /// possibly empty.
 /// </summary>
-internal readonly record struct WireGuardInjected(byte[] Network, byte[] Tunnel);
+internal readonly record struct WireGuardInjected(byte[] Network, byte[] Tunnel, byte[]? Peer);
 
 /// <summary>
 /// The P/Invoke face of <c>rod_wg</c>. Calls are not thread-safe on one
@@ -134,15 +134,21 @@ internal static class WireGuardNative
     {
         var network = new byte[MaxPacket];
         var tunnel = new byte[MaxPacket];
+        var peer = new byte[32];
         var status = RouterInject(
             router,
             datagram.ToArray(), (nuint)datagram.Length,
             network, (nuint)network.Length, out var networkLength,
-            tunnel, (nuint)tunnel.Length, out var tunnelLength);
+            tunnel, (nuint)tunnel.Length, out var tunnelLength,
+            peer);
         WireGuardStatus.ThrowIfError(status, "inject the datagram");
+        var carried = tunnel[..(int)tunnelLength];
         return new WireGuardInjected(
             network[..(int)networkLength],
-            tunnel[..(int)tunnelLength]);
+            carried,
+            // All zeroes means no peer: a handshake answer or a stranger's
+            // drop, neither of which has an addressee to answer.
+            carried.Length > 0 && peer.Any(b => b != 0) ? peer : null);
     }
 
     /// <summary>
@@ -226,7 +232,8 @@ internal static class WireGuardNative
         WireGuardRouterHandle router,
         byte[] datagram, nuint datagramLength,
         byte[] networkOut, nuint networkCapacity, out nuint networkLength,
-        byte[] tunnelOut, nuint tunnelCapacity, out nuint tunnelLength);
+        byte[] tunnelOut, nuint tunnelCapacity, out nuint tunnelLength,
+        byte[] peerOut);
 
     [DllImport(Library, EntryPoint = "rod_wg_send")]
     private static extern int RouterSend(
