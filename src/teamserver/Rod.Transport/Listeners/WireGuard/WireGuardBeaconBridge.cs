@@ -1,3 +1,4 @@
+using Rod.CoreState.Listeners;
 using Rod.CoreState.Transports;
 using Rod.Transport.Endpoints;
 
@@ -11,13 +12,19 @@ namespace Rod.Transport.Listeners.WireGuard;
 // back over the session the contact's handshake opened. The composition
 // itself is the shared <see cref="EnvelopeContactCore"/>; this bridge names
 // the carrier's facts: the datagram-sized dispatch budget, the wireguard
-// capability entry, and the presence stamp the session records.
+// capability entry, the presence stamp the session records, and the
+// listener an in-band enrollment scopes itself by (the opening exchange
+// may carry an EnrollRequest frame, the stream carriage's own
+// full-independence step on this carrier's one-datagram discipline).
 
 /// <summary>
 /// Answers one wireguard contact payload. A refused contact (a body that
 /// does not verify, a replayed counter) answers null: a datagram carrier
 /// drops what the HTTP half would answer with a status code -- there is no
-/// code space on the wire and no channel to explain on.
+/// code space on the wire and no channel to explain on. An enroll exchange
+/// always answers: the enrolling client has no session to fall back on,
+/// and its refusal status rides the EnrollResponse frame the composition
+/// returns.
 /// </summary>
 internal sealed class WireGuardBeaconBridge
 {
@@ -42,7 +49,8 @@ internal sealed class WireGuardBeaconBridge
     /// Runs one contact: the decapsulated inner payload in, the sealed
     /// answer out, or null when the contact is refused.
     /// </summary>
-    public async Task<byte[]?> AnswerAsync(byte[] payload, CancellationToken cancellationToken)
+    public async Task<byte[]?> AnswerAsync(
+        byte[] payload, Listener listener, CancellationToken cancellationToken)
     {
         var result = await _core.ContactAsync(
             payload,
@@ -54,7 +62,11 @@ internal sealed class WireGuardBeaconBridge
                 // authenticates a keyed artifact, and an implant no key was
                 // ever bound to stands by its handshake id -- the cleartext
                 // lab posture, named as such.
-                CleartextIdentityFallback: true),
+                CleartextIdentityFallback: true,
+                // The tunnel's own listener scopes an in-band enrollment
+                // (Sec 8): the opening datagram may carry an EnrollRequest
+                // frame instead of the handshake.
+                Enrollment: new EnvelopeEnrollmentContext(listener)),
             cancellationToken);
 
         return result.Status == 200 ? result.Body : null;

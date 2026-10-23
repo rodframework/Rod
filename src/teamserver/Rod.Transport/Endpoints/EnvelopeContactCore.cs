@@ -1,13 +1,16 @@
 using System.Buffers.Binary;
 using System.Text;
 using Google.Protobuf;
+using Microsoft.Extensions.Logging;
 using Rod.Audit;
 using Rod.CoreState;
 using Rod.CoreState.Application;
+using Rod.CoreState.Deployment;
 using Rod.CoreState.Sessions;
 using Rod.CoreState.Tasks;
 using Rod.CoreState.Transports;
 using Rod.Transport.Channels;
+using Rod.Transport.Listeners;
 using Rod.Transport.Payloads;
 using Rod.V1;
 using Task = System.Threading.Tasks.Task;
@@ -23,6 +26,15 @@ namespace Rod.Transport.Endpoints;
 // code. The frames and the seal are the same bytes on either face, so
 // a result captured over one is indistinguishable from the other in
 // core state, the audit trail, and the live bus.
+//
+// A carrier that enrolls in-band (the same full-independence step the
+// stream and DNS carriages took, Sec 8) names its listener in the
+// contact options: the contact may then open with an EnrollRequest
+// frame -- the web route's JSON body promoted into the frame grammar,
+// sealed under the enroll purpose tag without a counter -- answered by
+// an EnrollResponse frame and nothing else. One exchange carries one
+// enrollment: the enroll message rides alone, and the frames that
+// follow it arrive on the next contact, after the ordinary handshake.
 
 /// <summary>
 /// One envelope contact's outcome: the HTTP status the route maps onto
@@ -53,11 +65,23 @@ internal readonly record struct EnvelopeContactResult(
 /// presence stamp the session records, and whether an unidentified
 /// handshake may stand by implant id alone (the cleartext postures).
 /// </summary>
+/// <param name="Enrollment">
+/// The in-band enrollment context, when this carrier enrolls its
+/// contacts' first exchanges (the datagram shape the WireGuard transport
+/// runs): the listener the contact arrived on, which scopes the
+/// enrollment and its audit. Null keeps the contact path
+/// handshake-only -- the HTTP route enrolls through its own web route,
+/// so it passes nothing.
+/// </param>
 internal sealed record EnvelopeContactOptions(
     int DispatchBudget,
     CarrierCapabilities Carrier,
     string PresenceCarrier,
-    bool CleartextIdentityFallback);
+    bool CleartextIdentityFallback,
+    EnvelopeEnrollmentContext? Enrollment = null);
+
+/// <summary>The listener an in-band enrollment scopes itself by.</summary>
+internal sealed record EnvelopeEnrollmentContext(Listener Listener);
 
 /// <summary>
 /// The shared envelope contact composition. One instance serves the
@@ -75,6 +99,10 @@ internal sealed class EnvelopeContactCore
     private readonly IPayloadStore _payloads;
     private readonly EnvelopeContactKeys _contactKeys;
     private readonly DegradedChannelHub _degraded;
+    private readonly EnrollmentService _enrollment;
+    private readonly IDeployTokenService _tokens;
+    private readonly Rod.CoreState.Campaigns.ICampaignStore _campaigns;
+    private readonly ILogger<EnvelopeContactCore> _logger;
 
     public EnvelopeContactCore(
         HandshakeService handshake,
@@ -86,7 +114,11 @@ internal sealed class EnvelopeContactCore
         TimeProvider clock,
         IPayloadStore payloads,
         EnvelopeContactKeys contactKeys,
-        DegradedChannelHub degraded)
+        DegradedChannelHub degraded,
+        EnrollmentService enrollment,
+        IDeployTokenService tokens,
+        Rod.CoreState.Campaigns.ICampaignStore campaigns,
+        ILogger<EnvelopeContactCore> logger)
     {
         _handshake = handshake;
         _sessions = sessions;
@@ -98,6 +130,10 @@ internal sealed class EnvelopeContactCore
         _payloads = payloads;
         _contactKeys = contactKeys;
         _degraded = degraded;
+        _enrollment = enrollment;
+        _tokens = tokens;
+        _campaigns = campaigns;
+        _logger = logger;
     }
 
     /// <summary>
@@ -116,7 +152,10 @@ internal sealed class EnvelopeContactCore
         // artifact's per-build key, wrapping a strictly increasing counter
         // (8 bytes, big-endian) ahead of the framed bytes. The key id resolves
         // the key beside the stored payload; the GCM tag authenticates the
-        // whole body, counter and frames together.
+        // whole body, counter and frames together. The opening exchange of a
+        // carrier that enrolls in-band may instead carry the enroll seal (no
+        // counter -- the enrollment is a one-shot exchange, not a session's
+        // replayable stream).
         long contactCounter = 0;
         var sealedKey = (KeyId: Guid.Empty, Key: Array.Empty<byte>());
         var isSealed = false;
@@ -124,15 +163,26 @@ internal sealed class EnvelopeContactCore
         if (EnvelopeBeaconContact.TryReadSealedKeyId(body, out var sealedText) is { } keyId)
         {
             var carrier = await _payloads.FindByEnvelopeKeyAsync(keyId, cancellationToken);
-            if (carrier?.EnvelopeKey is not { } key
-                || AesGcmEnvelope.TryUnwrap(sealedText, keyId, key, AesGcmEnvelope.ContactRequestAad)
-                    is not { } plaintext
-                || plaintext.Length < CounterBytes)
+            if (carrier?.EnvelopeKey is not { } key)
                 return EnvelopeContactResult.Refused(
                     401, "The contact body did not verify under its artifact key.");
 
-            contactCounter = BinaryPrimitives.ReadInt64BigEndian(plaintext);
-            framed = plaintext[CounterBytes..];
+            byte[]? plain = null;
+            if (options.Enrollment is not null)
+                plain = AesGcmEnvelope.TryUnwrap(sealedText, keyId, key, AesGcmEnvelope.EnrollRequestAad);
+            if (plain is null)
+            {
+                plain = AesGcmEnvelope.TryUnwrap(sealedText, keyId, key, AesGcmEnvelope.ContactRequestAad);
+                if (plain is null || plain.Length < CounterBytes)
+                    return EnvelopeContactResult.Refused(
+                        401, "The contact body did not verify under its artifact key.");
+                contactCounter = BinaryPrimitives.ReadInt64BigEndian(plain);
+                framed = plain[CounterBytes..];
+            }
+            else
+            {
+                framed = plain;
+            }
             sealedKey = (keyId, key);
             isSealed = true;
         }
@@ -159,6 +209,21 @@ internal sealed class EnvelopeContactCore
             return ex.Oversized
                 ? EnvelopeContactResult.Refused(413, "The request body is too large for the contact.")
                 : EnvelopeContactResult.Refused(400, "The request body is not a delimited frame sequence.");
+        }
+
+        // The in-band enrollment arm (Sec 8, the stream carriage's own
+        // full-independence step on the envelope's frames): an opening
+        // EnrollRequest frame is the whole exchange -- answered by one
+        // EnrollResponse frame, acceptance or refusal both, and nothing
+        // behind it rides this contact. The handshake that follows an
+        // acceptance arrives as the next contact's opening frame, the
+        // datagram discipline's one-exchange-per-contact shape.
+        if (frames.Count > 0
+            && frames[0].Kind == FrameKind.EnrollRequest
+            && options.Enrollment is { } enrollment)
+        {
+            return await AnswerEnrollmentAsync(
+                frames[0], enrollment.Listener, sealedKey, isSealed, cancellationToken);
         }
 
         // The implant speaks first here too: the first frame is the handshake.
@@ -312,6 +377,102 @@ internal sealed class EnvelopeContactCore
 
         return EnvelopeContactResult.Ok(Reply(outbound), isSealed);
     }
+
+    /// <summary>
+    /// The in-band enrollment exchange (Sec 8): a kind-bearing
+    /// EnrollRequest frame -- the enroll body the web route carries as
+    /// JSON, promoted into the rod.v1 frame grammar -- answered by an
+    /// EnrollResponse frame under the enroll response purpose tag when
+    /// the request sealed. The shared ScopedEnrollment flow does the
+    /// work every ingress drives, scoped by the listener this contact
+    /// arrived on, with the same refusal rules and audit arc. A refusal
+    /// answers its status frame; an acceptance is followed by the
+    /// ordinary handshake on the carrier's next contact.
+    /// </summary>
+    private async Task<EnvelopeContactResult> AnswerEnrollmentAsync(
+        Frame frame,
+        Listener listener,
+        (Guid KeyId, byte[] Key) sealedKey,
+        bool isSealed,
+        CancellationToken cancellationToken)
+    {
+        Rod.V1.EnrollRequest request;
+        try
+        {
+            request = Rod.V1.EnrollRequest.Parser.ParseFrom(frame.Payload);
+        }
+        catch (InvalidProtocolBufferException)
+        {
+            return EnvelopeContactResult.Ok(
+                EnrollReply(new Rod.V1.EnrollResponse { Status = EnrollStatus.Unspecified }, sealedKey, isSealed),
+                isSealed);
+        }
+
+        var outcome = await ScopedEnrollment.EnrollAsync(
+            new EnrollWireFields(
+                request.DeployTokenSecret,
+                NullWhenEmpty(request.Class),
+                request.PublicKey.IsEmpty ? null : request.PublicKey.ToByteArray(),
+                NullWhenEmpty(request.ParentImplantId),
+                NullWhenEmpty(request.Hostname),
+                NullWhenEmpty(request.Os),
+                NullWhenEmpty(request.Arch),
+                NullWhenEmpty(request.Username),
+                NullWhenEmpty(request.KillDate),
+                request.HasSleepSeconds ? request.SleepSeconds : null,
+                request.HasJitterSeconds ? request.JitterSeconds : null),
+            listener,
+            _enrollment,
+            _tokens,
+            _payloads,
+            _campaigns,
+            _contactKeys,
+            _audit,
+            _clock,
+            cancellationToken);
+
+        // The token states carry over the wire; the problem causes (a
+        // malformed request, a closed engagement) collapse to the generic
+        // refusal -- the same "no signal beyond no" the web route keeps --
+        // with the cause named server-side.
+        if (!outcome.Accepted)
+        {
+            if (outcome.Problem is { } problem)
+                _logger.LogInformation("Enroll refused on listener {Name}: {Problem}.", listener.Name, problem);
+            else
+                _logger.LogInformation(
+                    "Enroll refused on listener {Name}: status {Status}.", listener.Name, outcome.Status);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Listener {Name} enrolled implant {Implant} into {Engagement} over an in-band contact.",
+                listener.Name, outcome.Enrolled!.ImplantId, outcome.Enrolled.EngagementId);
+        }
+
+        return EnvelopeContactResult.Ok(
+            EnrollReply(ScopedEnrollmentResponse.Build(outcome), sealedKey, isSealed),
+            isSealed);
+    }
+
+    // One enrollment answer body: the framed EnrollResponse, sealed under
+    // the enroll response purpose tag when the request sealed -- the wire
+    // carries no readable frame bytes in either direction.
+    private static byte[] EnrollReply(
+        Rod.V1.EnrollResponse response, (Guid KeyId, byte[] Key) sealedKey, bool isSealed)
+    {
+        var body = EnvelopeFraming.Encode(new[]
+        {
+            new Frame { Kind = FrameKind.EnrollResponse, Payload = ByteString.CopyFrom(response.ToByteArray()) },
+        });
+        return isSealed
+            ? Encoding.UTF8.GetBytes(
+                AesGcmEnvelope.Wrap(body, sealedKey.KeyId, sealedKey.Key, AesGcmEnvelope.EnrollResponseAad))
+            : body;
+    }
+
+    private static string? NullWhenEmpty(string value)
+        => value.Length == 0 ? null : value;
 
     /// <summary>
     /// The sealed contact counter's size in bytes: an 8-byte unsigned

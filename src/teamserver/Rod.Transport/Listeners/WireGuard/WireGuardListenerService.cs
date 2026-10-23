@@ -122,7 +122,7 @@ internal sealed class WireGuardListenerService : BackgroundService
         byte[]? answer;
         try
         {
-            answer = await _bridge.AnswerAsync(injected.Tunnel, cancellationToken);
+            answer = await _bridge.AnswerAsync(injected.Tunnel, _listener, cancellationToken);
         }
         catch (OperationCanceledException)
         {

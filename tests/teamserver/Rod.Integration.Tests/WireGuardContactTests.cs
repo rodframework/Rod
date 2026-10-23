@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using Google.Protobuf;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,6 +13,7 @@ using Rod.Transport;
 using Rod.Transport.Endpoints;
 using Rod.Transport.Listeners;
 using Rod.Transport.Listeners.WireGuard;
+using Rod.Transport.Payloads;
 using Rod.V1;
 
 namespace Rod.Integration.Tests;
@@ -30,6 +32,7 @@ namespace Rod.Integration.Tests;
 public sealed class WireGuardContactTests
 {
     private const string ListenerName = "test-wireguard";
+    private const string EnrollListenerName = "test-wireguard-enroll";
 
     private sealed class WireGuardTestEnv : IAsyncDisposable
     {
@@ -46,12 +49,18 @@ public sealed class WireGuardContactTests
 
             // The deployment shape the transport ships with: enabled in
             // configuration, the listener's server key provisioned under its
-            // name, the native library beside the binaries.
+            // name, the native library beside the binaries. The enrollment
+            // test's runtime-created entry reads its key from the same
+            // section, provisioned ahead of the create the way a deployment
+            // provisions it.
             var serverKey = WireGuardTestClient.SeededKey(21);
+            var enrollServerKey = WireGuardTestClient.SeededKey(22);
             var config = AuthenticatedHost.BuildConfig(settings =>
             {
                 settings["WireGuard:Enabled"] = "true";
                 settings[$"WireGuard:ListenerKeys:{ListenerName}"] = Convert.ToBase64String(serverKey);
+                settings[$"WireGuard:ListenerKeys:{EnrollListenerName}"] =
+                    Convert.ToBase64String(enrollServerKey);
             });
 
             env.Host = TransportHost.CreateHostBuilder(
@@ -143,6 +152,105 @@ public sealed class WireGuardContactTests
         var initiation = stranger.Contact([]);
         var response = await UdpTryExchangeAsync(env.Port, initiation);
         Assert.Null(response);
+    }
+
+    // The enrollment exchange on the tunnel (Sec 8, the stream carriage's
+    // own full-independence step on the datagram discipline): the opening
+    // datagram carries one EnrollRequest frame sealed under the artifact
+    // key with the enroll purpose tag, answered by one EnrollResponse
+    // frame sealed the same way -- and the ordinary handshake that follows
+    // rides the next contact, sealed under the key the enrollment bound.
+    [Fact]
+    public async Task AnEnrollDatagramEnrollsItsImplantThroughTheTunnel()
+    {
+        await using var env = await WireGuardTestEnv.StartAsync();
+
+        // The engagement-scoped listener, created at runtime the way an
+        // engagement's ingress is: a shared-tier front refuses implant
+        // ingress outright, so the enrollment names its own entry -- with
+        // its server key provisioned under its name in the same deployment
+        // section the startup entry's key rides.
+        var engagement = await EngagementSetup.CreateOwnedEngagementAsync(env.Host);
+        var port = FreePort();
+        var manager = env.Host.Services.GetRequiredService<ListenerManager>();
+        var listener = await manager.CreateAsync(new ListenerConfig(
+            EnrollListenerName, "wireguard", $"127.0.0.1:{port}", $"127.0.0.1:{port}", engagement));
+
+        // The keyed artifact a WireGuard build mints: the envelope key and
+        // the token bound to it, seeded store-direct (the build pipeline's
+        // mint is its own acceptance; this suite drives the wire).
+        var clock = env.Host.Services.GetRequiredService<TimeProvider>();
+        var operatorRepository = env.Host.Services
+            .GetRequiredService<Rod.CoreState.Operators.IOperatorRepository>();
+        var owner = await operatorRepository.FindByHandleAsync(AuthenticatedHost.Handle)
+            ?? throw new InvalidOperationException("The seeded operator was not found.");
+        var tokens = env.Host.Services
+            .GetRequiredService<Rod.CoreState.Deployment.IDeployTokenService>();
+        var token = await tokens.MintAsync(engagement, owner.Id, clock.GetUtcNow());
+        var (keyId, key) = AesGcmEnvelope.Mint();
+        var payloads = env.Host.Services.GetRequiredService<Rod.Audit.IPayloadStore>();
+        await payloads.SaveAsync(new Rod.Audit.PayloadRecord(
+            Guid.NewGuid(), engagement.Value, "implant", "rust", "application/octet-stream",
+            "wireguard-enroll", Array.Empty<byte>(), 0, clock.GetUtcNow(),
+            TokenId: token.Id.Value, EnvelopeKeyId: keyId, EnvelopeKey: key));
+
+        using var client = WireGuardTestClient.Seeded(31, WireGuardTestClient.PublicOf(22));
+        env.Tunnels.RegisterPeer(listener.Id, client.PublicKey());
+
+        // The tunnel handshake opens the session the contacts ride.
+        client.Receive(await UdpExchangeAsync(port, client.Contact([])));
+
+        // One enroll datagram: the EnrollRequest frame alone, sealed under
+        // the enroll purpose tag without a counter -- the one-shot exchange.
+        var enrollBody = EnvelopeFraming.Encode(new[]
+        {
+            new Frame
+            {
+                Kind = FrameKind.EnrollRequest,
+                Payload = ByteString.CopyFrom(new Rod.V1.EnrollRequest
+                {
+                    DeployTokenSecret = token.Secret,
+                    Hostname = "wg-host01",
+                }.ToByteArray()),
+            },
+        });
+        var sealedEnroll = Encoding.UTF8.GetBytes(
+            AesGcmEnvelope.Wrap(enrollBody, keyId, key, AesGcmEnvelope.EnrollRequestAad));
+        var enrollAnswer = client.Receive(await UdpExchangeAsync(port, client.Contact(sealedEnroll)));
+
+        var plain = AesGcmEnvelope.TryUnwrap(
+            Encoding.UTF8.GetString(enrollAnswer), keyId, key, AesGcmEnvelope.EnrollResponseAad);
+        Assert.NotNull(plain);
+        var answerFrames = EnvelopeFraming.Parse(plain!);
+        var enrolled = Rod.V1.EnrollResponse.Parser.ParseFrom(answerFrames[0].Payload);
+        Assert.Equal(FrameKind.EnrollResponse, answerFrames[0].Kind);
+        Assert.Equal(EnrollStatus.Ok, enrolled.Status);
+        Assert.False(string.IsNullOrWhiteSpace(enrolled.ImplantId));
+        Assert.Equal(engagement.ToString(), enrolled.EngagementId);
+
+        // The contact that follows is the ordinary one: the handshake opens
+        // the session sealed under the key the enrollment bound, the
+        // counter riding the sealed body, and the carrier stamps
+        // wireguard.
+        var contactBody = BuildContact(enrolled.ImplantId);
+        var counter = new byte[8];
+        counter[7] = 1;
+        var sealedContact = Encoding.UTF8.GetBytes(AesGcmEnvelope.Wrap(
+            counter.Concat(contactBody).ToArray(), keyId, key, AesGcmEnvelope.ContactRequestAad));
+        var contactAnswer = client.Receive(await UdpExchangeAsync(port, client.Contact(sealedContact)));
+
+        var contactPlain = AesGcmEnvelope.TryUnwrap(
+            Encoding.UTF8.GetString(contactAnswer), keyId, key, AesGcmEnvelope.ContactResponseAad);
+        Assert.NotNull(contactPlain);
+        var handshake = HandshakeResponse.Parser.ParseFrom(EnvelopeFraming.Parse(contactPlain!)[0].Payload);
+        Assert.Equal(HandshakeStatus.Ok, handshake.Status);
+        Assert.Equal(engagement.ToString(), handshake.EngagementId);
+
+        var sessions = env.Host.Services.GetRequiredService<ISessionRegistry>();
+        Assert.True(Rod.CoreState.ImplantId.TryParse(enrolled.ImplantId, out var implantId));
+        var active = await sessions.GetActiveAsync(implantId);
+        Assert.NotNull(active);
+        Assert.Equal("wireguard", active.LastCarrier);
     }
 
     /// <summary>
