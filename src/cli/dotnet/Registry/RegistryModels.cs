@@ -37,7 +37,8 @@ public sealed record RegistryVersion(
     string PublicKey,
     string Fingerprint,
     RegistryVersion.CompatibilityInfo Compatibility,
-    IReadOnlyList<RegistryVersion.VerbInfo>? Verbs = null)
+    IReadOnlyList<RegistryVersion.VerbInfo>? Verbs = null,
+    IReadOnlyList<string>? Assets = null)
 {
     public sealed record CompatibilityInfo(
         string Teamserver,

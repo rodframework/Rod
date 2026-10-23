@@ -90,7 +90,10 @@ public static class PublishCommand
                     .ToList()),
             Verbs: manifest.Verbs
                 .Select(v => new RegistryVersion.VerbInfo(v.Name, v.Version.ToString(), v.TeamserverMin?.ToString()))
-                .ToList());
+                .ToList(),
+            Assets: manifest.Assets.Count == 0
+                ? null
+                : manifest.Assets.Select(a => a.Name).ToList());
 
         var fragmentPath = Path.Combine(distDirectory, $"{manifest.Name}-{manifest.Version}.json");
         File.WriteAllText(fragmentPath, RegistryJson.SaveVersion(version));

@@ -195,3 +195,30 @@ public class ProcessSpawnTests
         return (process.ExitCode, stdout, stderr);
     }
 }
+
+/// <summary>
+/// The assets scaffold: <c>rod mod init --entry assets</c> produces a
+/// manifest that already validates (one asset row bound to the scaffold's
+/// file), so the content-module contribution threshold is the same one
+/// directory, one manifest, one key every other entry kind rides.
+/// </summary>
+public class AssetScaffoldTests
+{
+    [Fact]
+    public void InitWithEntryAssets_ScaffoldsAValidAssetModule()
+    {
+        using var root = new TempRoot();
+        var module = root["demo-lures"];
+
+        var init = CliRun.Run("mod", "init", "demo-lures", "--entry", "assets", "--path", module);
+        Assert.True(init.Code == 0, init.Error);
+
+        var (manifest, errors) = ManifestToml.LoadFile(Path.Combine(module, ManifestToml.FileName));
+        Assert.Empty(errors);
+        Assert.Equal(ModuleEntryKind.Assets, manifest.Entry);
+        var asset = Assert.Single(manifest.Assets);
+        Assert.Equal("demo-lures", asset.Name);
+        Assert.True(File.Exists(Path.Combine(module, asset.Path)),
+            "the scaffold must bind its asset row to a file that exists");
+    }
+}

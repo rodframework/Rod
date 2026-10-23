@@ -4,15 +4,17 @@ namespace Rod.Cli.Manifest;
 
 /// <summary>
 /// The entry kind a module ships as (architecture.md Sec 15.2): a
-/// server-side capability module, an implant-side handler module, or a
-/// build unit. The kind decides how an installed package is consumed, not
-/// how it travels -- one manifest shape, one registry, one CLI.
+/// server-side capability module, an implant-side handler module, a build
+/// unit, or a pure asset module (script and template files the teamserver
+/// serves, no code). The kind decides how an installed package is consumed,
+/// not how it travels -- one manifest shape, one registry, one CLI.
 /// </summary>
 public enum ModuleEntryKind
 {
     Server,
     Implant,
     BuildUnit,
+    Assets,
 }
 
 public static class ModuleEntryKindNames
@@ -24,6 +26,7 @@ public static class ModuleEntryKindNames
             case "server": kind = ModuleEntryKind.Server; return true;
             case "implant": kind = ModuleEntryKind.Implant; return true;
             case "build-unit": kind = ModuleEntryKind.BuildUnit; return true;
+            case "assets": kind = ModuleEntryKind.Assets; return true;
             default: kind = default; return false;
         }
     }
@@ -33,6 +36,7 @@ public static class ModuleEntryKindNames
         ModuleEntryKind.Server => "server",
         ModuleEntryKind.Implant => "implant",
         ModuleEntryKind.BuildUnit => "build-unit",
+        ModuleEntryKind.Assets => "assets",
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 }
@@ -74,8 +78,19 @@ public sealed record VerbDeclaration(
 }
 
 /// <summary>
+/// One asset row of the manifest (architecture.md Sec 15.1, Sec 15.2): a
+/// named file an asset module carries -- a browser hook script, a phishing
+/// template, any content the teamserver serves without executing. The name
+/// is the logical address a consumer resolves (<c>module/asset</c>); the
+/// path is the file's location inside the package, and the file's bytes
+/// ride the canonical form through the per-file digest lines like every
+/// other payload.
+/// </summary>
+public sealed record AssetDeclaration(string Name, string Path);
+
+/// <summary>
 /// The parsed <c>rod-module.toml</c> (ADR-009): the self-describing module
-/// contract shared by all three entry kinds. This model is the authority for
+/// contract shared by all the entry kinds. This model is the authority for
 /// the canonical form that gets signed -- every field it carries participates
 /// in the signature, so a package cannot lie about its metadata.
 /// </summary>
@@ -92,6 +107,7 @@ public sealed record ModuleManifest
     public required OpsecMetadata Opsec { get; init; }
     public IReadOnlyList<string> Techniques { get; init; } = [];
     public IReadOnlyList<VerbDeclaration> Verbs { get; init; } = [];
+    public IReadOnlyList<AssetDeclaration> Assets { get; init; } = [];
     public PackageRules? Package { get; init; }
 
     private static readonly Regex NamePattern = new("^[a-z0-9][a-z0-9-]{0,63}$", RegexOptions.Compiled);
@@ -181,6 +197,28 @@ public sealed record ModuleManifest
                     errors.Add($"verbs[{i}].techniques[{t}] '{verb.Techniques[t]}' is not an ATT&CK technique id (T#### or T####.###).");
             }
         }
+
+        // The asset rows (the module layer's content seam, Sec 15.1): logical
+        // kebab names a consumer resolves as module/asset, and package-relative
+        // paths that stay inside the package -- the same no-escape rule the
+        // installer's extraction and the teamserver's asset host enforce on
+        // their sides of the file contract.
+        var seenAssets = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < Assets.Count; i++)
+        {
+            var asset = Assets[i];
+            if (!NamePattern.IsMatch(asset.Name))
+                errors.Add($"assets[{i}] '{asset.Name}' must be kebab-case: lowercase letters, digits, hyphens, at most 64 characters.");
+            else if (!seenAssets.Add(asset.Name))
+                errors.Add($"assets[{i}] '{asset.Name}' is declared twice.");
+            if (asset.Path.Length == 0 || asset.Path.Contains('\\') || Path.IsPathRooted(asset.Path)
+                || asset.Path.Split('/').Any(segment => segment is ".." or ""))
+                errors.Add($"assets[{i}] '{asset.Name}' path '{asset.Path}' must be a package-relative path with '/' separators and no '..' segments.");
+            else if (asset.Path == ManifestToml.FileName)
+                errors.Add($"assets[{i}] '{asset.Name}' cannot point at the manifest itself.");
+        }
+        if (Entry == ModuleEntryKind.Assets && Assets.Count == 0)
+            errors.Add("an assets module declares no [[assets]] rows; add one per carried file.");
 
         return errors;
     }

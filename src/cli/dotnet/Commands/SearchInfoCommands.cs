@@ -124,6 +124,8 @@ public static class InfoCommand
                     ? $"    {verb.Name}@{verb.Version}"
                     : $"    {verb.Name}@{verb.Version} (teamserver >= {verb.Teamserver})");
         }
+        if ((version.Assets?.Count ?? 0) > 0)
+            output.WriteLine($"  assets: {string.Join(", ", version.Assets!)}");
         output.WriteLine($"  signed by: {version.Fingerprint}");
         output.WriteLine($"  package:   {version.Url}");
         output.WriteLine($"  sha256:    {version.Sha256}");

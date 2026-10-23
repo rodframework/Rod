@@ -210,6 +210,97 @@ public class ManifestTests
     }
 
     [Fact]
+    public void AssetRows_ParseWithNamesAndPaths()
+    {
+        // The module layer's content seam (Sec 15.1): an asset row binds a
+        // logical kebab name a consumer resolves as module/asset to a
+        // package-relative path.
+        var toml = Valid.Replace("entry = \"server\"", "entry = \"assets\"") + """
+
+            [[assets]]
+            name = "hook"
+            path = "assets/hook.js"
+
+            [[assets]]
+            name = "legacy-page"
+            path = "assets/pages/old.html"
+            """;
+        var errors = ManifestToml.Load(toml, out var manifest);
+
+        Assert.Empty(errors);
+        Assert.NotNull(manifest);
+        Assert.Equal(ModuleEntryKind.Assets, manifest!.Entry);
+        Assert.Equal("hook", manifest.Assets[0].Name);
+        Assert.Equal("assets/hook.js", manifest.Assets[0].Path);
+        Assert.Equal("assets/pages/old.html", manifest.Assets[1].Path);
+    }
+
+    [Fact]
+    public void MalformedAssetRows_AreEachNamed()
+    {
+        // A row missing its shape (name or path) is a parse failure: the
+        // load stops before a manifest exists, same as a malformed verb row.
+        var toml = Valid + """
+
+            [[assets]]
+            name = "hook"
+            path = "assets/hook.js"
+
+            [[assets]]
+            path = "assets/other.js"
+            """;
+        var errors = ManifestToml.Load(toml, out var manifest);
+        Assert.Null(manifest);
+        Assert.Contains(errors, e => e.Contains("assets[1] needs both a name and a path"));
+
+        // Field-level problems parse and are named by validation.
+        var invalid = Valid + """
+
+            [[assets]]
+            name = "Hook!"
+            path = "../outside.js"
+
+            [[assets]]
+            name = "manifest"
+            path = "rod-module.toml"
+            """;
+        errors = ManifestToml.Load(invalid, out manifest);
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("'Hook!' must be kebab-case"));
+        Assert.Contains(errors, e => e.Contains("'Hook!' path '../outside.js' must be a package-relative path"));
+        Assert.Contains(errors, e => e.Contains("'manifest' cannot point at the manifest itself"));
+    }
+
+    [Fact]
+    public void DuplicateAssetNames_AreRefused()
+    {
+        var toml = Valid + """
+
+            [[assets]]
+            name = "hook"
+            path = "assets/hook.js"
+
+            [[assets]]
+            name = "hook"
+            path = "assets/hook-v2.js"
+            """;
+        var errors = ManifestToml.Load(toml, out var manifest);
+
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("'hook' is declared twice"));
+    }
+
+    [Fact]
+    public void AnAssetsEntryWithoutAssetRows_IsRefused()
+    {
+        var toml = Valid.Replace("entry = \"server\"", "entry = \"assets\"");
+        var errors = ManifestToml.Load(toml, out var manifest);
+
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("an assets module declares no [[assets]] rows"));
+    }
+
+    [Fact]
     public void CanonicalForm_CoversTheVerbRows()
     {
         // The verb rows ride the signed canonical form: a tampered verb
@@ -293,7 +384,7 @@ public class ManifestTests
     [Theory]
     [InlineData("name = \"Demo_Sweep\"", "kebab-case")]
     [InlineData("version = \"1.0\"", "SemVer")]
-    [InlineData("entry = \"sidecar\"", "server, implant, or build-unit")]
+    [InlineData("entry = \"sidecar\"", "server, implant, build-unit, or assets")]
     public void InvalidValues_FailValidation(string line, string expectedFragment)
     {
         // Each variant omits the field under test from the base document so
@@ -361,6 +452,7 @@ public class CanonicalFormTests
         Opsec = new OpsecMetadata(true, "Stages one file."),
         Techniques = ["T1082"],
         Verbs = [new VerbDeclaration("demo-sweep.run", new SemVer(0, 1, 0, null), null, ["T1082"])],
+        Assets = [new AssetDeclaration("hook", "assets/hook.js")],
     };
 
     [Fact]
@@ -381,6 +473,9 @@ public class CanonicalFormTests
             Manifest() with { Techniques = ["T1005"] },
             Manifest() with { Targets = [new TargetMatrix("implant", "windows", "amd64")] },
             Manifest() with { Verbs = [new VerbDeclaration("demo-sweep.run", new SemVer(0, 1, 0, null), null, ["T1005"])] },
+            // The asset mapping is signed like a verb row: re-pointing a
+            // known asset name at a different file breaks verification.
+            Manifest() with { Assets = [new AssetDeclaration("hook", "assets/hook-v2.js")] },
         };
         foreach (var edited in edits)
             Assert.NotEqual(baseline, CanonicalForm.Build(edited, payload));
@@ -388,6 +483,25 @@ public class CanonicalFormTests
         // Each payload digest edit changes the signed bytes.
         Assert.NotEqual(baseline, CanonicalForm.Build(Manifest(), new Dictionary<string, string> { ["src/a.cs"] = "cc", ["src/b.cs"] = "bb" }));
         Assert.NotEqual(baseline, CanonicalForm.Build(Manifest(), new Dictionary<string, string> { ["src/a.cs"] = "aa" }));
+    }
+
+    [Fact]
+    public void AssetRows_RideTheFormNameSorted()
+    {
+        var manifest = Manifest() with
+        {
+            Assets =
+            [
+                new AssetDeclaration("z-page", "assets/z.html"),
+                new AssetDeclaration("hook", "assets/hook.js"),
+            ],
+        };
+        var canonical = CanonicalForm.Build(manifest, new Dictionary<string, string>());
+
+        // The rows bind the logical name to the declared path, name-sorted
+        // regardless of declaration order.
+        Assert.Contains("asset/hook=assets/hook.js\n", canonical);
+        Assert.EndsWith("asset/z-page=assets/z.html", canonical);
     }
 
     [Fact]

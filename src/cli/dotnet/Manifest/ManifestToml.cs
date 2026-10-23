@@ -40,6 +40,9 @@ public static class ManifestToml
 
         [TomlPropertyName("verbs")]
         public List<VerbRow>? Verbs { get; set; }
+
+        [TomlPropertyName("assets")]
+        public List<AssetRow>? Assets { get; set; }
     }
 
     private sealed class ModuleSection
@@ -90,6 +93,12 @@ public static class ManifestToml
         [TomlPropertyName("techniques")] public List<string>? Techniques { get; set; }
     }
 
+    private sealed class AssetRow
+    {
+        [TomlPropertyName("name")] public string? Name { get; set; }
+        [TomlPropertyName("path")] public string? Path { get; set; }
+    }
+
     /// <summary>Parses manifest text; syntax errors and semantic errors come
     /// back together so one command run shows everything wrong with the file.</summary>
     public static IReadOnlyList<string> Load(string text, out ModuleManifest? manifest)
@@ -119,7 +128,7 @@ public static class ManifestToml
         string? license = TrimOrNull(module?.License);
         if (name is null) errors.Add("module.name is missing.");
         if (versionText is null) errors.Add("module.version is missing.");
-        if (entryText is null) errors.Add("module.entry is missing (server, implant, or build-unit).");
+        if (entryText is null) errors.Add("module.entry is missing (server, implant, build-unit, or assets).");
         if (license is null) errors.Add("module.license is missing; use an SPDX identifier.");
 
         string? teamserverText = TrimOrNull(compatibility?.Teamserver);
@@ -136,7 +145,7 @@ public static class ManifestToml
         if (!SemVer.TryParse(versionText!, out var version))
             errors.Add($"module.version '{versionText}' is not a SemVer version (M.m.p[-pre]).");
         if (!ModuleEntryKindNames.TryParse(entryText!, out var entry))
-            errors.Add($"module.entry '{entryText}' is not one of: server, implant, or build-unit.");
+            errors.Add($"module.entry '{entryText}' is not one of: server, implant, build-unit, or assets.");
         if (!SemVer.TryParse(teamserverText!, out var teamserverMin))
             errors.Add($"compatibility.teamserver '{teamserverText}' is not a SemVer version.");
 
@@ -198,6 +207,23 @@ public static class ManifestToml
             verbs.Add(new VerbDeclaration(verbName, verbVersion, verbFloor, verbTechniques));
         }
 
+        // The asset rows: logical name plus package-relative path. Like a
+        // verb row, a row that fails to parse names itself rather than
+        // failing the whole load.
+        var assets = new List<AssetDeclaration>();
+        for (var i = 0; i < (document.Assets?.Count ?? 0); i++)
+        {
+            var row = document.Assets![i];
+            var assetName = TrimOrNull(row.Name);
+            var assetPath = TrimOrNull(row.Path);
+            if (assetName is null || assetPath is null)
+            {
+                errors.Add($"assets[{i}] needs both a name and a path.");
+                continue;
+            }
+            assets.Add(new AssetDeclaration(assetName, assetPath));
+        }
+
         if (errors.Count > 0)
             return errors;
 
@@ -216,6 +242,7 @@ public static class ManifestToml
             Opsec = new OpsecMetadata(landsOnDisk!.Value, TrimOrNull(opsec?.Notes)),
             Techniques = techniques,
             Verbs = verbs,
+            Assets = assets,
             Package = package,
         };
         errors.AddRange(manifest.Validate());
@@ -250,7 +277,7 @@ public static class ManifestToml
         sb.AppendLine("[module]");
         sb.AppendLine($"name = {Quote(name)}");
         sb.AppendLine($"version = {Quote(version.ToString())}");
-        sb.AppendLine($"entry = {Quote(ModuleEntryKindNames.ToString(entry))}  # server | implant | build-unit");
+        sb.AppendLine($"entry = {Quote(ModuleEntryKindNames.ToString(entry))}  # server | implant | build-unit | assets");
         sb.AppendLine($"license = {Quote(license)}  # SPDX identifier; publish refuses UNLICENSED");
         sb.AppendLine($"description = {Quote(description ?? "")}");
         sb.AppendLine();
@@ -263,18 +290,32 @@ public static class ManifestToml
         sb.AppendLine("[attack]");
         sb.AppendLine("techniques = []  # the roll-up of the verb rows' techniques, e.g. [\"T1082\"]");
         sb.AppendLine();
-        sb.AppendLine("# The verb version matrix (one row per verb the module registers): the");
-        sb.AppendLine("# module-scoped version each verb iterates under, an optional per-verb");
-        sb.AppendLine("# teamserver floor, and the verb's ATT&CK techniques (ADR-007) -- the");
-        sb.AppendLine("# authoritative declaration the coverage matrix renders. The rows ride");
-        sb.AppendLine("# the signed canonical form.");
-        sb.AppendLine();
-        sb.AppendLine("[[verbs]]");
-        sb.AppendLine($"name = \"{name}.run\"");
-        sb.AppendLine("version = \"0.1.0\"");
-        sb.AppendLine("# teamserver = \"1.0.0\"  # optional per-verb floor");
-        sb.AppendLine("# techniques = [\"T1082\"]  # this verb's ATT&CK techniques");
-        sb.AppendLine();
+
+        if (entry == ModuleEntryKind.Assets)
+        {
+            // The asset rows: one per carried file, the logical name a
+            // consumer resolves as module/asset bound to the package-relative
+            // path. The rows ride the signed canonical form like verb rows.
+            sb.AppendLine("[[assets]]");
+            sb.AppendLine($"name = {Quote(name)}");
+            sb.AppendLine($"path = {Quote($"assets/{name}.txt")}");
+            sb.AppendLine();
+        }
+        else
+        {
+            sb.AppendLine("# The verb version matrix (one row per verb the module registers): the");
+            sb.AppendLine("# module-scoped version each verb iterates under, an optional per-verb");
+            sb.AppendLine("# teamserver floor, and the verb's ATT&CK techniques (ADR-007) -- the");
+            sb.AppendLine("# authoritative declaration the coverage matrix renders. The rows ride");
+            sb.AppendLine("# the signed canonical form.");
+            sb.AppendLine();
+            sb.AppendLine("[[verbs]]");
+            sb.AppendLine($"name = \"{name}.run\"");
+            sb.AppendLine("version = \"0.1.0\"");
+            sb.AppendLine("# teamserver = \"1.0.0\"  # optional per-verb floor");
+            sb.AppendLine("# techniques = [\"T1082\"]  # this verb's ATT&CK techniques");
+            sb.AppendLine();
+        }
         sb.AppendLine("# Optional packaging rules; uncomment to narrow what publish packs.");
         sb.AppendLine("# [package]");
         sb.AppendLine("# include = [\"src/**\"]");

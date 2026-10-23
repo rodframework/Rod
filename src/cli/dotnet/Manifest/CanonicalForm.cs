@@ -67,6 +67,13 @@ public static class CanonicalForm
             Line("verb/" + verb.Name, value);
         }
 
+        // The asset rows ride one line per asset, name-sorted: the logical
+        // name bound to the declared path, so a tampered mapping (pointing a
+        // known asset name at a different file) breaks the signature exactly
+        // like a tampered payload byte does through the digest lines below.
+        foreach (var asset in manifest.Assets.OrderBy(a => a.Name, StringComparer.Ordinal))
+            Line("asset/" + asset.Name, asset.Path.Replace('\\', '/'));
+
         // Payload paths use '/' separators and the 'file/' prefix so a
         // payload named like a field key can never collide with one.
         foreach (var path in payloadDigests.Keys.OrderBy(p => p, StringComparer.Ordinal))

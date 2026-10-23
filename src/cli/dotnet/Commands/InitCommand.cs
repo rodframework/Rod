@@ -28,7 +28,7 @@ public static class InitCommand
 
         var entry = ModuleEntryKind.Server;
         if (parsed.Has("entry") && !ModuleEntryKindNames.TryParse(parsed.Require("entry", "entry kind"), out entry))
-            throw new CliError("--entry must be server, implant, or build-unit.");
+            throw new CliError("--entry must be server, implant, build-unit, or assets.");
 
         var directory = parsed.Value("path") ?? name;
         if (File.Exists(Path.Combine(directory, ManifestToml.FileName)))
@@ -164,12 +164,29 @@ public static class InitCommand
 
                     A build unit compiles implants of its language through the uniform
                     build contract (architecture.md Sec 6): the teamserver drives it as
-                    an external tool with hermetic staging and a baked profile, and the
-                    wire protocol -- not the teamserver's language -- is the contract.
+                    an external tool with hermetic staging and a baked profile, and
+                    the wire protocol -- not the teamserver's language -- is the contract.
 
                     Implement the contract against the version pinned in
                     rod-module.toml's compatibility floor, and register the unit with
                     the teamserver's build configuration.
+                    """);
+                    break;
+                }
+            case ModuleEntryKind.Assets:
+                {
+                    // Pure content, no code: the scaffold's one asset is the
+                    // worked example of the file shape each consumer contract
+                    // documents (the teamserver's asset host serves the bytes;
+                    // what the bytes mean is the consumer's contract, never
+                    // the CLI's).
+                    Directory.CreateDirectory(Path.Combine(directory, "assets"));
+                    File.WriteAllText(Path.Combine(directory, "assets", $"{name}.txt"), $"""
+                    Subject: One line the consumer reads as the subject
+
+                    The body is everything after the first blank line; this scaffold
+                    carries no consumer contract -- replace it with the file shape
+                    your consumer documents (modules.md, "Asset modules").
                     """);
                     break;
                 }
