@@ -32,10 +32,6 @@ Phase P1 -- long-board parity (architecture.md Sec 15). P0 (the
 replacement threshold, ADR-007) shipped; the parking condition cleared,
 so the queue moved up by the file's own mechanics.
 
-- **Entity-relationship model in storage** -- the explicit foreign keys of
-  Sec 15.4's unified entity model (ReconAsset, Recipient, and the rest of
-  the link set). _AC:_ a recon asset is directly selectable as a campaign
-  target; an implant's detail shows its provenance chain.
 - **UI information-architecture rework** -- lifecycle navigation, timeline
   main screen, command palette (Sec 15.4, ADR-013). _AC:_ a new domain
   lands without navigation changes; entity detail pages carry the

@@ -341,23 +341,10 @@ public static class ReconWorkbenchEndpoints
             result.Summary));
     }
 
-    // Loose and honest, like the target grammar deserves: a DNS label
-    // sequence, no resolution, no scheme, no path.
-    private static bool IsDomainName(string target)
-    {
-        if (target.Length is 0 or > 253 || !target.Contains('.'))
-            return false;
-        foreach (var label in target.Split('.'))
-        {
-            if (label.Length is < 1 or > 63)
-                return false;
-            if (label.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-'))
-                return false;
-            if (label.StartsWith('-') || label.EndsWith('-'))
-                return false;
-        }
-        return true;
-    }
+    // The shared target grammar (the asset endpoints own the one copy):
+    // a DNS label sequence, loose and honest -- no resolution, no scheme,
+    // no path.
+    private static bool IsDomainName(string target) => ReconAssetEndpoints.IsDomainName(target);
 
     internal static string PortsLabel(string? ports)
         => string.IsNullOrWhiteSpace(ports) ? "default" : ports.Trim();

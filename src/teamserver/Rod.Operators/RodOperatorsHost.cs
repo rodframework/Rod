@@ -187,6 +187,7 @@ public static class RodOperatorsHost
         endpoints.MapSearchEndpoints();
         endpoints.MapLlmEndpoints();
         endpoints.MapReconWorkbenchEndpoints();
+        endpoints.MapReconAssetEndpoints();
         return endpoints;
     }
 }

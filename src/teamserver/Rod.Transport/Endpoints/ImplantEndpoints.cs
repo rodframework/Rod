@@ -44,6 +44,7 @@ public static class ImplantEndpoints
             .MapGroup("/engagements/{engagementId}/implants")
             .RequireAuthorization().AddEndpointFilter(new EngagementAccessFilter(EngagementAccessRequirement.Read));
         group.MapGet("/", ListImplantsAsync).WithName(nameof(ListImplantsAsync));
+        group.MapGet("/{implantId}", GetImplantAsync).WithName(nameof(GetImplantAsync));
         group.MapGet("/{implantId}/tasks", ListImplantTasksAsync)
             .WithName(nameof(ListImplantTasksAsync));
         group.MapGet("/{implantId}/notes", ListNotesAsync).WithName(nameof(ListNotesAsync));
@@ -75,47 +76,135 @@ public static class ImplantEndpoints
         var sessionById = online.ToDictionary(s => s.ImplantId);
 
         var body = enrolled
-            .Select(i => new ImplantResponse(
-                i.Id.ToString(),
-                i.EngagementId.ToString(),
-                i.Class.ToString(),
-                i.KillDate,
-                i.CreatedAt,
-                IsOnline: onlineById.Contains(i.Id),
-                i.RetiredAt,
-                ParentImplantId: i.ParentImplantId?.ToString(),
-                Hostname: i.Hostname,
-                Os: i.Os,
-                Arch: i.Arch,
-                Username: i.Username,
-                // The cadence the implant last advertised (the enroll bake,
-                // then every changed handshake advertisement); null on either
-                // half means "not reported".
-                SleepSeconds: i.SleepSeconds,
-                JitterSeconds: i.JitterSeconds,
-                // The operator the implant's events attribute to (the token
-                // issuer) -- the "who deployed this" the detail panel reads.
-                DeployedBy: i.DeployedBy.ToString(),
-                // The listener stamp renders in the same no-dash form the
-                // listener routes and listings use, so an operator can join
-                // the two by eye.
-                EnrolledViaListenerId: i.EnrolledViaListenerId?.ToString("N"),
-                LastSeenAt: i.LastSeenAt,
-                // The degraded-mode contract (architecture.md Sec 8): the
-                // carrier the live session's last contact rode, null when
-                // none recorded -- the posture's default, not degraded.
-                LastCarrier: sessionById.GetValueOrDefault(i.Id)?.LastCarrier,
-                // The baked carrier set the artifact's endpoints dial; null
-                // for implants the enroll could not derive one for.
-                Carriers: i.Carriers,
-                // The delivery campaign whose lure this implant followed
-                // (Sec 11.5); null pair on every ordinary enrollment.
-                CampaignId: i.CampaignId?.ToString(),
-                CampaignRecipientId: i.CampaignRecipientId?.ToString()))
+            .Select(i => ProjectImplant(
+                i,
+                onlineById.Contains(i.Id),
+                sessionById.GetValueOrDefault(i.Id)))
             .ToArray();
 
         return TypedResults.Ok(body);
     }
+
+    // The chain walk's defense against a corrupt parent loop: no path the
+    // writes can legally build reaches this, and a stale cycle must not
+    // pin the read.
+    private const int MaxProvenanceDepth = 64;
+
+    // One implant's detail (architecture.md Sec 15.4): the row the listing
+    // projects, plus the provenance chain around it -- the ancestors whose
+    // derivations reach this implant (root first), the children it derived,
+    // and the delivery campaign whose lure it followed, the recipient's
+    // arc included. A chain that breaks (a parent the engagement no longer
+    // resolves) renders to the break, the topology projection's posture.
+    private static async Task<IResult> GetImplantAsync(
+        string engagementId,
+        string implantId,
+        IImplantRepository implants,
+        ISessionRegistry sessions,
+        CoreState.Campaigns.ICampaignStore campaigns,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(engagementId, out var engagementValue))
+            return Results.BadRequest(new Problem("Engagement id is not a valid identifier."));
+        if (!Guid.TryParse(implantId, out var implantValue))
+            return Results.BadRequest(new Problem("Implant id is not a valid identifier."));
+
+        var engagementKey = new EngagementId(engagementValue);
+        var implant = await implants.FindAsync(new ImplantId(implantValue), cancellationToken);
+        if (implant is null || implant.EngagementId != engagementKey)
+            return Results.NotFound(new Problem("Implant does not exist in this engagement."));
+
+        var online = (await sessions.ListActiveAsync(engagementKey, cancellationToken))
+            .ToDictionary(s => s.ImplantId);
+        var response = ProjectImplant(
+            implant,
+            online.ContainsKey(implant.Id),
+            online.GetValueOrDefault(implant.Id));
+
+        // The ancestors: walk parent links outward until the chain roots,
+        // breaks, or hits the depth guard -- a parent outside this
+        // engagement (not a legal write, but a defensive read) ends the
+        // walk the same way a missing one does.
+        var ancestors = new List<ProvenanceAncestor>();
+        var visited = new HashSet<ImplantId> { implant.Id };
+        var walker = implant.ParentImplantId;
+        while (walker is { } parentId && visited.Add(parentId) && ancestors.Count < MaxProvenanceDepth)
+        {
+            var parent = await implants.FindAsync(parentId, cancellationToken);
+            if (parent is null || parent.EngagementId != engagementKey)
+                break;
+
+            ancestors.Add(new ProvenanceAncestor(
+                parent.Id.ToString(),
+                parent.Hostname,
+                parent.Os,
+                parent.Class.ToString(),
+                parent.CreatedAt,
+                parent.RetiredAt));
+            walker = parent.ParentImplantId;
+        }
+        ancestors.Reverse(); // root first: how the fleet's reach grew into this implant
+
+        // The children: the lateral-movement tree this implant rooted.
+        var children = (await implants.ListByEngagementAsync(engagementKey, cancellationToken))
+            .Where(i => i.ParentImplantId == implant.Id)
+            .OrderBy(i => i.CreatedAt)
+            .Select(i => new ProvenanceChild(i.Id.ToString(), i.Hostname, i.Class.ToString(), i.CreatedAt))
+            .ToList();
+
+        // The campaign leg: the lure this implant followed, the recipient
+        // row it redeemed, and the target-selection record riding it.
+        CoreState.Campaigns.Campaign? campaignRow = null;
+        if (implant.CampaignId is { } campaignId)
+            campaignRow = await campaigns.FindAsync(campaignId, engagementKey, cancellationToken);
+        var recipient = campaignRow is null || implant.CampaignRecipientId is not { } recipientId
+            ? null
+            : campaignRow.FindRecipient(recipientId);
+        var campaign = campaignRow is null || recipient is null
+            ? null
+            : new ImplantCampaignProvenance(
+                campaignRow.Id.ToString(),
+                campaignRow.Name,
+                campaignRow.State.ToString().ToLowerInvariant(),
+                recipient.Id.ToString(),
+                recipient.Email,
+                recipient.Name,
+                recipient.SentAt,
+                recipient.OpenedAt,
+                recipient.ClickedAt,
+                recipient.ExecutedAt,
+                recipient.PayloadId?.ToString(),
+                recipient.ReconAssetId?.ToString());
+
+        return Results.Ok(new ImplantDetailResponse(
+            response,
+            new ImplantProvenanceResponse(ancestors, children, campaign)));
+    }
+
+    // The listing/detail row projection, one shape for both reads.
+    private static ImplantResponse ProjectImplant(
+        Implant i, bool isOnline, Rod.CoreState.Sessions.Session? session) => new(
+        i.Id.ToString(),
+        i.EngagementId.ToString(),
+        i.Class.ToString(),
+        i.KillDate,
+        i.CreatedAt,
+        IsOnline: isOnline,
+        i.RetiredAt,
+        ParentImplantId: i.ParentImplantId?.ToString(),
+        Hostname: i.Hostname,
+        Os: i.Os,
+        Arch: i.Arch,
+        Username: i.Username,
+        SleepSeconds: i.SleepSeconds,
+        JitterSeconds: i.JitterSeconds,
+        DeployedBy: i.DeployedBy.ToString(),
+        EnrolledViaListenerId: i.EnrolledViaListenerId?.ToString("N"),
+        LastSeenAt: i.LastSeenAt,
+        LastCarrier: session?.LastCarrier,
+        Carriers: i.Carriers,
+        CampaignId: i.CampaignId?.ToString(),
+        CampaignRecipientId: i.CampaignRecipientId?.ToString());
 
     private static async Task<IResult> ListImplantTasksAsync(
         string engagementId,
@@ -549,6 +638,59 @@ public static class ImplantEndpoints
         // enrollment.
         string? CampaignId = null,
         string? CampaignRecipientId = null);
+
+    // --- The provenance chain (architecture.md Sec 15.4): the detail
+    // read's second half, the related-entities sidebar before the UI
+    // rework ships it. ---
+
+    // One implant's detail: the row (the listing's own projection) plus
+    // the chain around it.
+    public sealed record ImplantDetailResponse(
+        ImplantResponse Implant,
+        ImplantProvenanceResponse Provenance);
+
+    // The chain: ancestors root-first, the children this implant derived,
+    // and the campaign leg (null on every ordinary, campaign-free
+    // enrollment).
+    public sealed record ImplantProvenanceResponse(
+        IReadOnlyList<ProvenanceAncestor> Ancestors,
+        IReadOnlyList<ProvenanceChild> Children,
+        ImplantCampaignProvenance? Campaign);
+
+    // One ancestor: a parent derivation on the path from the first
+    // foothold to this implant.
+    public sealed record ProvenanceAncestor(
+        string ImplantId,
+        string? Hostname,
+        string? Os,
+        string Class,
+        DateTimeOffset CreatedAt,
+        DateTimeOffset? RetiredAt);
+
+    // One child: an implant this one derived -- the lateral-movement
+    // tree this detail roots.
+    public sealed record ProvenanceChild(
+        string ImplantId,
+        string? Hostname,
+        string Class,
+        DateTimeOffset CreatedAt);
+
+    // The campaign leg: the lure this implant followed, the recipient row
+    // whose baked credential it redeemed, and the recon asset the target
+    // was selected from when it was (Sec 15.4's link, read back).
+    public sealed record ImplantCampaignProvenance(
+        string CampaignId,
+        string CampaignName,
+        string CampaignState,
+        string RecipientId,
+        string Email,
+        string? Name,
+        DateTimeOffset? SentAt,
+        DateTimeOffset? OpenedAt,
+        DateTimeOffset? ClickedAt,
+        DateTimeOffset? ExecutedAt,
+        string? PayloadId,
+        string? ReconAssetId);
 
     public sealed record ImplantTaskResponse(
         string TaskId,

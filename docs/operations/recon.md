@@ -163,6 +163,35 @@ its findings list, each artifact rendered by its shape), in the loot
 view (task-less, attributed to the running operator), and in the
 topology projection beside implant-side recon.
 
+## The target list
+
+Findings are evidence; a **recon asset** is a target the engagement chose
+to track (architecture.md Sec 15.4). Three routes keep the list:
+
+- `GET /engagements/{id}/recon-assets` -- the list, the picker a campaign
+  create selects from.
+- `POST /engagements/{id}/recon-assets` -- record a target: `kind`
+  (`email`, `domain`, `host`, `address`), `value` (cased to the list's
+  own rule), optional `displayName` (the merge name a campaign selection
+  defaults to), and optional `sourceArtifactId` -- the findings artifact
+  the target was lifted from, its provenance on the row. Identity is
+  `(engagement, kind, value)`: the same address twice is one target, and
+  the second recording is a 409 naming the row that already carries it.
+- `DELETE /engagements/{id}/recon-assets/{assetId}` -- remove a target.
+  Refused (409) while a campaign recipient still references it: the
+  recipient row's reference is the record of the engagement aiming at
+  the target, and the composite foreign key behind it is what refuses.
+
+An `email` asset selects directly as a campaign target -- the create's
+recipient entry names `reconAssetId` instead of typing the address, the
+address and display name resolve onto the recipient row at creation, and
+the row keeps them even if the asset later goes (see
+[campaigns.md](campaigns.md)). The network kinds serve the recon picture
+and future consumers; they are not mail targets and a campaign create
+refuses them (422). Recording and deletion are `ReconAssetRecorded` /
+`ReconAssetDeleted` facts on the engagement trail; both are refused while
+the engagement is closed.
+
 ## Evolution notes
 
 - **Redirector- or implant-originated scans** arrive as new `ScanOrigin`

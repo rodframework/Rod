@@ -54,6 +54,7 @@ public static class CampaignEndpoints
         IListenerRegistry listeners,
         Rod.CoreState.Pki.IImplantCertificateAuthority ca,
         IPayloadStore payloads,
+        Rod.CoreState.Recon.IReconAssetStore reconAssets,
         IAuditStore audit,
         Rod.CoreState.Assets.IModuleAssetStore assets,
         TimeProvider clock,
@@ -154,16 +155,55 @@ public static class CampaignEndpoints
 
         // --- The recipients: spear-phish scale by construction (one build
         //     per recipient is the attribution price), unique, one address
-        //     each. ---
+        //     each. Each entry names its address one way (Sec 15.4's target
+        //     link): typed, or by reference to a recon asset on the
+        //     engagement's target list -- never both, never neither. ---
         if (body.Recipients is null || body.Recipients.Count == 0)
             return Results.BadRequest(new Problem("The campaign needs at least one recipient."));
         if (body.Recipients.Count > CampaignLimits.MaxRecipients)
             return Results.BadRequest(new Problem($"A campaign carries at most {CampaignLimits.MaxRecipients} recipients."));
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var recipients = new List<CampaignRecipient>();
+        var selectedTargets = 0;
         foreach (var entry in body.Recipients)
         {
-            var email = entry.Email?.Trim();
+            var byReference = entry.ReconAssetId?.Trim();
+            var typed = entry.Email?.Trim();
+            if (string.IsNullOrWhiteSpace(byReference) == string.IsNullOrWhiteSpace(typed))
+                return Results.BadRequest(new Problem(
+                    "Each recipient names exactly one of 'email' or 'reconAssetId'."));
+
+            string email;
+            Rod.CoreState.ReconAssetId? reconAssetId = null;
+            string? display;
+            if (byReference is { Length: > 0 })
+            {
+                if (!Rod.CoreState.ReconAssetId.TryParse(byReference, out var assetId))
+                    return Results.BadRequest(new Problem($"Recon asset id '{byReference}' is not a valid identifier."));
+                var asset = await reconAssets.FindAsync(assetId, engagement, cancellationToken);
+                if (asset is null)
+                    return Results.NotFound(new Problem(
+                        $"Recon asset '{byReference}' does not exist in this engagement."));
+                if (asset.Kind != Rod.CoreState.Recon.ReconAssetKind.Email)
+                    return Results.Json(
+                        new Problem($"Recon asset '{byReference}' is a {asset.Kind.ToString().ToLowerInvariant()}, not an email target; a campaign recipient is a mailbox."),
+                        statusCode: StatusCodes.Status422UnprocessableEntity);
+
+                // The selection resolves now, at creation: the row carries
+                // the address it will mail, and the asset reference is the
+                // record of where the target came from -- the delivery arc
+                // never depends on the asset row staying alive.
+                email = asset.Value;
+                reconAssetId = asset.Id;
+                display = string.IsNullOrWhiteSpace(entry.Name) ? asset.DisplayName : entry.Name.Trim();
+                selectedTargets++;
+            }
+            else
+            {
+                email = typed!;
+                display = entry.Name?.Trim();
+            }
+
             if (string.IsNullOrEmpty(email)
                 || !MailboxAddress.TryParse(email, out var address)
                 || address.Domain.Length == 0
@@ -173,10 +213,11 @@ public static class CampaignEndpoints
             }
             if (!seen.Add(email))
                 return Results.BadRequest(new Problem($"Recipient '{email}' appears twice; a lure is per recipient."));
-            var display = entry.Name?.Trim();
             if (display?.Length > CampaignLimits.MaxAddressBytes)
                 display = display[..CampaignLimits.MaxAddressBytes];
-            recipients.Add(new CampaignRecipient(CampaignRecipientId.New(), email, string.IsNullOrEmpty(display) ? null : display, Guid.NewGuid()));
+            recipients.Add(new CampaignRecipient(
+                CampaignRecipientId.New(), email, string.IsNullOrEmpty(display) ? null : display, Guid.NewGuid(),
+                reconAssetId: reconAssetId));
         }
 
         // --- The build profile: the same body a payload build takes, minus
@@ -226,7 +267,8 @@ public static class CampaignEndpoints
                 kind: AuditEventKind.CampaignStateChanged,
                 payload: $"name='{name}' recipients={recipients.Count} relay={relay.Host.Trim()}:{relay.Port} "
                     + $"tls={tls.Value.ToString().ToLowerInvariant()} listener={listener.Name} "
-                    + $"template={(templateRef is { Length: > 0 } ? templateRef : "inline")}",
+                    + $"template={(templateRef is { Length: > 0 } ? templateRef : "inline")} "
+                    + $"reconTargets={selectedTargets}",
                 output: null,
                 outcome: campaign.Id.ToString(),
                 at),
@@ -411,7 +453,16 @@ public static class CampaignEndpoints
         bool? BodyIsHtml = null,
         string? Ref = null);
 
-    public sealed record CampaignRecipientRequest(string? Email, string? Name = null);
+    /// <summary>
+    /// One target entry: the address typed (<paramref name="Email"/>), or
+    /// a recon asset selected by id (<paramref name="ReconAssetId"/> -- the
+    /// unified entity model's target link, Sec 15.4; the asset must be an
+    /// email target of this engagement). Exactly one of the two.
+    /// </summary>
+    public sealed record CampaignRecipientRequest(
+        string? Email,
+        string? Name = null,
+        string? ReconAssetId = null);
 
     public sealed record CampaignActionResponse(string CampaignId, string State);
 
@@ -489,7 +540,8 @@ public static class CampaignEndpoints
         DateTimeOffset? OpenedAt,
         DateTimeOffset? ClickedAt,
         DateTimeOffset? ExecutedAt,
-        string? EnrolledImplantId)
+        string? EnrolledImplantId,
+        string? ReconAssetId = null)
     {
         public static CampaignRecipientResponse Of(CampaignRecipient recipient, Listener? listener)
         {
@@ -508,7 +560,8 @@ public static class CampaignEndpoints
                 recipient.OpenedAt,
                 recipient.ClickedAt,
                 recipient.ExecutedAt,
-                recipient.EnrolledImplantId?.ToString("N"));
+                recipient.EnrolledImplantId?.ToString("N"),
+                recipient.ReconAssetId?.ToString());
         }
     }
 }

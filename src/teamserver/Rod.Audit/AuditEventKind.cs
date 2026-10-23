@@ -686,4 +686,28 @@ public enum AuditEventKind
     /// target account's id.
     /// </summary>
     OperatorAccountChanged,
+
+    /// <summary>
+    /// An operator recorded a recon asset (architecture.md Sec 15.4): the
+    /// curatorial act of promoting an address to a tracked target of the
+    /// unified entity model -- typed by hand or lifted from a workbench
+    /// findings artifact. The payload names the kind and the value; the
+    /// outcome is the asset id, and the artifact link rides the payload
+    /// (<c>from=artifact:{id}</c>) when a finding stands behind the asset.
+    /// Attributed to the recording operator; no implant and no task are
+    /// involved.
+    /// </summary>
+    ReconAssetRecorded,
+
+    /// <summary>
+    /// An operator removed a recon asset (architecture.md Sec 15.4): the
+    /// engagement's target list loses the row. A campaign that already
+    /// selected the asset keeps its resolved address -- a recipient row
+    /// never depends on the asset staying alive -- which is also why the
+    /// delete is refused while a recipient still references the asset:
+    /// the reference is the record of selection, and the foreign key
+    /// guarding it is the one refusing. The payload names the kind and
+    /// the value; the outcome is the asset id.
+    /// </summary>
+    ReconAssetDeleted,
 }

@@ -2622,9 +2622,12 @@ mail platform and the first callback.
 **The entity is the profile plus the list plus the template.** A campaign
 row carries the sending profile (relay host, port, TLS mode, optional
 credentials, and the from address), the recipient list (email and an
-optional display name, capped -- spear-phish scale, not bulk), the
-message template (subject and body, plain or HTML), the build profile,
-and the listener whose `publicEndpoint` fronts the lure. The template
+optional display name, capped -- spear-phish scale, not bulk; each entry
+typed, or selected by reference from the engagement's recon-asset target
+list, the address and display name resolving onto the row at creation --
+Sec 15.4's target link), the message template (subject and body, plain or
+HTML), the build profile, and the listener whose `publicEndpoint` fronts
+the lure. The template
 arrives either inline or as a `module/asset` reference into the listed
 asset modules (Sec 15.1); a reference resolves to subject and body at
 creation, and the row stores the resolved text -- the merge grammar below
@@ -3261,10 +3264,15 @@ Where the program touches the existing layers:
   Recipient, Implant (parentage and the browser/web-shell classes
   included), Task, Artifact, Credential, Listener/Front -- linked by
   explicit foreign keys (never implicit strings), every entity carrying
-  `engagement_id` and `operator_id` (Sec 2's rule). The load-bearing
-  links: recon assets select directly as campaign targets; recipient
+  `engagement_id` and `operator_id` (Sec 2's rule). The foreign keys are
+  composite with the engagement id on both sides, so a reference cannot
+  cross engagements at the database -- the isolation the query layer
+  always kept, now a constraint too. The load-bearing links: recon
+  assets select directly as campaign targets (shipped); recipient
   events chain to implants through deploy tokens (shipped); implant
-  parentage draws the lateral-movement tree (shipped); task products land
+  parentage draws the lateral-movement tree (shipped, and an implant's
+  detail reads the whole chain -- ancestors, children, and the campaign
+  leg); task products land
   as credentials and artifacts, reusable through task references
   (ADR-005); a browser hook session *is* a browser-class implant -- form
   capture lands in the same credential store, command history in the same

@@ -371,6 +371,37 @@
         }
       }
     },
+    "/engagements/{engagementId}/implants/{implantId}": {
+      "get": {
+        "tags": [
+          "ImplantEndpoints"
+        ],
+        "operationId": "GetImplantAsync",
+        "parameters": [
+          {
+            "name": "engagementId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "implantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/engagements/{engagementId}/implants/{implantId}/tasks": {
       "get": {
         "tags": [
@@ -4277,6 +4308,121 @@
         }
       }
     },
+    "/engagements/{engagementId}/recon-assets": {
+      "get": {
+        "tags": [
+          "ReconAssetEndpoints"
+        ],
+        "operationId": "ListReconAssetsAsync",
+        "parameters": [
+          {
+            "name": "engagementId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReconAssetResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ReconAssetEndpoints"
+        ],
+        "operationId": "RecordReconAssetAsync",
+        "parameters": [
+          {
+            "name": "engagementId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordReconAssetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/engagements/{engagementId}/recon-assets/{assetId}": {
+      "delete": {
+        "tags": [
+          "ReconAssetEndpoints"
+        ],
+        "operationId": "DeleteReconAssetAsync",
+        "parameters": [
+          {
+            "name": "engagementId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "assetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/operators/login": {
       "post": {
         "tags": [
@@ -5092,6 +5238,12 @@
             ]
           },
           "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reconAssetId": {
             "type": [
               "null",
               "string"
@@ -6095,6 +6247,48 @@
           }
         }
       },
+      "ReconAssetResponse": {
+        "required": [
+          "assetId",
+          "kind",
+          "value",
+          "displayName",
+          "sourceArtifactId",
+          "createdBy",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sourceArtifactId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "ReconLookupRequest": {
         "required": [
           "target"
@@ -6136,6 +6330,39 @@
             "type": "string"
           },
           "ports": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "RecordReconAssetRequest": {
+        "required": [
+          "kind",
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "value": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sourceArtifactId": {
             "type": [
               "null",
               "string"
@@ -6660,6 +6887,9 @@
     },
     {
       "name": "ChatEndpoints"
+    },
+    {
+      "name": "ReconAssetEndpoints"
     },
     {
       "name": "OperatorAuthEndpoints"

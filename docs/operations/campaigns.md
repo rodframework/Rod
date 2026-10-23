@@ -67,6 +67,14 @@ Neither names a relay; the campaign body does.
    `publicEndpoint` fronts the lure (the same front the artifact's
    baked endpoint dials), give the relay and the from address, the
    subject/body template, the build profile, and the recipient list.
+   Each recipient entry names its address one way: typed (`email`), or
+   by reference (`reconAssetId`) to an `email`-kind recon asset on the
+   engagement's target list (architecture.md Sec 15.4; the list's routes
+   are in [recon.md](recon.md)) -- a reference resolves the address and
+   display name onto the recipient row at creation, the row keeps them
+   regardless of the asset's later fate, and the reference itself is the
+   record of selection. The same mailbox twice, either way it arrives,
+   is the duplicate it always was.
    The template arrives either inline or as `template.ref`, a
    `module/asset` reference into the asset modules listed under
    `Capabilities:AssetModules` (architecture.md Sec 15.1; the in-tree
