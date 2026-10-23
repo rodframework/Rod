@@ -1601,6 +1601,10 @@ namespace Rod.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("token_id");
 
+                    b.Property<byte[]>("WireGuardPublicKey")
+                        .HasColumnType("bytea")
+                        .HasColumnName("wireguard_public_key");
+
                     b.HasKey("PayloadId");
 
                     b.HasIndex("EngagementId")

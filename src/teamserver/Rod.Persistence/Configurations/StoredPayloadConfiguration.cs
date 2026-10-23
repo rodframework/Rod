@@ -31,6 +31,7 @@ internal sealed class StoredPayloadConfiguration : IEntityTypeConfiguration<Stor
         builder.Property(p => p.TokenId).HasColumnName("token_id");
         builder.Property(p => p.EnvelopeKeyId).HasColumnName("envelope_key_id");
         builder.Property(p => p.EnvelopeKey).HasColumnName("envelope_key");
+        builder.Property(p => p.WireGuardPublicKey).HasColumnName("wireguard_public_key");
         builder.Property(p => p.BuildJson).HasColumnName("build_profile");
         builder.Property(p => p.DeliversPayloadId).HasColumnName("delivers_payload_id");
 
