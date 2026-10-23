@@ -52,6 +52,16 @@ jobs:
         run: |
           dotnet publish src/teamserver/Rod.TeamServer/Rod.TeamServer.csproj \
             -c Release -r linux-x64 --self-contained true -o dist/teamserver
+      - name: Build the native WireGuard router
+        # The optional transport's deployment shape: the cdylib ships beside
+        # the server binary (the P/Invoke resolver's second lookup), built
+        # from its default feature set -- the test-client exports the CI
+        # suites drive never ride a release artifact. The library is inert
+        # unless a deployment sets WireGuard:Enabled, so shipping it costs
+        # bytes, not posture.
+        run: |
+          cargo build --release --manifest-path src/native/wireguard/Cargo.toml
+          cp src/native/wireguard/target/release/librod_wg.so dist/teamserver/
           tar -czf dist/rod-teamserver-linux-x64.tar.gz -C dist/teamserver .
       - name: Pack the payload build source
         # The minimal deployed tree teamserver.md names -- the implant
