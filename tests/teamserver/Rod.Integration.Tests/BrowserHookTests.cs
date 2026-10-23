@@ -1,10 +1,12 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Rod.Audit;
+using Rod.Capabilities;
 using Rod.Transport;
 using Rod.Transport.Endpoints;
 using Rod.Transport.Listeners;
@@ -14,8 +16,8 @@ namespace Rod.Integration.Tests;
 
 /// <summary>
 /// Acceptance for the browser-hook serving edge (architecture.md Sec 5.2,
-/// Sec 8): the mint renders the in-tree script with a bake and stores it as
-/// a served payload record; the public route serves it scoped by the
+/// Sec 8): the mint renders the hook asset module's script with a bake and
+/// stores it as a served payload record; the public route serves it scoped by the
 /// ingress listener's engagement, gated by the unguessable id, with a
 /// first-touch audit per fetch; revocation stops the serving and kills the
 /// baked credential. The end-to-end tasking arc these routes feed lives in
@@ -209,6 +211,40 @@ public class BrowserHookTests
         Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
     }
 
+    [Fact]
+    public async Task MintHook_WithoutAnAssetModule_RefusesLoudlyAndMintsNothing()
+    {
+        // The host that lists no asset module (open is not on): the mint
+        // answers 503 naming the config section -- the deployment fix -- and
+        // spends nothing: no hook record, no audit fact exists for the
+        // refused mint.
+        await using var env = await HookTestEnv.StartAsync(withAssetModule: false);
+        var engagementId = await CreateEngagementAsync(env.Http);
+        var listenerId = await env.CreateEngagementListenerAsync(engagementId, "http://c2.example.test");
+
+        var minted = await env.Http.PostAsJsonAsync(
+            $"/engagements/{engagementId}/hooks",
+            new MintHookRequest(ListenerId: listenerId));
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, minted.StatusCode);
+        var problem = await minted.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Contains("Capabilities:AssetModules", problem.GetProperty("title").GetString());
+
+        var audit = env.Host.Services.GetRequiredService<IAuditStore>();
+        Assert.DoesNotContain(await audit.ListAsync(Guid.Parse(engagementId)),
+            e => e.Kind == AuditEventKind.HookMinted);
+    }
+
+    private static string FindRepoRoot()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent!)
+        {
+            if (Directory.Exists(Path.Combine(directory.FullName, "src"))
+                && Directory.Exists(Path.Combine(directory.FullName, "modules")))
+                return directory.FullName;
+        }
+        throw new InvalidOperationException("Could not locate the repo root from the test assembly.");
+    }
+
     /// <summary>
     /// A real-Kestrel host with runtime listener management (the operator
     /// front as the shared tier), plus one engagement-scoped http listener
@@ -223,14 +259,28 @@ public class BrowserHookTests
         /// <summary>The engagement listener's bind socket, where implant ingress lives.</summary>
         public HttpClient Implant { get; private set; } = null!;
 
-        public static async Task<HookTestEnv> StartAsync()
+        /// <param name="withAssetModule">
+        /// Whether the config lists the in-tree browserhook module under
+        /// Capabilities:AssetModules. The default true is every other test's
+        /// seam shape; the mint-refusal test runs the open-not-on default.
+        /// </param>
+        public static async Task<HookTestEnv> StartAsync(bool withAssetModule = true)
         {
             var env = new HookTestEnv();
 
+            // The seam's config path: the mint renders whatever asset module
+            // the deployment lists -- here the in-tree browserhook module,
+            // loaded through Capabilities:AssetModules exactly as the shipped
+            // configuration lists it, never referenced by the test code.
             var operatorBind = $"127.0.0.1:{TestSupport.GetFreeTcpPort()}";
-            var config = AuthenticatedHost.BuildConfig();
+            var config = AuthenticatedHost.BuildConfig(extend: settings =>
+            {
+                if (withAssetModule)
+                    settings["Capabilities:AssetModules:0"] = Path.Combine(FindRepoRoot(), "modules", "browserhook");
+            });
             env.Host = TransportHost.CreateHostBuilder(
-                    configureServices: services => AuthenticatedHost.ComposeServices(services, config),
+                    configureServices: services => AuthenticatedHost.ComposeServices(
+                        services, config, extra: s => s.AddRodCapabilities(config)),
                     mapEndpoints: endpoints => AuthenticatedHost.ComposeEndpoints(endpoints),
                     configuration: config)
                 .ConfigureWebHost(webBuilder => webBuilder.UseRodListeners(new List<ListenerConfig>

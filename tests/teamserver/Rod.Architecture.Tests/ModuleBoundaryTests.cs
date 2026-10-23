@@ -236,6 +236,44 @@ public class ModuleBoundaryTests
         }
     }
 
+    // The content half's own liveness rule: an empty asset-module set would
+    // pass the shipped-config and declaration rules while exercising none
+    // of the seam, exactly as an empty modules/ tree would for assemblies.
+    [Fact]
+    public void TheTree_CarriesAtLeastOneAssetModule()
+    {
+        Assert.True(AssetModuleDirectories.Length > 0,
+            "modules/ holds no asset module; the asset-module host would be dead code.");
+    }
+
+    // The kernel half of the layering: a kernel assembly embeds no script or
+    // template assets -- content that chases browser versions or the SMTP
+    // ecosystem belongs in the module layer (Sec 15.1), and an embedded
+    // resource is how it used to ship. Kernel data files (the ATT&CK
+    // catalog's JSON) are not content assets and stay.
+    [Fact]
+    public void KernelAssemblies_EmbedNoScriptOrTemplateAssets()
+    {
+        var offenders = new List<string>();
+        foreach (var projectFile in Directory.GetFiles(
+                     Path.Combine(RepoRoot, "src", "teamserver"), "*.csproj", SearchOption.AllDirectories))
+        {
+            var project = Path.GetFileNameWithoutExtension(projectFile)!;
+            foreach (var element in XDocument.Load(projectFile).Descendants()
+                         .Where(e => e.Name.LocalName == "EmbeddedResource"))
+            {
+                var include = (string?)element.Attribute("Include")?.Value ?? "";
+                var extension = Path.GetExtension(include).ToLowerInvariant();
+                if (extension is ".js" or ".html" or ".htm" or ".txt" or ".md")
+                    offenders.Add($"{project}: {include}");
+            }
+        }
+
+        Assert.True(offenders.Count == 0,
+            "Kernel projects embed script/template assets; they ship as asset modules under modules/: "
+            + string.Join(", ", offenders));
+    }
+
     // Reads `key = "value"` from the lines after a table header, before the
     // next table starts.
     private static string? ReadKeyValue(string[] lines, int start, string key)

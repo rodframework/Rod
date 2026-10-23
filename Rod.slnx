@@ -45,6 +45,9 @@
   <Folder Name="/tests/cli/dotnet/">
     <Project Path="tests/cli/dotnet/Rod.Cli.Tests.csproj" />
   </Folder>
+  <Folder Name="/tests/modules/">
+    <Project Path="modules/browserhook/tests/Rod.Modules.BrowserHook.Tests.csproj" />
+  </Folder>
   <Folder Name="/tests/redirector/">
     <Project Path="tests/redirector/dotnet/Rod.Redirector.Tests.csproj" />
   </Folder>

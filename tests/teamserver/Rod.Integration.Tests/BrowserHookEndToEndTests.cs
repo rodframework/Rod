@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
@@ -10,45 +9,15 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Rod.Audit;
+using Rod.Capabilities;
 using Rod.Transport;
 using Rod.Transport.Endpoints;
-using Rod.Transport.Hooks;
 using Rod.Transport.Listeners;
 using Rod.Transport.Payloads;
 using Rod.V1;
 using static Rod.Integration.Tests.EngagementSetup;
 
 namespace Rod.Integration.Tests;
-
-/// <summary>
-/// A fact that runs only when a Node runtime is on PATH: the golden-vector
-/// smoke that pins the served hook's hand-rolled JavaScript codec against
-/// the same wire bytes the .NET side produces.
-/// </summary>
-public sealed class NodeFactAttribute : FactAttribute
-{
-    public NodeFactAttribute()
-    {
-        try
-        {
-            var probe = Process.Start(new ProcessStartInfo
-            {
-                FileName = "node",
-                ArgumentList = { "--version" },
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            });
-            probe?.WaitForExit(5000);
-            if (probe is null || probe.ExitCode != 0)
-                Skip = "node is not usable on PATH";
-        }
-        catch
-        {
-            Skip = "node is not on PATH";
-        }
-    }
-}
 
 /// <summary>
 /// The browser-hook acceptance criterion, pinned: "a hooked browser on a
@@ -180,120 +149,6 @@ public class BrowserHookEndToEndTests
             .Single(e => e.Kind == AuditEventKind.ImplantEnrolled);
         Assert.Contains("Browser", enrolledFact.Payload);
         Assert.Equal(implantId, enrolledFact.Outcome);
-    }
-
-    [NodeFact]
-    public async Task HookCodec_RoundTripsTheWireBytesTheDotNetSideProduces()
-    {
-        // Golden vectors from the .NET encoder: a contact body's frames
-        // (handshake, result, exfil chunk) and a dispatched task. The served
-        // script's own codec -- extracted verbatim from the rendered
-        // template -- must parse and re-encode them byte-for-byte, the
-        // cross-language conformance the wire contract promises.
-        var frames = new[]
-        {
-            new Frame
-            {
-                Payload = ByteString.CopyFrom(new HandshakeRequest
-                {
-                    Version = new ProtocolVersion { Major = 1, Minor = 0 },
-                    ImplantId = "01234567-89ab-cdef-0123-456789abcdef",
-                    Capabilities = { "browser.fingerprint", "browser.cookies", "browser.dom" },
-                    SleepSeconds = 12.5,
-                    JitterSeconds = 1.5,
-                }.ToByteArray()),
-            },
-            new Frame
-            {
-                Payload = ByteString.CopyFrom(new TaskResult
-                {
-                    TaskId = "11111111-1111-1111-1111-111111111111",
-                    Outcome = TaskOutcome.Succeeded,
-                    Output = "{\"userAgent\":\"rod-test\"}",
-                }.ToByteArray()),
-            },
-            new Frame
-            {
-                Kind = FrameKind.ExfilChunk,
-                Payload = ByteString.CopyFrom(new ExfilChunk
-                {
-                    TaskId = "11111111-1111-1111-1111-111111111111",
-                    Name = "screenshot.png",
-                    ContentType = "image/png",
-                    Sequence = 0,
-                    Terminal = true,
-                    Data = ByteString.CopyFrom(new byte[] { 1, 2, 3, 4 }),
-                }.ToByteArray()),
-            },
-        };
-        var contactBody = Convert.ToBase64String(EnvelopeFraming.Encode(frames));
-        var taskFrame = Convert.ToBase64String(EnvelopeFraming.Encode(new[]
-        {
-            new Frame
-            {
-                Payload = ByteString.CopyFrom(new TaskRequest
-                {
-                    TaskId = "22222222-2222-2222-2222-222222222222",
-                    Verb = "browser.prompt",
-                    Arguments = "Enter your password",
-                }.ToByteArray()),
-            },
-        }));
-
-        // The codec section of the real rendered artifact, sliced between its
-        // marker comments: byte helpers, protobuf micro-codec, frames, and
-        // messages -- the whole dependency-free region.
-        var rendered = Encoding.UTF8.GetString(BrowserHookScript.Render(new BrowserHookBake(
-            "http://front/implants/enroll", "http://front/implants/beacon", "s", null,
-            new[] { "browser.fingerprint" }, 5, 0, null)));
-        var start = rendered.IndexOf("// ---- byte helpers", StringComparison.Ordinal);
-        var end = rendered.IndexOf("// ---- seal", StringComparison.Ordinal);
-        Assert.True(start > 0 && end > start);
-        var codec = rendered[start..end];
-
-        var result = await NodeRunner.RunAsync($$"""
-            const section = {{JsonSerializer.Serialize(codec)}};
-            const vectors = {
-              contactBody: {{JsonSerializer.Serialize(contactBody)}},
-              taskFrame: {{JsonSerializer.Serialize(taskFrame)}},
-            };
-            eval(section);
-
-            function bytes(b64) {
-              return Uint8Array.from(Buffer.from(b64, 'base64'));
-            }
-            function b64(u8) {
-              return Buffer.from(u8).toString('base64');
-            }
-
-            const frames = parseFrames(bytes(vectors.contactBody));
-            const kinds = frames.map(f => f.kind);
-            const reEncoded = b64(encodeFrames(frames));
-            const task = parseTaskRequest(parseFrames(bytes(vectors.taskFrame))[0].payload);
-            const handshake = parseHandshakeResponse(frames[0].payload);
-            const resultBytes = taskResultBytes('33333333-3333-3333-3333-333333333333', true, 'out');
-            console.log(JSON.stringify({
-              frameCount: frames.length,
-              kinds: kinds,
-              roundTripExact: reEncoded === vectors.contactBody,
-              taskVerb: task.verb,
-              taskArguments: task.arguments,
-              taskId: task.taskId,
-              handshakeStatus: handshake.status,
-              resultLen: resultBytes.length > 0,
-            }));
-            """);
-
-        using var document = JsonDocument.Parse(result);
-        var verdict = document.RootElement;
-        Assert.Equal(3, verdict.GetProperty("frameCount").GetInt32());
-        Assert.Equal(new[] { 0, 0, 2 }, verdict.GetProperty("kinds").EnumerateArray().Select(k => k.GetInt32()));
-        Assert.True(verdict.GetProperty("roundTripExact").GetBoolean());
-        Assert.Equal("browser.prompt", verdict.GetProperty("taskVerb").GetString());
-        Assert.Equal("Enter your password", verdict.GetProperty("taskArguments").GetString());
-        Assert.Equal("22222222-2222-2222-2222-222222222222", verdict.GetProperty("taskId").GetString());
-        Assert.Equal(0, verdict.GetProperty("handshakeStatus").GetInt32());
-        Assert.True(verdict.GetProperty("resultLen").GetBoolean());
     }
 
     private static async Task<string> IssueTaskAsync(
@@ -433,9 +288,14 @@ public class BrowserHookEndToEndTests
         {
             var env = new HookE2EEnv();
             var operatorBind = $"127.0.0.1:{TestSupport.GetFreeTcpPort()}";
-            var config = AuthenticatedHost.BuildConfig();
+            // The mint renders the listed asset module's template: the
+            // in-tree browserhook module through Capabilities:AssetModules,
+            // the same config path the shipped configuration carries.
+            var config = AuthenticatedHost.BuildConfig(extend: settings =>
+                settings["Capabilities:AssetModules:0"] = Path.Combine(FindRepoRoot(), "modules", "browserhook"));
             env.Host = TransportHost.CreateHostBuilder(
-                    configureServices: services => AuthenticatedHost.ComposeServices(services, config),
+                    configureServices: services => AuthenticatedHost.ComposeServices(
+                        services, config, extra: s => s.AddRodCapabilities(config)),
                     mapEndpoints: endpoints => AuthenticatedHost.ComposeEndpoints(endpoints),
                     configuration: config)
                 .ConfigureWebHost(webBuilder => webBuilder.UseRodListeners(new List<ListenerConfig>
@@ -455,6 +315,17 @@ public class BrowserHookEndToEndTests
             };
             await AuthenticatedHost.LoginAsync(env.Http);
             return env;
+        }
+
+        private static string FindRepoRoot()
+        {
+            for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent!)
+            {
+                if (Directory.Exists(Path.Combine(directory.FullName, "src"))
+                    && Directory.Exists(Path.Combine(directory.FullName, "modules")))
+                    return directory.FullName;
+            }
+            throw new InvalidOperationException("Could not locate the repo root from the test assembly.");
         }
 
         public async Task<string> CreateEngagementListenerAsync(string engagementId, string publicEndpoint)
@@ -481,35 +352,6 @@ public class BrowserHookEndToEndTests
             if (Host is not null)
                 await Host.StopAsync();
             Host?.Dispose();
-        }
-    }
-}
-
-file static class NodeRunner
-{
-    public static async Task<string> RunAsync(string script)
-    {
-        var file = Path.Combine(Path.GetTempPath(), $"rod-hook-smoke-{Guid.NewGuid():N}.cjs");
-        await File.WriteAllTextAsync(file, script);
-        try
-        {
-            var start = new ProcessStartInfo
-            {
-                FileName = "node",
-                ArgumentList = { file },
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
-            using var process = Process.Start(start)!;
-            var stdout = await process.StandardOutput.ReadToEndAsync();
-            await process.WaitForExitAsync();
-            Assert.True(process.ExitCode == 0, $"node exited {process.ExitCode}: {await process.StandardError.ReadToEndAsync()}");
-            return stdout.Trim();
-        }
-        finally
-        {
-            File.Delete(file);
         }
     }
 }

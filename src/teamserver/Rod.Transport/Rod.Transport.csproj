@@ -38,13 +38,10 @@
     <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
 
-  <!-- The browser hook template (architecture.md Sec 5.2, Sec 8): the served
-       script the mint renders a bake into. An embedded resource so the
-       artifact a victim fetches is exactly this file plus the substituted
-       bake object, with no build step and no external dependency. -->
-  <ItemGroup>
-    <EmbeddedResource Include="Hooks\hook.template.js" />
-  </ItemGroup>
+  <!-- The browser hook template is module-layer content (architecture.md
+       Sec 15.1): it lives under modules/browserhook and reaches the mint
+       through the asset-module seam at runtime, so the kernel embeds no
+       script or template assets; the architecture tests hold that line. -->
 
   <!-- The DNS contact codec, name grammar, and bridge are internal transport
        machinery; the integration tests exercise them directly (the same

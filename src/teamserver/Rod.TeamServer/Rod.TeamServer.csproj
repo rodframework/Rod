@@ -88,4 +88,25 @@
     <Copy SourceFiles="@(RodServerModuleOutput)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
   </Target>
 
+  <!-- In-tree asset modules (Sec 15.1's content half): pure files beside the
+       assemblies. Each module's rod-module.toml and assets/ tree land under
+       modules/&lt;name&gt;/ in the output, the directory shape the
+       Capabilities:AssetModules entries name and the asset host loads. Only
+       the manifest and the assets travel: a module's tests/ and any build
+       artifacts never deploy. -->
+  <ItemGroup>
+    <RodAssetModuleFile Include="$(MSBuildThisFileDirectory)..\..\..\modules\**\rod-module.toml" />
+    <RodAssetModuleFile Include="$(MSBuildThisFileDirectory)..\..\..\modules\**\assets\**\*" />
+  </ItemGroup>
+  <Target Name="DeployInTreeAssetModules" AfterTargets="Build">
+    <Copy SourceFiles="@(RodAssetModuleFile)"
+          DestinationFiles="@(RodAssetModuleFile->'$(OutDir)modules\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="PublishInTreeAssetModules" AfterTargets="Publish">
+    <Copy SourceFiles="@(RodAssetModuleFile)"
+          DestinationFiles="@(RodAssetModuleFile->'$(PublishDir)modules\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>

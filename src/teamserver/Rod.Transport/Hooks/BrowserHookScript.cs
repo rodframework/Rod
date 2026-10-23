@@ -1,6 +1,6 @@
-using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using Rod.CoreState.Assets;
 
 namespace Rod.Transport.Hooks;
 
@@ -45,25 +45,34 @@ public sealed record BrowserHookBake(
 
 /// <summary>
 /// Renders the browser hook script (architecture.md Sec 5.2, Sec 8): the
-/// in-tree template with one bake substituted. The template is an embedded
-/// resource of this assembly -- dependency-free vanilla JavaScript the
-/// served artifact copies verbatim except for the single bake object, so a
-/// served hook is reviewable as "the template plus this bake" and nothing
-/// else.
+/// hook asset module's template with one bake substituted. The template
+/// itself lives in the module layer -- <c>browser-hook</c>, asset
+/// <c>hook</c> (Sec 15.1) -- and reaches the mint through
+/// <see cref="IModuleAssetStore"/>; what stays here is the render contract
+/// both sides share: the template carries the
+/// <c>__ROD_BAKE_JSON__</c> placeholder exactly once, and the substitution
+/// is one compact camelCase JSON object, so a served hook is reviewable as
+/// "the template plus this bake" and nothing else.
 /// </summary>
 public static class BrowserHookScript
 {
-    private const string ResourceName = "Rod.Transport.Hooks.hook.template.js";
-    private const string Placeholder = "__ROD_BAKE_JSON__";
+    /// <summary>
+    /// The asset module the mint's template lives in -- the naming contract
+    /// this class and the module's manifest share, the way a verb string
+    /// binds a capability's two halves. A different hook module (one chasing
+    /// a browser the reference template does not) ships under the same
+    /// module name and wins by the asset host's last-listed rule.
+    /// </summary>
+    public const string TemplateModuleName = "browser-hook";
 
-    private static readonly Lazy<string> Template = new(() =>
-    {
-        var assembly = Assembly.GetExecutingAssembly();
-        using var stream = assembly.GetManifestResourceStream(ResourceName)
-            ?? throw new InvalidOperationException($"The embedded hook template '{ResourceName}' is missing from the build.");
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        return reader.ReadToEnd();
-    });
+    /// <summary>The asset name the mint resolves inside the module.</summary>
+    public const string TemplateAssetName = "hook";
+
+    /// <summary>
+    /// The placeholder the template defines exactly once and the render
+    /// substitutes once -- the whole of the module-side format contract.
+    /// </summary>
+    public const string Placeholder = "__ROD_BAKE_JSON__";
 
     private static readonly JsonSerializerOptions BakeJson = new()
     {
@@ -73,16 +82,17 @@ public static class BrowserHookScript
     };
 
     /// <summary>
-    /// Renders the hook for <paramref name="bake"/>. The substitution is a
-    /// single placeholder the template defines exactly once, so a render is
-    /// total: a template edit that loses the placeholder fails here rather
-    /// than serving an unconfigured hook.
+    /// Renders the hook for <paramref name="bake"/> over
+    /// <paramref name="template"/>. The substitution is total: a template
+    /// that lost its placeholder fails here rather than serving an
+    /// unconfigured hook.
     /// </summary>
-    public static byte[] Render(BrowserHookBake bake)
+    public static byte[] Render(byte[] template, BrowserHookBake bake)
     {
-        var template = Template.Value;
-        if (!template.Contains(Placeholder))
-            throw new InvalidOperationException("The hook template no longer carries its bake placeholder.");
+        var text = Encoding.UTF8.GetString(template);
+        if (!text.Contains(Placeholder))
+            throw new InvalidOperationException(
+                $"The hook template from module '{TemplateModuleName}' no longer carries its bake placeholder.");
 
         var json = JsonSerializer.Serialize(
             new
@@ -98,6 +108,6 @@ public static class BrowserHookScript
             },
             BakeJson);
 
-        return Encoding.UTF8.GetBytes(template.Replace(Placeholder, json));
+        return Encoding.UTF8.GetBytes(text.Replace(Placeholder, json));
     }
 }
