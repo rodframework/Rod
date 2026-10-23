@@ -32,9 +32,9 @@ Phase P1 -- long-board parity (architecture.md Sec 15). P0 (the
 replacement threshold, ADR-007) shipped; the parking condition cleared,
 so the queue moved up by the file's own mechanics.
 
-- **Transport-provider abstraction + optional mTLS/WireGuard, default
-  disabled** (Sec 8, Sec 15.3, ADR-004). _AC:_ the three-platform build
-  matrix includes a WireGuard-enabled profile.
+- **Optional WireGuard transport, default disabled** (Sec 8, Sec 15.3,
+  ADR-004 as amended). _AC:_ the three-target implant cross matrix
+  includes a WireGuard-enabled profile.
 - **Kernel/module layering landed** -- browser-hook assets and phishing
   templates load as modules (Sec 15.1). _AC:_ both asset families load as
   modules; the kernel tests contain none of their logic.
