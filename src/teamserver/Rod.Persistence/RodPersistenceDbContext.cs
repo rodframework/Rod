@@ -51,6 +51,7 @@ public sealed class RodPersistenceDbContext : DbContext
     internal DbSet<Configurations.StoredCredential> Credentials => Set<Configurations.StoredCredential>();
     internal DbSet<Configurations.StoredCampaign> Campaigns => Set<Configurations.StoredCampaign>();
     internal DbSet<Configurations.StoredCampaignRecipient> CampaignRecipients => Set<Configurations.StoredCampaignRecipient>();
+    internal DbSet<Configurations.StoredReconAsset> ReconAssets => Set<Configurations.StoredReconAsset>();
     internal DbSet<Configurations.StoredRedirectorNode> RedirectorNodes => Set<Configurations.StoredRedirectorNode>();
     internal DbSet<Configurations.StoredRedirectorCredential> RedirectorCredentials => Set<Configurations.StoredRedirectorCredential>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();

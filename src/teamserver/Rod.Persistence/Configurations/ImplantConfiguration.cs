@@ -89,6 +89,42 @@ internal sealed class ImplantConfiguration : IEntityTypeConfiguration<Implant>
         // Engagement scoping is structural: index the engagement column so
         // ListByEngagementAsync stays a cheap scoped read.
         builder.HasIndex(i => i.EngagementId).HasDatabaseName("ix_implants_engagement_id");
+        // The children query of the provenance chain (Sec 15.4) walks this
+        // index; it also serves the parent link's constraint checks.
+        builder.HasIndex(i => new { i.ParentImplantId, i.EngagementId })
+            .HasDatabaseName("ix_implants_parent_implant_id_engagement_id")
+            .HasFilter("parent_implant_id IS NOT NULL");
+
+        // The (id, engagement) anchor every implant-referencing foreign
+        // key lands on (Sec 15.4's explicit links, each composite with the
+        // engagement so a reference cannot cross engagements by
+        // constraint).
+        builder.HasAlternateKey(i => new { i.Id, i.EngagementId })
+            .HasName("ux_implants_id_engagement_id");
+
+        // The provenance links of the unified entity model, all Restrict:
+        // implant rows never delete, and no campaign deletion path exists,
+        // so the guards only ever refuse anomalies -- an implant cannot
+        // cite a campaign, recipient, or parent outside its own
+        // engagement.
+        builder.HasOne<StoredCampaign>()
+            .WithMany()
+            .HasForeignKey(i => new { i.CampaignId, i.EngagementId })
+            .HasPrincipalKey("Id", "EngagementId")
+            .HasConstraintName("fk_implants_campaign")
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<StoredCampaignRecipient>()
+            .WithMany()
+            .HasForeignKey(i => new { i.CampaignRecipientId, i.EngagementId })
+            .HasPrincipalKey("Id", "EngagementId")
+            .HasConstraintName("fk_implants_campaign_recipient")
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Implant>()
+            .WithMany()
+            .HasForeignKey(i => new { i.ParentImplantId, i.EngagementId })
+            .HasPrincipalKey("Id", "EngagementId")
+            .HasConstraintName("fk_implants_parent")
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.UsePropertyAccessMode(PropertyAccessMode.Field);
     }

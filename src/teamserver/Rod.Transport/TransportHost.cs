@@ -236,6 +236,10 @@ public static class TransportHost
         // with their baked-credential bindings, evidence stamps -- in-memory
         // by default, Postgres-backed when the connection string is set.
         services.AddSingleton<Rod.CoreState.Campaigns.ICampaignStore, Rod.CoreState.Campaigns.InMemoryCampaignStore>();
+        // The engagement-scoped recon assets (architecture.md Sec 15.4):
+        // the first-class target rows a campaign selects from. In-memory
+        // by default, Postgres-backed when the connection string is set.
+        services.AddSingleton<Rod.CoreState.Recon.IReconAssetStore, Rod.CoreState.Recon.InMemoryReconAssetStore>();
         // The deployment-scoped redirector fleet (architecture.md Sec 8):
         // enrollment credentials and the enrolled nodes they mint, with
         // contact reporting. In-memory by default, Postgres-backed when the

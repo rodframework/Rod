@@ -135,6 +135,11 @@ public static class RodPersistenceHost
         // the recipient rows included, which is what re-attributes an
         // enrollment that lands after the restart.
         services.Replace(ServiceDescriptor.Singleton<CoreState.Campaigns.ICampaignStore, Stores.PostgresCampaignStore>());
+        // Engagement-scoped recon assets (architecture.md Sec 15.4): the
+        // durable twin so the engagement's target list survives a restart
+        // with the (engagement, kind, value) identity and the composite
+        // foreign keys the campaign-target link anchors on.
+        services.Replace(ServiceDescriptor.Singleton<CoreState.Recon.IReconAssetStore, Stores.PostgresReconAssetStore>());
         services.Replace(ServiceDescriptor.Singleton<CoreState.Redirectors.IRedirectorFleet, Stores.PostgresRedirectorFleet>());
         // The audit chain key (Audit:ChainKey, base64) rides the Postgres
         // audit store the same way it rides the in-memory and file ones:

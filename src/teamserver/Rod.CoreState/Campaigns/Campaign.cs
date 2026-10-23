@@ -1,4 +1,5 @@
 using Rod.CoreState.Deployment;
+using Rod.CoreState.Recon;
 
 namespace Rod.CoreState.Campaigns;
 
@@ -257,6 +258,13 @@ public sealed class Campaign
 /// the delivery/evidence arc. The enrollment credential binding
 /// (<see cref="EnrollTokenId"/>) is what attributes the implant that
 /// follows the lure -- the whole surface's reason to exist.
+///
+/// The address arrives two ways (the unified entity model's target link,
+/// Sec 15.4): typed by the operator, or by reference to a recon asset --
+/// <see cref="ReconAssetId"/> names the row the address was selected from,
+/// and the asset's value and display name resolved into
+/// <see cref="Email"/>/<see cref="Name"/> at creation, so the delivery
+/// arc never depends on the asset row staying alive.
 /// </summary>
 public sealed class CampaignRecipient
 {
@@ -266,6 +274,15 @@ public sealed class CampaignRecipient
     /// <summary>The display name the merge field <c>{{name}}</c> renders;
     /// null when the campaign carries none (the field renders empty).</summary>
     public string? Name { get; }
+
+    /// <summary>
+    /// The recon asset this recipient was selected from (architecture.md
+    /// Sec 15.4), when the target came from the engagement's asset list
+    /// rather than the operator's keyboard. Null on a typed address. The
+    /// reference is the record of selection; the resolved address rides
+    /// <see cref="Email"/>.
+    /// </summary>
+    public ReconAssetId? ReconAssetId { get; }
 
     /// <summary>
     /// The unguessable id whose route is the lure -- the capability URL
@@ -330,7 +347,8 @@ public sealed class CampaignRecipient
         DateTimeOffset? openedAt = null,
         DateTimeOffset? clickedAt = null,
         DateTimeOffset? executedAt = null,
-        Guid? enrolledImplantId = null)
+        Guid? enrolledImplantId = null,
+        ReconAssetId? reconAssetId = null)
     {
         Id = id;
         Email = email;
@@ -346,6 +364,7 @@ public sealed class CampaignRecipient
         ClickedAt = clickedAt;
         ExecutedAt = executedAt;
         EnrolledImplantId = enrolledImplantId;
+        ReconAssetId = reconAssetId;
     }
 
     /// <summary>

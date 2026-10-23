@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Rod.CoreState;
 using Rod.CoreState.Campaigns;
 using Rod.CoreState.Deployment;
+using Rod.CoreState.Implants;
 
 namespace Rod.Persistence.Configurations;
 
@@ -16,10 +17,16 @@ namespace Rod.Persistence.Configurations;
 /// deserializations. A Persistence-owned mirror of core state's
 /// <see cref="Campaign"/> aggregate (the domain stays free of any stored
 /// shape).
+///
+/// The link set of the unified entity model (architecture.md Sec 15.4)
+/// lives here as explicit foreign keys, each one composite with the
+/// engagement id: a row cannot reference across engagements, the
+/// isolation the application layer keeps by query now also holds by
+/// constraint.
 /// </summary>
 internal sealed class StoredCampaign
 {
-    public Guid Id { get; set; }
+    public CampaignId Id { get; set; }
     public EngagementId EngagementId { get; set; }
     public string Name { get; set; } = string.Empty;
     public OperatorId CreatedBy { get; set; }
@@ -44,7 +51,7 @@ internal sealed class StoredCampaign
 
     public static StoredCampaign From(Campaign campaign) => new()
     {
-        Id = campaign.Id.Value,
+        Id = campaign.Id,
         EngagementId = campaign.EngagementId,
         Name = campaign.Name,
         CreatedBy = campaign.CreatedBy,
@@ -64,11 +71,17 @@ internal sealed class StoredCampaign
         LaunchedAt = campaign.LaunchedAt,
         CompletedAt = campaign.CompletedAt,
         RevokedAt = campaign.RevokedAt,
-        Recipients = campaign.Recipients.Select(StoredCampaignRecipient.From).ToList(),
+        // The recipient rows carry the campaign's engagement and creator:
+        // every entity of the model answers both on its own row
+        // (architecture.md Sec 15.4), and the recipients below read them
+        // from the aggregate's head, their one source of truth.
+        Recipients = campaign.Recipients
+            .Select(r => StoredCampaignRecipient.From(campaign, r))
+            .ToList(),
     };
 
     public Campaign ToDomain() => new(
-        new CampaignId(Id),
+        Id,
         EngagementId,
         Name,
         CreatedBy,
@@ -97,14 +110,25 @@ internal sealed class StoredCampaign
 /// the recipient table is the concurrent edge of the campaign, and the
 /// targeted updates are what keep the engine's arcs from racing the
 /// public edge's stamps.
+///
+/// <see cref="EngagementId"/> and <see cref="CreatedBy"/> are denormalized
+/// off the campaign head so the row answers its engagement and operator on
+/// its own (Sec 15.4); the target-selection link
+/// (<see cref="ReconAssetId"/>) and the enrollment binding
+/// (<see cref="EnrolledImplantId"/>) are explicit composite foreign keys,
+/// which is what makes a cross-engagement reference impossible at the
+/// database rather than merely unqueried.
 /// </summary>
 internal sealed class StoredCampaignRecipient
 {
-    public Guid Id { get; set; }
-    public Guid CampaignId { get; set; }
+    public CampaignRecipientId Id { get; set; }
+    public CampaignId CampaignId { get; set; }
     public StoredCampaign? Campaign { get; set; }
+    public EngagementId EngagementId { get; set; }
+    public OperatorId CreatedBy { get; set; }
     public string Email { get; set; } = string.Empty;
     public string? Name { get; set; }
+    public Rod.CoreState.ReconAssetId? ReconAssetId { get; set; }
     public Guid LureId { get; set; }
     public int Status { get; set; }
     public string? Failure { get; set; }
@@ -115,13 +139,17 @@ internal sealed class StoredCampaignRecipient
     public DateTimeOffset? OpenedAt { get; set; }
     public DateTimeOffset? ClickedAt { get; set; }
     public DateTimeOffset? ExecutedAt { get; set; }
-    public Guid? EnrolledImplantId { get; set; }
+    public ImplantId? EnrolledImplantId { get; set; }
 
-    public static StoredCampaignRecipient From(CampaignRecipient recipient) => new()
+    public static StoredCampaignRecipient From(Campaign campaign, CampaignRecipient recipient) => new()
     {
-        Id = recipient.Id.Value,
+        Id = recipient.Id,
+        CampaignId = campaign.Id,
+        EngagementId = campaign.EngagementId,
+        CreatedBy = campaign.CreatedBy,
         Email = recipient.Email,
         Name = recipient.Name,
+        ReconAssetId = recipient.ReconAssetId,
         LureId = recipient.LureId,
         Status = (int)recipient.Status,
         Failure = recipient.Failure,
@@ -132,11 +160,11 @@ internal sealed class StoredCampaignRecipient
         OpenedAt = recipient.OpenedAt,
         ClickedAt = recipient.ClickedAt,
         ExecutedAt = recipient.ExecutedAt,
-        EnrolledImplantId = recipient.EnrolledImplantId,
+        EnrolledImplantId = recipient.EnrolledImplantId is { } enrolled ? new ImplantId(enrolled) : null,
     };
 
     public CampaignRecipient ToDomain() => new(
-        new CampaignRecipientId(Id),
+        Id,
         Email,
         Name,
         LureId,
@@ -149,7 +177,8 @@ internal sealed class StoredCampaignRecipient
         OpenedAt,
         ClickedAt,
         ExecutedAt,
-        EnrolledImplantId);
+        EnrolledImplantId is { } enrolled ? enrolled.Value : null,
+        ReconAssetId);
 }
 
 internal sealed class CampaignConfiguration : IEntityTypeConfiguration<StoredCampaign>
@@ -159,7 +188,9 @@ internal sealed class CampaignConfiguration : IEntityTypeConfiguration<StoredCam
         builder.ToTable("campaigns");
 
         builder.HasKey(c => c.Id);
-        builder.Property(c => c.Id).HasColumnName("campaign_id");
+        builder.Property(c => c.Id)
+            .HasConversion(IdConverters.CampaignId)
+            .HasColumnName("campaign_id");
 
         builder.Property(c => c.EngagementId)
             .HasConversion(IdConverters.EngagementId)
@@ -190,6 +221,12 @@ internal sealed class CampaignConfiguration : IEntityTypeConfiguration<StoredCam
         builder.HasIndex(c => c.EngagementId).HasDatabaseName("ix_campaigns_engagement_id");
         builder.HasIndex(c => c.State).HasDatabaseName("ix_campaigns_state");
 
+        // The (id, engagement) pair the composite inbound foreign keys
+        // anchor on: referencing rows carry both columns, so the database
+        // itself rejects a reference that crosses engagements.
+        builder.HasAlternateKey(c => new { c.Id, c.EngagementId })
+            .HasName("ux_campaigns_id_engagement_id");
+
         builder.HasMany(c => c.Recipients)
             .WithOne(r => r.Campaign)
             .HasForeignKey(r => r.CampaignId)
@@ -204,11 +241,24 @@ internal sealed class CampaignRecipientConfiguration : IEntityTypeConfiguration<
         builder.ToTable("campaign_recipients");
 
         builder.HasKey(r => r.Id);
-        builder.Property(r => r.Id).HasColumnName("campaign_recipient_id");
+        builder.Property(r => r.Id)
+            .HasConversion(IdConverters.CampaignRecipientId)
+            .HasColumnName("campaign_recipient_id");
 
-        builder.Property(r => r.CampaignId).HasColumnName("campaign_id");
+        builder.Property(r => r.CampaignId)
+            .HasConversion(IdConverters.CampaignId)
+            .HasColumnName("campaign_id");
+        builder.Property(r => r.EngagementId)
+            .HasConversion(IdConverters.EngagementId)
+            .HasColumnName("engagement_id");
+        builder.Property(r => r.CreatedBy)
+            .HasConversion(IdConverters.OperatorId)
+            .HasColumnName("created_by");
         builder.Property(r => r.Email).HasColumnName("email").HasMaxLength(CampaignLimits.MaxAddressBytes);
         builder.Property(r => r.Name).HasColumnName("name").HasMaxLength(CampaignLimits.MaxAddressBytes);
+        builder.Property(r => r.ReconAssetId)
+            .HasConversion(IdConverters.ReconAssetId)
+            .HasColumnName("recon_asset_id");
         builder.Property(r => r.LureId).HasColumnName("lure_id");
         builder.Property(r => r.Status).HasConversion<int>().HasColumnName("status");
         builder.Property(r => r.Failure).HasColumnName("failure").HasMaxLength(CampaignLimits.MaxFailureBytes);
@@ -219,7 +269,9 @@ internal sealed class CampaignRecipientConfiguration : IEntityTypeConfiguration<
         builder.Property(r => r.OpenedAt).HasColumnName("opened_at");
         builder.Property(r => r.ClickedAt).HasColumnName("clicked_at");
         builder.Property(r => r.ExecutedAt).HasColumnName("executed_at");
-        builder.Property(r => r.EnrolledImplantId).HasColumnName("enrolled_implant_id");
+        builder.Property(r => r.EnrolledImplantId)
+            .HasConversion(IdConverters.ImplantId)
+            .HasColumnName("enrolled_implant_id");
 
         // The public edge resolves a lure by its unguessable id alone; the
         // enrollment path resolves attribution by the baked token. Both are
@@ -231,5 +283,34 @@ internal sealed class CampaignRecipientConfiguration : IEntityTypeConfiguration<
             // of a Draft campaign) carry no token, and a full unique index
             // would admit only one NULL under the default b-tree semantics.
             .HasFilter("enroll_token_id IS NOT NULL");
+        // The asset-delete check walks this index (which recipients named a
+        // given asset); without it the delete would scan the table.
+        builder.HasIndex(r => new { r.ReconAssetId, r.EngagementId })
+            .HasDatabaseName("ix_campaign_recipients_recon_asset_id_engagement_id")
+            .HasFilter("recon_asset_id IS NOT NULL");
+
+        // The (id, engagement) anchor for the implant rows that reference a
+        // recipient as their enrollment attribution.
+        builder.HasAlternateKey(r => new { r.Id, r.EngagementId })
+            .HasName("ux_campaign_recipients_id_engagement_id");
+
+        // The target-selection link (Sec 15.4): the asset the recipient was
+        // selected from. Restrict, not cascade -- a target an engagement
+        // already aimed at stays on the books while the campaign row lives.
+        builder.HasOne<StoredReconAsset>()
+            .WithMany()
+            .HasForeignKey(r => new { r.ReconAssetId, r.EngagementId })
+            .HasPrincipalKey("Id", "EngagementId")
+            .HasConstraintName("fk_recipients_recon_asset")
+            .OnDelete(DeleteBehavior.Restrict);
+        // The executed binding, the read side of the implant's campaign
+        // attribution. Restrict: implant rows never delete, so the guard
+        // only ever refuses a recipient-side anomaly.
+        builder.HasOne<Rod.CoreState.Implants.Implant>()
+            .WithMany()
+            .HasForeignKey(r => new { r.EnrolledImplantId, r.EngagementId })
+            .HasPrincipalKey("Id", "EngagementId")
+            .HasConstraintName("fk_recipients_enrolled_implant")
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

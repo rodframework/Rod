@@ -798,7 +798,13 @@ public sealed class CoreStateDurabilityTests : IClassFixture<PostgresFixture>
             Assert.True(await campaignsA.NoteBuildingAsync(campaign.Id, sent.Id, boundToken, Guid.NewGuid()));
             Assert.True(await campaignsA.NoteSentAsync(campaign.Id, sent.Id, Guid.NewGuid(), DateTimeOffset.UtcNow));
             Assert.True(await campaignsA.NoteOpenedAsync(campaign.Id, sent.Id, DateTimeOffset.UtcNow));
-            Assert.True(await campaignsA.NoteExecutedAsync(campaign.Id, sent.Id, Guid.NewGuid(), DateTimeOffset.UtcNow));
+            // The executed binding references a real implant row: the
+            // enrollment always lands before the stamp it attributes, and
+            // the recipient's foreign key holds that order at the database.
+            var enrolledImplant = ImplantId.New();
+            await envA.Host.Services.GetRequiredService<IImplantRepository>().SaveAsync(
+                Implant.EnrollChild(enrolledImplant, engagementId, killDate: null, @class: ImplantClass.Implant, createdAt: DateTimeOffset.UtcNow));
+            Assert.True(await campaignsA.NoteExecutedAsync(campaign.Id, sent.Id, enrolledImplant.Value, DateTimeOffset.UtcNow));
         }
 
         // --- Host B: fresh process over the same database. The recipient

@@ -29,7 +29,7 @@ internal sealed class PostgresCampaignStore : ICampaignStore
         await using var context = await _factory.CreateDbContextAsync(cancellationToken);
         var existing = await context.Campaigns
             .Include(c => c.Recipients)
-            .FirstOrDefaultAsync(c => c.Id == campaign.Id.Value, cancellationToken);
+            .FirstOrDefaultAsync(c => c.Id == campaign.Id, cancellationToken);
         if (existing is null)
         {
             context.Campaigns.Add(StoredCampaign.From(campaign));
@@ -53,7 +53,7 @@ internal sealed class PostgresCampaignStore : ICampaignStore
         await using var context = await _factory.CreateDbContextAsync(cancellationToken);
         var stored = await context.Campaigns.AsNoTracking()
             .Include(c => c.Recipients)
-            .FirstOrDefaultAsync(c => c.Id == id.Value, cancellationToken);
+            .FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
         return stored?.ToDomain();
     }
 
@@ -62,7 +62,7 @@ internal sealed class PostgresCampaignStore : ICampaignStore
         await using var context = await _factory.CreateDbContextAsync(cancellationToken);
         var stored = await context.Campaigns.AsNoTracking()
             .Include(c => c.Recipients)
-            .FirstOrDefaultAsync(c => c.Id == id.Value && c.EngagementId == engagementId, cancellationToken);
+            .FirstOrDefaultAsync(c => c.Id == id && c.EngagementId == engagementId, cancellationToken);
         return stored?.ToDomain();
     }
 
@@ -105,8 +105,8 @@ internal sealed class PostgresCampaignStore : ICampaignStore
         return row is null
             ? null
             : new CampaignAttribution(
-                new CampaignId(row.CampaignId),
-                new CampaignRecipientId(row.Id),
+                row.CampaignId,
+                row.Id,
                 row.Campaign!.Name,
                 row.Email);
     }
@@ -115,7 +115,7 @@ internal sealed class PostgresCampaignStore : ICampaignStore
     {
         await using var context = await _factory.CreateDbContextAsync(cancellationToken);
         return await context.Campaigns
-            .Where(c => c.Id == id.Value && c.EngagementId == engagementId && c.State == (int)CampaignState.Draft)
+            .Where(c => c.Id == id && c.EngagementId == engagementId && c.State == (int)CampaignState.Draft)
             .ExecuteUpdateAsync(
                 s => s.SetProperty(c => c.State, (int)CampaignState.Launched)
                     .SetProperty(c => c.LaunchedAt, at),
@@ -126,7 +126,7 @@ internal sealed class PostgresCampaignStore : ICampaignStore
     {
         await using var context = await _factory.CreateDbContextAsync(cancellationToken);
         return await context.Campaigns
-            .Where(c => c.Id == id.Value && c.EngagementId == engagementId && c.State != (int)CampaignState.Revoked)
+            .Where(c => c.Id == id && c.EngagementId == engagementId && c.State != (int)CampaignState.Revoked)
             .ExecuteUpdateAsync(
                 s => s.SetProperty(c => c.State, (int)CampaignState.Revoked)
                     .SetProperty(c => c.RevokedAt, at),
@@ -137,7 +137,7 @@ internal sealed class PostgresCampaignStore : ICampaignStore
     {
         await using var context = await _factory.CreateDbContextAsync(cancellationToken);
         return await context.CampaignRecipients
-            .Where(r => r.Id == recipient.Value && r.CampaignId == campaign.Value
+            .Where(r => r.Id == recipient && r.CampaignId == campaign
                 && (r.Status == (int)CampaignRecipientStatus.Pending || r.Status == (int)CampaignRecipientStatus.Building))
             .ExecuteUpdateAsync(
                 s => s.SetProperty(r => r.Status, (int)CampaignRecipientStatus.Building)
@@ -150,7 +150,7 @@ internal sealed class PostgresCampaignStore : ICampaignStore
     {
         await using var context = await _factory.CreateDbContextAsync(cancellationToken);
         return await context.CampaignRecipients
-            .Where(r => r.Id == recipient.Value && r.CampaignId == campaign.Value
+            .Where(r => r.Id == recipient && r.CampaignId == campaign
                 && r.Status == (int)CampaignRecipientStatus.Building)
             .ExecuteUpdateAsync(
                 s => s.SetProperty(r => r.Status, (int)CampaignRecipientStatus.Sent)
@@ -163,7 +163,7 @@ internal sealed class PostgresCampaignStore : ICampaignStore
     {
         await using var context = await _factory.CreateDbContextAsync(cancellationToken);
         return await context.CampaignRecipients
-            .Where(r => r.Id == recipient.Value && r.CampaignId == campaign.Value
+            .Where(r => r.Id == recipient && r.CampaignId == campaign
                 && r.Status != (int)CampaignRecipientStatus.Sent
                 && r.Status != (int)CampaignRecipientStatus.Failed)
             .ExecuteUpdateAsync(
@@ -176,7 +176,7 @@ internal sealed class PostgresCampaignStore : ICampaignStore
     {
         await using var context = await _factory.CreateDbContextAsync(cancellationToken);
         return await context.CampaignRecipients
-            .Where(r => r.Id == recipient.Value && r.CampaignId == campaign.Value && r.OpenedAt == null)
+            .Where(r => r.Id == recipient && r.CampaignId == campaign && r.OpenedAt == null)
             .ExecuteUpdateAsync(s => s.SetProperty(r => r.OpenedAt, at), cancellationToken) > 0;
     }
 
@@ -184,7 +184,7 @@ internal sealed class PostgresCampaignStore : ICampaignStore
     {
         await using var context = await _factory.CreateDbContextAsync(cancellationToken);
         return await context.CampaignRecipients
-            .Where(r => r.Id == recipient.Value && r.CampaignId == campaign.Value && r.ClickedAt == null)
+            .Where(r => r.Id == recipient && r.CampaignId == campaign && r.ClickedAt == null)
             .ExecuteUpdateAsync(s => s.SetProperty(r => r.ClickedAt, at), cancellationToken) > 0;
     }
 
@@ -192,10 +192,10 @@ internal sealed class PostgresCampaignStore : ICampaignStore
     {
         await using var context = await _factory.CreateDbContextAsync(cancellationToken);
         return await context.CampaignRecipients
-            .Where(r => r.Id == recipient.Value && r.CampaignId == campaign.Value && r.ExecutedAt == null)
+            .Where(r => r.Id == recipient && r.CampaignId == campaign && r.ExecutedAt == null)
             .ExecuteUpdateAsync(
                 s => s.SetProperty(r => r.ExecutedAt, at)
-                    .SetProperty(r => r.EnrolledImplantId, implantId),
+                    .SetProperty(r => r.EnrolledImplantId, new ImplantId(implantId)),
                 cancellationToken) > 0;
     }
 
@@ -203,7 +203,7 @@ internal sealed class PostgresCampaignStore : ICampaignStore
     {
         await using var context = await _factory.CreateDbContextAsync(cancellationToken);
         return await context.Campaigns
-            .Where(c => c.Id == id.Value && c.State == (int)CampaignState.Launched
+            .Where(c => c.Id == id && c.State == (int)CampaignState.Launched
                 && !c.Recipients.Any(r => r.Status == (int)CampaignRecipientStatus.Pending
                     || r.Status == (int)CampaignRecipientStatus.Building))
             .ExecuteUpdateAsync(
@@ -213,9 +213,9 @@ internal sealed class PostgresCampaignStore : ICampaignStore
     }
 
     private static CampaignLure ToLure(StoredCampaignRecipient row) => new(
-        new CampaignId(row.CampaignId),
+        row.CampaignId,
         row.Campaign!.EngagementId,
-        new CampaignRecipientId(row.Id),
+        row.Id,
         row.Campaign.Name,
         row.Email,
         row.PayloadId);

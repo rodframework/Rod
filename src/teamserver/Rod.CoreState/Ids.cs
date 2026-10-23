@@ -471,3 +471,34 @@ public readonly record struct CredentialId(Guid Value)
         return false;
     }
 }
+
+/// <summary>
+/// Identifies one recon asset -- a first-class target entity of the
+/// unified entity model (architecture.md Sec 15.4): an address the recon
+/// workbench or an operator surfaced, referenceable by the rest of the
+/// model (a campaign's target selection names one by this id). Disposable
+/// with the engagement.
+/// </summary>
+public readonly record struct ReconAssetId(Guid Value)
+{
+    public static ReconAssetId New() => new(Guid.NewGuid());
+
+    public override string ToString() => Value.ToString("N");
+
+    /// <summary>
+    /// Parses a recon asset id from its string form. Accepts both the
+    /// compact "N" format and the hyphenated Guid form; returns false on
+    /// anything else.
+    /// </summary>
+    public static bool TryParse(string? text, out ReconAssetId id)
+    {
+        if (Guid.TryParse(text, out var guid))
+        {
+            id = new ReconAssetId(guid);
+            return true;
+        }
+
+        id = default;
+        return false;
+    }
+}

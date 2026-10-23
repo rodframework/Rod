@@ -279,8 +279,19 @@ namespace Rod.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasAlternateKey("Id", "EngagementId")
+                        .HasName("ux_implants_id_engagement_id");
+
                     b.HasIndex("EngagementId")
                         .HasDatabaseName("ix_implants_engagement_id");
+
+                    b.HasIndex("CampaignId", "EngagementId");
+
+                    b.HasIndex("CampaignRecipientId", "EngagementId");
+
+                    b.HasIndex("ParentImplantId", "EngagementId")
+                        .HasDatabaseName("ix_implants_parent_implant_id_engagement_id")
+                        .HasFilter("parent_implant_id IS NOT NULL");
 
                     b.ToTable("implants", (string)null);
                 });
@@ -736,7 +747,6 @@ namespace Rod.Persistence.Migrations
             modelBuilder.Entity("Rod.Persistence.Configurations.StoredCampaign", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("campaign_id");
 
@@ -832,6 +842,9 @@ namespace Rod.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasAlternateKey("Id", "EngagementId")
+                        .HasName("ux_campaigns_id_engagement_id");
+
                     b.HasIndex("EngagementId")
                         .HasDatabaseName("ix_campaigns_engagement_id");
 
@@ -844,7 +857,6 @@ namespace Rod.Persistence.Migrations
             modelBuilder.Entity("Rod.Persistence.Configurations.StoredCampaignRecipient", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("campaign_recipient_id");
 
@@ -856,11 +868,19 @@ namespace Rod.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("clicked_at");
 
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(320)
                         .HasColumnType("character varying(320)")
                         .HasColumnName("email");
+
+                    b.Property<Guid>("EngagementId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("engagement_id");
 
                     b.Property<Guid?>("EnrollTokenId")
                         .HasColumnType("uuid")
@@ -900,6 +920,10 @@ namespace Rod.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("payload_id");
 
+                    b.Property<Guid?>("ReconAssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("recon_asset_id");
+
                     b.Property<DateTimeOffset?>("SentAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("sent_at");
@@ -909,6 +933,9 @@ namespace Rod.Persistence.Migrations
                         .HasColumnName("status");
 
                     b.HasKey("Id");
+
+                    b.HasAlternateKey("Id", "EngagementId")
+                        .HasName("ux_campaign_recipients_id_engagement_id");
 
                     b.HasIndex("CampaignId");
 
@@ -920,6 +947,12 @@ namespace Rod.Persistence.Migrations
                     b.HasIndex("LureId")
                         .IsUnique()
                         .HasDatabaseName("ux_campaign_recipients_lure_id");
+
+                    b.HasIndex("EnrolledImplantId", "EngagementId");
+
+                    b.HasIndex("ReconAssetId", "EngagementId")
+                        .HasDatabaseName("ix_campaign_recipients_recon_asset_id_engagement_id")
+                        .HasFilter("recon_asset_id IS NOT NULL");
 
                     b.ToTable("campaign_recipients", (string)null);
                 });
@@ -1309,6 +1342,58 @@ namespace Rod.Persistence.Migrations
                     b.ToTable("operator_credentials", (string)null);
                 });
 
+            modelBuilder.Entity("Rod.Persistence.Configurations.StoredReconAsset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("recon_asset_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("DisplayName")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)")
+                        .HasColumnName("display_name");
+
+                    b.Property<Guid>("EngagementId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("engagement_id");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid?>("SourceArtifactId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_artifact_id");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("Id", "EngagementId")
+                        .HasName("ux_recon_assets_id_engagement_id");
+
+                    b.HasIndex("EngagementId")
+                        .HasDatabaseName("ix_recon_assets_engagement_id");
+
+                    b.HasIndex("EngagementId", "Kind", "Value")
+                        .IsUnique()
+                        .HasDatabaseName("ux_recon_assets_engagement_id_kind_value");
+
+                    b.ToTable("recon_assets", (string)null);
+                });
+
             modelBuilder.Entity("Rod.Persistence.Configurations.StoredRedirectorCredential", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1619,6 +1704,30 @@ namespace Rod.Persistence.Migrations
                     b.ToTable("payloads", (string)null);
                 });
 
+            modelBuilder.Entity("Rod.CoreState.Implants.Implant", b =>
+                {
+                    b.HasOne("Rod.Persistence.Configurations.StoredCampaign", null)
+                        .WithMany()
+                        .HasForeignKey("CampaignId", "EngagementId")
+                        .HasPrincipalKey("Id", "EngagementId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_implants_campaign");
+
+                    b.HasOne("Rod.Persistence.Configurations.StoredCampaignRecipient", null)
+                        .WithMany()
+                        .HasForeignKey("CampaignRecipientId", "EngagementId")
+                        .HasPrincipalKey("Id", "EngagementId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_implants_campaign_recipient");
+
+                    b.HasOne("Rod.CoreState.Implants.Implant", null)
+                        .WithMany()
+                        .HasForeignKey("ParentImplantId", "EngagementId")
+                        .HasPrincipalKey("Id", "EngagementId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_implants_parent");
+                });
+
             modelBuilder.Entity("Rod.Persistence.Configurations.StoredCampaignRecipient", b =>
                 {
                     b.HasOne("Rod.Persistence.Configurations.StoredCampaign", "Campaign")
@@ -1626,6 +1735,20 @@ namespace Rod.Persistence.Migrations
                         .HasForeignKey("CampaignId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("Rod.CoreState.Implants.Implant", null)
+                        .WithMany()
+                        .HasForeignKey("EnrolledImplantId", "EngagementId")
+                        .HasPrincipalKey("Id", "EngagementId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_recipients_enrolled_implant");
+
+                    b.HasOne("Rod.Persistence.Configurations.StoredReconAsset", null)
+                        .WithMany()
+                        .HasForeignKey("ReconAssetId", "EngagementId")
+                        .HasPrincipalKey("Id", "EngagementId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_recipients_recon_asset");
 
                     b.Navigation("Campaign");
                 });

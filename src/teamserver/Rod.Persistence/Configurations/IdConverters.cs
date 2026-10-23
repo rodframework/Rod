@@ -59,4 +59,7 @@ internal static class IdConverters
 
     public static ValueConverter<Rod.CoreState.CredentialId, Guid> CredentialId { get; } =
         new(id => id.Value, value => new Rod.CoreState.CredentialId(value));
+
+    public static ValueConverter<Rod.CoreState.ReconAssetId, Guid> ReconAssetId { get; } =
+        new(id => id.Value, value => new Rod.CoreState.ReconAssetId(value));
 }
