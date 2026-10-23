@@ -38,6 +38,10 @@ internal static class PayloadBuildRequestParser
     /// reference, never a raw operator string; a named listener resolves to
     /// its public endpoint the same way. The teamserver's CA is baked into the
     /// profile as the pin the artifact's first contact validates against.
+    /// A build against a wireguard listener also mints here: the per-artifact
+    /// X25519 pair (the private half bakes, the public half registers on the
+    /// listener's router) and the provisioned server key's public half --
+    /// the material the transport layer alone holds.
     /// </summary>
     public static async Task<(BuildRequest? Request, string? Error)> ParseAsync(
         Endpoints.PayloadEndpoints.BuildPayloadRequest body,
@@ -46,7 +50,10 @@ internal static class PayloadBuildRequestParser
         IListenerRegistry listeners,
         IImplantCertificateAuthority ca,
         Rod.Audit.IPayloadStore payloads,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Listeners.WireGuard.WireGuardOptions? wireGuard = null,
+        Listeners.WireGuard.WireGuardTunnelRegistry? wireGuardTunnels = null,
+        bool mintWireGuard = true)
     {
         // Language and class come in as strings and parse to the enums; anything
         // that does not parse is a 400. The defaults keep a minimal request
@@ -112,7 +119,8 @@ internal static class PayloadBuildRequestParser
         // produce a payload that phones nowhere, the silent kind of failure
         // an operator discovers on target. A named listener supplies the
         // endpoint from its own record, so an operator stops typing URLs.
-        var endpoint = await ResolveEndpointAsync(body, engagementId, listeners, cancellationToken);
+        var endpoint = await ResolveEndpointAsync(
+            body, engagementId, listeners, cancellationToken, wireGuard, wireGuardTunnels, mintWireGuard);
         if (endpoint.Error is { } refusal)
             return (null, refusal);
         if (endpoint.Value is { } dialable && !IsDialableEndpoint(dialable))
@@ -212,10 +220,19 @@ internal static class PayloadBuildRequestParser
             return (null,
                 $"The {typedCarrier} carrier is one-answer-one-poll; build it mode 'poll' "
                 + "(the interactive verbs ride the polls store-and-forward), or name a web front for a live stream.");
-        if (endpoint.Transport is "dns" or "doh" && mode != "poll")
+        if (endpoint.Transport is "dns" or "doh" or "wireguard" && mode != "poll")
             return (null,
                 $"The {endpoint.Transport} carrier is one-answer-one-poll; build it mode 'poll' "
                 + "(the interactive verbs ride the polls store-and-forward), or name a web front for a live stream.");
+
+        // The wireguard carriage ships in the Rust reference implant behind
+        // its cargo feature; a build in another language against a
+        // wireguard listener would bake a dial that implant cannot serve.
+        // A community unit that ports the carriage reopens the pairing.
+        if (endpoint.WireGuard is { } && language != Language.Rust)
+            return (null,
+                "The wireguard carriage ships in the Rust reference implant; build language 'rust' "
+                + "against a wireguard listener.");
 
         // The baked token's scope rides the same request: how many implants
         // the artifact's credential may enroll (0 = unlimited), and how long
@@ -286,7 +303,10 @@ internal static class PayloadBuildRequestParser
             mode,
             Format: format,
             Kind: kind,
-            DeliversPayloadId: deliversValue), null);
+            DeliversPayloadId: deliversValue,
+            WireGuardPrivateKey: endpoint.WireGuard?.ArtifactPrivate,
+            WireGuardArtifactPublicKey: endpoint.WireGuard?.ArtifactPublic,
+            WireGuardServerPublicKey: endpoint.WireGuard?.ServerPublic), null);
         }
 
         // The loader class retired with the .NET trees, so no build carries a
@@ -312,7 +332,10 @@ internal static class PayloadBuildRequestParser
             ParseDuration(body.JitterSeconds, DefaultJitter),
             body.KillDate,
             mode,
-            Format: format), null);
+            Format: format,
+            WireGuardPrivateKey: endpoint.WireGuard?.ArtifactPrivate,
+            WireGuardArtifactPublicKey: endpoint.WireGuard?.ArtifactPublic,
+            WireGuardServerPublicKey: endpoint.WireGuard?.ServerPublic), null);
     }
 
     // Exports the teamserver CA as the PEM the artifact pins: the implant's
@@ -335,12 +358,17 @@ internal static class PayloadBuildRequestParser
     // The refusal is returned as a string; the value is null only when the
     // error is set. Transport reports the named listener's transport (null
     // for a typed dial) -- the fact the beacon resolution below needs, so
-    // a derived contact matches the front it rides.
-    private static async Task<(string? Value, string? Transport, string? Trust, string? Error)> ResolveEndpointAsync(
+    // a derived contact matches the front it rides. WireGuard carries the
+    // minted per-artifact pair and the listener's server key beside the
+    // dial (null on every other family).
+    private static async Task<(string? Value, string? Transport, string? Trust, WireGuardMaterial? WireGuard, string? Error)> ResolveEndpointAsync(
         Endpoints.PayloadEndpoints.BuildPayloadRequest body,
         EngagementId engagementId,
         IListenerRegistry listeners,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Listeners.WireGuard.WireGuardOptions? wireGuard = null,
+        Listeners.WireGuard.WireGuardTunnelRegistry? wireGuardTunnels = null,
+        bool mintWireGuard = true)
     {
         if (body.ListenerId is not { } listenerIdText)
         {
@@ -352,26 +380,26 @@ internal static class PayloadBuildRequestParser
             // cannot verify only ever baked an artifact that might never
             // enroll; the front is the verifiable shape.
             if (string.IsNullOrEmpty(typed))
-                return (null, null, null, "Name a listener for the front the implant dials.");
-            return (null, null, null,
+                return (null, null, null, null, "Name a listener for the front the implant dials.");
+            return (null, null, null, null,
                 "A typed endpoint names nothing this teamserver can verify -- name a listener. " +
                 "Fronting a dns or doh listener is its front list's job: attach a front and the " +
                 "baked dial derives from it.");
         }
 
         if (body.Endpoint is not null)
-            return (null, null, null, "Name either listenerId or endpoint, not both.");
+            return (null, null, null, null, "Name either listenerId or endpoint, not both.");
         if (!Guid.TryParse(listenerIdText, out var listenerValue))
-            return (null, null, null, "ListenerId is not a valid identifier.");
+            return (null, null, null, null, "ListenerId is not a valid identifier.");
 
         var listener = await listeners.FindAsync(new ListenerId(listenerValue), cancellationToken);
         if (listener is null)
-            return (null, null, null, "ListenerId does not name a listener.");
+            return (null, null, null, null, "ListenerId does not name a listener.");
         if (listener.EngagementId is null)
-            return (null, null, null,
+            return (null, null, null, null,
                 "ListenerId names a shared-tier listener; an implant dials its own engagement's listener.");
         if (listener.EngagementId != engagementId)
-            return (null, null, null, "ListenerId names another engagement's listener.");
+            return (null, null, null, null, "ListenerId names another engagement's listener.");
 
         // The socket family's enroll arm (Sec 8, enrollment over the stream
         // contact): a tcp listener is enroll-nameable -- the opening exchange
@@ -379,6 +407,21 @@ internal static class PayloadBuildRequestParser
         // endpoint is the transport's own dial: the host:port under tcp://.
         if (listener.Transport == "tcp")
             return WithTrust(SocketDial(listener.PublicEndpoint), listener.TrustPosture);
+
+        // The optional WireGuard transport's build material (Sec 8, Sec 15.3
+        // ADR-004 as amended): the dial is the listener's host:port under
+        // wg://, and the build mints its per-artifact X25519 pair here --
+        // the private half bakes, the public half registers on the
+        // listener's router as the peer whose tunnel sessions the artifact's
+        // contacts ride, and the provisioned server key's public half rides
+        // beside as the peer the artifact initiates against.
+        if (listener.Transport == "wireguard")
+        {
+            var minted = MintWireGuard(listener, wireGuard, wireGuardTunnels, mintWireGuard);
+            if (minted.Error is { } wgError)
+                return (null, null, null, null, wgError);
+            return (Listeners.WireGuard.WireGuardDial.Of(listener), "wireguard", listener.TrustPosture, minted.Material, null);
+        }
 
         // The DNS family's enroll arm (Sec 8, enrollment over DNS -- the
         // full-independence step for a DNS-only target): the enroll body
@@ -389,12 +432,12 @@ internal static class PayloadBuildRequestParser
         {
             var dial = DnsDial(listener);
             if (dial.Error is { } dnsError)
-                return (null, null, null, dnsError);
-            return (dial.Dial, listener.Transport, listener.TrustPosture, null);
+                return (null, null, null, null, dnsError);
+            return (dial.Dial, listener.Transport, listener.TrustPosture, null, null);
         }
 
         if (TransportProviders.Find(listener.Transport) is not KestrelEndpointProvider)
-            return (null, null, null,
+            return (null, null, null, null,
                 $"The {listener.Transport} transport does not serve enrollment; build against an HTTP-shaped listener.");
 
         // The public endpoint may be the bare host:port redirector shape; the
@@ -402,17 +445,64 @@ internal static class PayloadBuildRequestParser
         var publicEndpoint = listener.PublicEndpoint.Trim();
         if (Uri.TryCreate(publicEndpoint, UriKind.Absolute, out var absolute)
             && (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps))
-            return (publicEndpoint, listener.Transport, listener.TrustPosture, null);
+            return (publicEndpoint, listener.Transport, listener.TrustPosture, null, null);
         var scheme = TransportProviders.Find(listener.Transport)?.PublicEndpointScheme ?? "https";
-        return ($"{scheme}://{publicEndpoint}", listener.Transport, listener.TrustPosture, null);
+        return ($"{scheme}://{publicEndpoint}", listener.Transport, listener.TrustPosture, null, null);
     }
 
-    // Threads the socket family's dial through the four-part resolution (a
+    // The per-artifact WireGuard material a wireguard build mints and
+    // carries: the artifact's private half (bakes into the profile), its
+    // public half (registers on the listener's router, records on the
+    // stored payload so a restart re-registers), and the listener's
+    // provisioned server key as its public half (the peer the artifact's
+    // tunnel initiates against).
+    private sealed record WireGuardMaterial(
+        byte[] ArtifactPrivate, byte[] ArtifactPublic, byte[] ServerPublic);
+
+    // Mints one build's WireGuard pair and registers the public half on the
+    // listener's router. The refusals name the deployment fixes: no enabled
+    // transport, no provisioned key under the listener's name, no live
+    // router to register on (the listener's socket is what keeps one). The
+    // validation shape (mint false) checks the deployment's readiness and
+    // resolves the dial without minting -- a stored build profile parsed at
+    // creation time must not register a peer whose private half is
+    // discarded: the router matches handshakes by bounded trial decryption
+    // over its whole peer set, so dead peers tax every live handshake.
+    private static (WireGuardMaterial? Material, string? Error) MintWireGuard(
+        Rod.Transport.Listeners.Listener listener,
+        Listeners.WireGuard.WireGuardOptions? options,
+        Listeners.WireGuard.WireGuardTunnelRegistry? tunnels,
+        bool mint)
+    {
+        if (options is null || tunnels is null)
+            return (null, "The WireGuard transport is not enabled on this teamserver.");
+        if (options.TryPrivateKey(listener.Name) is not { } serverPrivate)
+            return (null,
+                $"Listener '{listener.Name}' carries no provisioned WireGuard server key; provision its base64 "
+                + $"X25519 private key under WireGuard:ListenerKeys:{listener.Name} before building against it.");
+        if (!mint)
+            return (null, null);
+        var artifactPrivate = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        var artifactPublic = Listeners.WireGuard.WireGuardNative.PublicKey(artifactPrivate);
+        var serverPublic = Listeners.WireGuard.WireGuardNative.PublicKey(serverPrivate);
+        try
+        {
+            tunnels.RegisterPeer(listener.Id, artifactPublic);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return (null,
+                $"The wireguard listener '{listener.Name}' did not accept the build's peer registration: {ex.Message}");
+        }
+        return (new WireGuardMaterial(artifactPrivate, artifactPublic, serverPublic), null);
+    }
+
+    // Threads the socket family's dial through the five-part resolution (a
     // raw-TCP front carries no TLS posture -- its dial is cleartext -- but
     // the listener's record still names one, and the build reads it).
-    private static (string? Value, string? Transport, string? Trust, string? Error) WithTrust(
-        (string? Value, string? Transport, string? Error) socket, string? trust)
-        => (socket.Value, socket.Transport, trust, socket.Error);
+    private static (string? Value, string? Transport, string? Trust, WireGuardMaterial? WireGuard, string? Error) WithTrust(
+        (string? Value, string? Transport, WireGuardMaterial? WireGuard, string? Error) socket, string? trust)
+        => (socket.Value, socket.Transport, trust, socket.WireGuard, socket.Error);
 
     // Builds the malleable transport profile off the request body
     // (architecture.md Sec 7). Endpoint and uri path are the always-set
@@ -500,23 +590,26 @@ internal static class PayloadBuildRequestParser
 
 
     // An endpoint the implant can dial: an absolute http(s) URL, or the
-    // socket or DNS family's dial (architecture.md Sec 8 -- a tcp-, dns-,
-    // or doh-schemed enroll endpoint runs the frame or chunk
-    // exchange its module dials, and the egress walk treats every entry as
-    // a URL). A bare host or a typo'd scheme strands the payload on target.
+    // socket, DNS, and WireGuard families' dials (architecture.md Sec 8 --
+    // a tcp-, dns-, doh-, or wg-schemed enroll endpoint runs the frame,
+    // chunk, or tunnel exchange its module dials, and the egress walk
+    // treats every entry as a URL). A bare host or a typo'd scheme strands
+    // the payload on target.
     private static bool IsDialableEndpoint(string text)
         => Uri.TryCreate(text.Trim(), UriKind.Absolute, out var uri)
             && (uri.Scheme == Uri.UriSchemeHttp
                 || uri.Scheme == Uri.UriSchemeHttps
                 || uri.Scheme.Equals("tcp", StringComparison.OrdinalIgnoreCase)
                 || uri.Scheme.Equals("dns", StringComparison.OrdinalIgnoreCase)
-                || uri.Scheme.Equals("doh", StringComparison.OrdinalIgnoreCase));
+                || uri.Scheme.Equals("doh", StringComparison.OrdinalIgnoreCase)
+                || uri.Scheme.Equals("wg", StringComparison.OrdinalIgnoreCase));
 
     // The egress-walk families (architecture.md Sec 8): the web pair, the
-    // DNS pair, and the raw socket. One build rides one protocol -- the
-    // fallback list is the front's own family in walk order, never a mix,
-    // and the TLS posture spans the walk (the artifact bakes one root set)
-    // -- so a cross-family entry is refused rather than baked.
+    // DNS pair, the raw socket, and the WireGuard tunnel. One build rides
+    // one protocol -- the fallback list is the front's own family in walk
+    // order, never a mix, and the TLS posture spans the walk (the artifact
+    // bakes one root set) -- so a cross-family entry is refused rather
+    // than baked.
     private static string? SchemeFamily(string? endpoint)
     {
         var trimmed = endpoint?.Trim();
@@ -530,6 +623,8 @@ internal static class PayloadBuildRequestParser
             return "dns";
         if (trimmed.StartsWith("tcp://", StringComparison.OrdinalIgnoreCase))
             return "tcp";
+        if (trimmed.StartsWith("wg://", StringComparison.OrdinalIgnoreCase))
+            return "wg";
         return null;
     }
 
@@ -550,6 +645,7 @@ internal static class PayloadBuildRequestParser
         "web" => "http(s)://",
         "dns" => "dns:// or doh://",
         "tcp" => "tcp://",
+        "wg" => "wg://",
         _ => "the front's scheme",
     };
 
@@ -600,11 +696,11 @@ internal static class PayloadBuildRequestParser
     // The socket family's baked dial (Sec 8, enrollment over the stream
     // contact): the raw-TCP listener's host:port public endpoint completes
     // under tcp://.
-    private static (string? Value, string? Transport, string? Error) SocketDial(string publicEndpoint)
+    private static (string? Value, string? Transport, WireGuardMaterial? WireGuard, string? Error) SocketDial(string publicEndpoint)
     {
         var trimmed = publicEndpoint.Trim();
         if (Uri.TryCreate(trimmed, UriKind.Absolute, out var dial) && dial.Scheme == "tcp")
-            return (trimmed, "tcp", null);
-        return ($"tcp://{trimmed}", "tcp", null);
+            return (trimmed, "tcp", null, null);
+        return ($"tcp://{trimmed}", "tcp", null, null);
     }
 }

@@ -16,7 +16,7 @@ namespace Rod.Transport.Listeners.WireGuard;
 /// registration, and the inject/send/tick calls the listener service and the
 /// build pipeline share.
 /// </summary>
-internal sealed class WireGuardTunnelRegistry : IAsyncDisposable
+public sealed class WireGuardTunnelRegistry : IAsyncDisposable
 {
     private sealed record ListenerTunnels(WireGuardRouterHandle Router, object Gate)
     {
@@ -31,14 +31,14 @@ internal sealed class WireGuardTunnelRegistry : IAsyncDisposable
     /// existing router under the id is replaced: the restore path re-opens
     /// what a restart closed, and the old router's sessions died with it.
     /// </summary>
-    public void OpenListener(ListenerId listener, ReadOnlySpan<byte> serverPrivate)
+    internal void OpenListener(ListenerId listener, ReadOnlySpan<byte> serverPrivate)
     {
         var router = WireGuardNative.RouterCreate(serverPrivate);
         _listeners[listener] = new ListenerTunnels(router, new object());
     }
 
     /// <summary>Closes a listener's router; its peers go with it.</summary>
-    public void CloseListener(ListenerId listener)
+    internal void CloseListener(ListenerId listener)
     {
         if (_listeners.TryRemove(listener, out var tunnels))
             tunnels.Router.Dispose();
@@ -49,7 +49,7 @@ internal sealed class WireGuardTunnelRegistry : IAsyncDisposable
     /// per-artifact key half the build minted. Idempotent: a re-registration
     /// is a no-op, so a rebuild against the same listener never trips.
     /// </summary>
-    public void RegisterPeer(ListenerId listener, ReadOnlySpan<byte> peerPublic)
+    internal void RegisterPeer(ListenerId listener, ReadOnlySpan<byte> peerPublic)
     {
         var tunnels = Tunnels(listener);
         lock (tunnels.Gate)
@@ -63,7 +63,7 @@ internal sealed class WireGuardTunnelRegistry : IAsyncDisposable
     /// datagram that matches nothing answers empty -- the network's own
     /// shape for a stranger's packet.
     /// </summary>
-    public WireGuardInjected Inject(ListenerId listener, ReadOnlySpan<byte> datagram)
+    internal WireGuardInjected Inject(ListenerId listener, ReadOnlySpan<byte> datagram)
     {
         var tunnels = Tunnels(listener);
         lock (tunnels.Gate)
@@ -78,7 +78,7 @@ internal sealed class WireGuardTunnelRegistry : IAsyncDisposable
     /// <see cref="WireGuardNative.WireGuardNoSessionException"/>: the
     /// discipline is the server-answers-only one.
     /// </summary>
-    public byte[] Send(ListenerId listener, ReadOnlySpan<byte> peerPublic, ReadOnlySpan<byte> payload)
+    internal byte[] Send(ListenerId listener, ReadOnlySpan<byte> peerPublic, ReadOnlySpan<byte> payload)
     {
         var tunnels = Tunnels(listener);
         lock (tunnels.Gate)

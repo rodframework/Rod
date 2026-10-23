@@ -61,6 +61,7 @@ internal static class PayloadBuildRecorder
                 TokenId: artifact.Params.TokenId,
                 EnvelopeKeyId: artifact.Params.EnvelopeKeyId,
                 EnvelopeKey: artifact.Params.EnvelopeKey,
+                WireGuardPublicKey: artifact.Params.WireGuardArtifactPublicKey,
                 DeliversPayloadId: artifact.Params.DeliversPayloadId,
                 Build: new PayloadBuildProfile
                 {

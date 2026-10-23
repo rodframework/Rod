@@ -49,6 +49,8 @@ public static class PayloadJobEndpoints
         TimeProvider clock,
         IAuditStore audit,
         PayloadBuildJobService jobs,
+        Listeners.WireGuard.WireGuardOptions wireGuard,
+        Listeners.WireGuard.WireGuardTunnelRegistry wireGuardTunnels,
         CancellationToken cancellationToken)
     {
         var requestedBy = user.TryGetOperatorId();
@@ -64,7 +66,8 @@ public static class PayloadJobEndpoints
             return Results.NotFound(new Problem("Engagement does not exist."));
 
         var (parsed, error) = await PayloadBuildRequestParser.ParseAsync(
-            body, new EngagementId(engagementValue), requestedBy.Value, listeners, ca, payloads, cancellationToken);
+            body, new EngagementId(engagementValue), requestedBy.Value, listeners, ca, payloads, cancellationToken,
+            wireGuard, wireGuardTunnels);
         if (error is not null)
             return Results.BadRequest(new Problem(error));
 

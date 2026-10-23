@@ -494,7 +494,7 @@ public class RustImplantEndToEndTests
     }
 
     [RustFact]
-    public async Task RustImplant_EnrollsAndPollsOverClassicDns()
+    public async Task RustImplant_EnrollsAndContactsOverClassicDns()
     {
         // The datagram family end to end: a runtime-created dns listener owns
         // the UDP socket, the bake dials it typed, and the whole lifecycle --
@@ -515,6 +515,33 @@ public class RustImplantEndToEndTests
 
         var done = await WaitForTaskAsync(env, task!.TaskId,
             body => body.Status == "Completed", implant.Stderr, "the DNS task's completion");
+        Assert.Equal("Succeeded", done.Outcome);
+        Assert.Contains(marker, done.Output);
+    }
+
+    [RustFact]
+    public async Task RustImplant_EnrollsAndContactsOverWireGuard()
+    {
+        // The optional transport end to end (architecture.md Sec 8, Sec 15.3
+        // ADR-004 as amended): a runtime-created wireguard listener owns the
+        // UDP socket, the build mints the artifact's X25519 pair (the private
+        // half baked with the listener's public half, the public half
+        // registered as the router's peer), and the whole lifecycle -- the
+        // in-band enrollment datagram, the sealed poll contacts, tasking and
+        // results -- rides WireGuard-encrypted UDP, never touching TCP.
+        await using var implant = await BuildRunAndAwaitOnlineAsync(
+            "poll", bindFront: env => WireGuardFrontAsync(env), wireGuard: true);
+        var env = implant.Env;
+
+        var marker = "rod-wireguard-" + Guid.NewGuid().ToString("N")[..8];
+        var issued = await env.Http.PostAsJsonAsync(
+            $"/engagements/{env.EngagementId}/tasks",
+            new TaskEndpoints.IssueTaskRequest(implant.ImplantId, "shell.exec", $"echo {marker}"));
+        issued.EnsureSuccessStatusCode();
+        var task = await issued.Content.ReadFromJsonAsync<TaskBody>();
+
+        var done = await WaitForTaskAsync(env, task!.TaskId,
+            body => body.Status == "Completed", implant.Stderr, "the wireguard task's completion");
         Assert.Equal("Succeeded", done.Outcome);
         Assert.Contains(marker, done.Output);
     }
@@ -683,6 +710,28 @@ public class RustImplantEndToEndTests
         return (await created.Content.ReadFromJsonAsync<Rod.Transport.Endpoints.ListenerEndpoints.ListenerResponse>())!.Id;
     }
 
+    /// The wireguard listener's fixed name -- the deployment-shape coupling
+    /// between a listener and its provisioned server key (the name is the
+    /// key's slot under WireGuard:ListenerKeys).
+    private const string WireGuardFrontName = "e2e-wireguard";
+
+    /// Creates the engagement's runtime wireguard listener on a free loopback
+    /// UDP port -- against the server key the test env provisioned under the
+    /// listener's fixed name, the deployment shape.
+    private static async Task<string> WireGuardFrontAsync(TestEnv env)
+    {
+        var port = TestSupport.GetFreeUdpPort();
+        var created = await env.Http.PostAsJsonAsync(
+            $"/engagements/{env.EngagementId}/listeners",
+            new Rod.Transport.Endpoints.ListenerEndpoints.CreateListenerRequest(
+                Name: WireGuardFrontName,
+                Transport: "wireguard",
+                BindAddress: $"127.0.0.1:{port}",
+                PublicEndpoint: $"127.0.0.1:{port}"));
+        Assert.True(created.IsSuccessStatusCode, await created.Content.ReadAsStringAsync());
+        return (await created.Content.ReadFromJsonAsync<Rod.Transport.Endpoints.ListenerEndpoints.ListenerResponse>())!.Id;
+    }
+
     /// Creates the engagement's runtime http listener on a free loopback
     /// port and returns its id for the build to name: every web front is a
     /// listener record, and the baked dial resolves from the record.
@@ -786,11 +835,13 @@ public class RustImplantEndToEndTests
     /// it online -- the channel legs' shared prefix. The build names its
     /// front as a listener record (the only web/socket shape the contract
     /// accepts since the typed dial narrowed to the DNS family); the parser
-    /// resolves each family's dial from the record.
+    /// resolves each family's dial from the record. The wireguard flag
+    /// provisions the optional transport's deployment facts on the env (the
+    /// enable switch and the test listener's server key).
     private static async Task<RunningRust> BuildRunAndAwaitOnlineAsync(
-        string mode, Func<TestEnv, Task<string>>? bindFront = null)
+        string mode, Func<TestEnv, Task<string>>? bindFront = null, bool wireGuard = false)
     {
-        var env = await TestEnv.StartAsync();
+        var env = await TestEnv.StartAsync(wireGuard);
         try
         {
             await env.CreateEngagementAsync();
@@ -1067,12 +1118,22 @@ public class RustImplantEndToEndTests
         public HttpClient Http { get; private set; } = null!;
         public int HttpPort { get; private set; }
 
-        public static async Task<TestEnv> StartAsync()
+        public static async Task<TestEnv> StartAsync(bool wireGuard = false)
         {
             var env = new TestEnv();
             env.HttpPort = TestSupport.GetFreeTcpPort();
 
-            var config = AuthenticatedHost.BuildConfig();
+            var config = AuthenticatedHost.BuildConfig(settings =>
+            {
+                if (!wireGuard)
+                    return;
+                // The optional transport's deployment facts: the enable
+                // switch and the fixed-name listener's provisioned server
+                // key -- the shape WireGuardFrontAsync's create reads.
+                settings["WireGuard:Enabled"] = "true";
+                settings[$"WireGuard:ListenerKeys:{WireGuardFrontName}"] =
+                    Convert.ToBase64String(WireGuardTestClient.SeededKey(41));
+            });
             env.Host = TransportHost.CreateHostBuilder(
                     configureServices: services => AuthenticatedHost.ComposeServices(services, config),
                     mapEndpoints: endpoints => AuthenticatedHost.ComposeEndpoints(endpoints),

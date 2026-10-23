@@ -48,6 +48,8 @@ public sealed class CampaignSendEngine : BackgroundService
     private readonly ILiveEventBus _live;
     private readonly TimeProvider _clock;
     private readonly CampaignsOptions _options;
+    private readonly Listeners.WireGuard.WireGuardOptions _wireGuard;
+    private readonly Listeners.WireGuard.WireGuardTunnelRegistry _wireGuardTunnels;
     private readonly ILogger<CampaignSendEngine> _logger;
 
     // One scan at a time. The hosted loop and a direct test drive can land
@@ -68,6 +70,8 @@ public sealed class CampaignSendEngine : BackgroundService
         ILiveEventBus live,
         TimeProvider clock,
         IOptions<CampaignsOptions> options,
+        Listeners.WireGuard.WireGuardOptions wireGuard,
+        Listeners.WireGuard.WireGuardTunnelRegistry wireGuardTunnels,
         ILogger<CampaignSendEngine> logger)
     {
         _campaigns = campaigns;
@@ -82,6 +86,8 @@ public sealed class CampaignSendEngine : BackgroundService
         _live = live;
         _clock = clock;
         _options = options.Value;
+        _wireGuard = wireGuard;
+        _wireGuardTunnels = wireGuardTunnels;
         _logger = logger;
     }
 
@@ -374,7 +380,8 @@ public sealed class CampaignSendEngine : BackgroundService
             return (null, "the stored build profile is empty");
 
         return await PayloadBuildRequestParser.ParseAsync(
-            body, campaign.EngagementId, owner, _listeners, _ca, _payloads, cancellationToken);
+            body, campaign.EngagementId, owner, _listeners, _ca, _payloads, cancellationToken,
+            _wireGuard, _wireGuardTunnels);
     }
 
     internal static readonly System.Text.Json.JsonSerializerOptions JsonOptions =

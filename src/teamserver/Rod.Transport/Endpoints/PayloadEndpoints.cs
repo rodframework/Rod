@@ -162,6 +162,8 @@ public static class PayloadEndpoints
         TimeProvider clock,
         IAuditStore audit,
         ILoggerFactory loggerFactory,
+        Listeners.WireGuard.WireGuardOptions wireGuard,
+        Listeners.WireGuard.WireGuardTunnelRegistry wireGuardTunnels,
         CancellationToken cancellationToken)
     {
         // The requesting operator is the authenticated operator, resolved off the
@@ -184,7 +186,7 @@ public static class PayloadEndpoints
         // the same refusals, same listener-name endpoint resolution.
         var (parsed, parseError) = await PayloadBuildRequestParser.ParseAsync(
             body, new EngagementId(engagementValue), requestedBy.Value, listeners,
-            ca, payloads, cancellationToken);
+            ca, payloads, cancellationToken, wireGuard, wireGuardTunnels);
         if (parseError is not null)
             return Results.BadRequest(new Problem(parseError));
 

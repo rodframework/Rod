@@ -31,6 +31,7 @@ internal sealed class StoredPayload
     public Guid? EnvelopeKeyId { get; set; }
     public byte[]? EnvelopeKey { get; set; }
     public string? BuildJson { get; set; }
+    public byte[]? WireGuardPublicKey { get; set; }
     public Guid? DeliversPayloadId { get; set; }
 
     public PayloadRecord ToRecord()
@@ -52,6 +53,7 @@ internal sealed class StoredPayload
             BuildJson is null
                 ? null
                 : JsonSerializer.Deserialize(BuildJson, PayloadJsonContext.Default.PayloadBuildProfile),
+            WireGuardPublicKey,
             DeliversPayloadId);
 
     public static StoredPayload From(PayloadRecord payload)
@@ -74,6 +76,7 @@ internal sealed class StoredPayload
             BuildJson = payload.Build is null
                 ? null
                 : JsonSerializer.Serialize(payload.Build, PayloadJsonContext.Default.PayloadBuildProfile),
+            WireGuardPublicKey = payload.WireGuardPublicKey,
             DeliversPayloadId = payload.DeliversPayloadId,
         };
 }

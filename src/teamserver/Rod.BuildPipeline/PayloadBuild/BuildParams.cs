@@ -62,6 +62,18 @@ namespace Rod.BuildPipeline.PayloadBuild;
 /// build that pair is the seal, minted unconditionally). Null on every
 /// implant build; required on every loader build.
 /// </param>
+/// <param name="WireGuardPrivateKey">
+/// The artifact's WireGuard X25519 private half (32 bytes), minted per
+/// artifact by a build against a wireguard listener and baked into the
+/// profile; its public counterpart registers on the listener's router and
+/// rides <paramref name="WireGuardArtifactPublicKey"/> for the stored
+/// payload record. Null on every non-wireguard build.
+/// </param>
+/// <param name="WireGuardServerPublicKey">
+/// The wireguard listener's provisioned server key, public half (32
+/// bytes) -- the peer the artifact's tunnel initiates against. Null on
+/// every non-wireguard build.
+/// </param>
 public sealed record BuildParams(
     EngagementId EngagementId,
     OperatorId RequestedBy,
@@ -76,4 +88,7 @@ public sealed record BuildParams(
     byte[]? EnvelopeKey = null,
     ArtifactFormat Format = ArtifactFormat.SingleFileExe,
     PayloadKind Kind = PayloadKind.Implant,
-    Guid? DeliversPayloadId = null);
+    Guid? DeliversPayloadId = null,
+    byte[]? WireGuardPrivateKey = null,
+    byte[]? WireGuardArtifactPublicKey = null,
+    byte[]? WireGuardServerPublicKey = null);

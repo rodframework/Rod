@@ -11,9 +11,9 @@ namespace Rod.Transport.Listeners.WireGuard;
 
 /// <summary>
 /// The <c>WireGuard</c> section: the enable switch and the per-listener
-/// server keys, keyed by listener id (the Guid as a string).
+/// server keys, keyed by the listener's name.
 /// </summary>
-internal sealed record WireGuardOptions
+public sealed record WireGuardOptions
 {
     /// <summary>
     /// Whether the wireguard transport registers at all. Default false: the

@@ -74,6 +74,16 @@ public static class ProfileBake
         // profile it always did.
         if (@params.EnvelopeKeyId is { } envelopeKeyId && @params.EnvelopeKey is { } envelopeKey)
             map["envelopeKey"] = Convert.ToBase64String(envelopeKeyId.ToByteArray().Concat(envelopeKey).ToArray());
+        // The WireGuard pair a wireguard-listener build mints (Sec 8, Sec
+        // 15.3 ADR-004 as amended): the artifact's private half and the
+        // listener's server key as its public half, both base64 of 32 bytes.
+        // Omitted entirely on every other build, so nothing else's bake
+        // changes shape.
+        if (@params.WireGuardPrivateKey is { } wgPrivate && @params.WireGuardServerPublicKey is { } wgServer)
+        {
+            map["wgPrivateKey"] = Convert.ToBase64String(wgPrivate);
+            map["wgServerKey"] = Convert.ToBase64String(wgServer);
+        }
         // The enrollment credential, when the build was minted one: the
         // artifact deploys with zero run-time arguments and spends the token
         // at its own enroll. Omitted entirely when absent.

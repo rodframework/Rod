@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Rod.Audit;
+using Rod.CoreState.Engagements;
 using Rod.CoreState.Listeners;
 
 namespace Rod.Transport.Listeners.WireGuard;
@@ -14,6 +16,12 @@ namespace Rod.Transport.Listeners.WireGuard;
 // key is deployment-provisioned -- the listener's id names its slot in the
 // WireGuard:ListenerKeys section -- the same operator-provisioned-material
 // shape the Pki section takes.
+//
+// The router's peer set is process state: every build against this
+// listener registered its artifact's public half at build time, and a
+// restart opens a fresh router with none of them. The reopen re-registers
+// from the payload store -- every stored payload whose baked dial is this
+// listener's -- so a fielded artifact survives the teamserver it phones.
 
 /// <summary>
 /// Serves one wireguard listener entry's datagrams: inject each received
@@ -28,6 +36,8 @@ internal sealed class WireGuardListenerService : BackgroundService
     private readonly WireGuardBeaconBridge _bridge;
     private readonly WireGuardOptions _options;
     private readonly IListenerRegistry _listeners;
+    private readonly IPayloadStore _payloads;
+    private readonly IEngagementRepository _engagements;
     private readonly ILogger<WireGuardListenerService> _logger;
 
     public WireGuardListenerService(
@@ -36,6 +46,8 @@ internal sealed class WireGuardListenerService : BackgroundService
         WireGuardBeaconBridge bridge,
         WireGuardOptions options,
         IListenerRegistry listeners,
+        IPayloadStore payloads,
+        IEngagementRepository engagements,
         ILogger<WireGuardListenerService> logger)
     {
         _listener = listener;
@@ -43,6 +55,8 @@ internal sealed class WireGuardListenerService : BackgroundService
         _bridge = bridge;
         _options = options;
         _listeners = listeners;
+        _payloads = payloads;
+        _engagements = engagements;
         _logger = logger;
     }
 
@@ -62,6 +76,12 @@ internal sealed class WireGuardListenerService : BackgroundService
         // Bind first, then register: the registry reflects what is actually
         // listening, the same ordering every transport follows.
         await _listeners.RegisterAsync(_listener, stoppingToken);
+
+        // The fresh router knows no peers: re-register every stored
+        // artifact that dials this listener, so a restart strands no
+        // fielded implant (its public half rode the payload record for
+        // exactly this pass).
+        await RestorePeersAsync(stoppingToken);
 
         _logger.LogInformation(
             "Rod wireguard listener {Name} answering WireGuard contacts on {Bind} for {Public}.",
@@ -89,6 +109,41 @@ internal sealed class WireGuardListenerService : BackgroundService
         }
 
         _tunnels.CloseListener(_listener.Id);
+    }
+
+    // The reopen's peer restore: the payloads whose baked dial is this
+    // listener's wg:// dial, across every engagement -- a wireguard
+    // artifact's peer registration is only as durable as the payload
+    // record that carries its public half.
+    private async Task RestorePeersAsync(CancellationToken cancellationToken)
+    {
+        var dial = WireGuardDial.Of(_listener);
+        var restored = 0;
+        foreach (var engagement in await _engagements.ListAsync(cancellationToken))
+        {
+            foreach (var payload in await _payloads.ListAsync(engagement.Id.Value, cancellationToken))
+            {
+                if (payload.WireGuardPublicKey is not { Length: 32 } peer)
+                    continue;
+                if (!string.Equals(payload.Endpoint, dial, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                try
+                {
+                    _tunnels.RegisterPeer(_listener.Id, peer);
+                    restored++;
+                }
+                catch (InvalidOperationException)
+                {
+                    // The store's bytes are not a key the router takes; the
+                    // artifact's contacts cannot ride either way (its baked
+                    // half is the same material), so the entry skips.
+                }
+            }
+        }
+        if (restored > 0)
+            _logger.LogInformation(
+                "WireGuard listener {Name} restored {Count} artifact peer(s) from the payload store.",
+                _listener.Name, restored);
     }
 
     private async Task AnswerAsync(UdpClient udp, UdpReceiveResult received, CancellationToken cancellationToken)

@@ -148,7 +148,10 @@ public sealed class PayloadBuildService
             request.EnvelopeKey,
             request.Format,
             request.Kind,
-            request.DeliversPayloadId);
+            request.DeliversPayloadId,
+            request.WireGuardPrivateKey,
+            request.WireGuardArtifactPublicKey,
+            request.WireGuardServerPublicKey);
 
         var built = await unit.BuildAsync(@params, cancellationToken);
 
@@ -194,6 +197,12 @@ public sealed class PayloadBuildService
 /// unit emits; it defaults to the single-file executable.
 /// <see cref="Kind"/> names the delivery tier; <see cref="DeliversPayloadId"/>
 /// names the stored payload a loader build delivers.
+/// <see cref="WireGuardPrivateKey"/> and <see cref="WireGuardArtifactPublicKey"/>
+/// are the per-artifact X25519 pair a build against a wireguard listener
+/// mints (the private half bakes, the public half registers on the
+/// listener's router), <see cref="WireGuardServerPublicKey"/> the listener's
+/// provisioned key the artifact's tunnel initiates against; null on every
+/// non-wireguard build.
 /// </summary>
 public sealed record BuildRequest(
     EngagementId EngagementId,
@@ -213,4 +222,7 @@ public sealed record BuildRequest(
     byte[]? EnvelopeKey = null,
     ArtifactFormat Format = ArtifactFormat.SingleFileExe,
     PayloadKind Kind = PayloadKind.Implant,
-    Guid? DeliversPayloadId = null);
+    Guid? DeliversPayloadId = null,
+    byte[]? WireGuardPrivateKey = null,
+    byte[]? WireGuardArtifactPublicKey = null,
+    byte[]? WireGuardServerPublicKey = null);

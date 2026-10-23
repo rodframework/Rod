@@ -56,6 +56,8 @@ public static class CampaignEndpoints
         IPayloadStore payloads,
         IAuditStore audit,
         TimeProvider clock,
+        Listeners.WireGuard.WireGuardOptions wireGuard,
+        Listeners.WireGuard.WireGuardTunnelRegistry wireGuardTunnels,
         CancellationToken cancellationToken)
     {
         var operatorId = user.TryGetOperatorId();
@@ -160,7 +162,11 @@ public static class CampaignEndpoints
         if (buildJson.Length > CampaignLimits.MaxBuildRequestBytes)
             return Results.BadRequest(new Problem($"The build profile exceeds {CampaignLimits.MaxBuildRequestBytes} bytes."));
         var (parsed, parseError) = await Payloads.PayloadBuildRequestParser.ParseAsync(
-            body.Build, engagement, operatorId.Value, listeners, ca, payloads, cancellationToken);
+            body.Build, engagement, operatorId.Value, listeners, ca, payloads, cancellationToken,
+            // Validation only: the stored profile re-parses -- and mints its
+            // per-recipient pair -- when the send engine drives each build,
+            // so the creation pass registers no dead peer.
+            wireGuard, wireGuardTunnels, mintWireGuard: false);
         if (parseError is not null)
             return Results.BadRequest(new Problem($"Build profile: {parseError}"));
 

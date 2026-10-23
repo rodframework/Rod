@@ -114,6 +114,26 @@ internal static class WireGuardNative
             : handle;
     }
 
+    /// <summary>
+    /// Derives the 32-byte static public key of an X25519 private key --
+    /// the one curve operation the build path needs (minting an
+    /// artifact's pair, reading a provisioned server key's public half),
+    /// kept on the native side so no WireGuard cryptography exists in C#.
+    /// </summary>
+    public static byte[] PublicKey(ReadOnlySpan<byte> privateKey)
+    {
+        ArgumentOutOfRangeException.ThrowIfNotEqual(privateKey.Length, 32);
+        var key = new byte[32];
+        var status = Public(privateKey.ToArray(), key);
+        return status == WireGuardStatus.Ok
+            ? key
+            : throw new InvalidOperationException(
+                $"The native WireGuard library refused the private key (status {status}).");
+    }
+
+    [DllImport(Library, EntryPoint = "rod_wg_public")]
+    private static extern int Public(byte[] privateKey, byte[] publicKeyOut);
+
     /// <summary>Registers a peer by its 32-byte static public key.</summary>
     public static void PeerAdd(WireGuardRouterHandle router, ReadOnlySpan<byte> peerPublic)
     {

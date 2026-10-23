@@ -898,6 +898,8 @@ public static class TransportHost
                 services.GetRequiredService<Listeners.WireGuard.WireGuardBeaconBridge>(),
                 services.GetRequiredService<Listeners.WireGuard.WireGuardOptions>(),
                 registry,
+                services.GetRequiredService<Rod.Audit.IPayloadStore>(),
+                services.GetRequiredService<Rod.CoreState.Engagements.IEngagementRepository>(),
                 services.GetRequiredService<ILoggerFactory>().CreateLogger<Listeners.WireGuard.WireGuardListenerService>())));
     }
 

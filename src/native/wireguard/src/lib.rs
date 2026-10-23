@@ -295,6 +295,36 @@ pub mod ffi {
         )
     }
 
+    /// Derives the static public key of a 32-byte X25519 private key --
+    /// the one curve operation the managed build path needs (minting a
+    /// per-artifact pair, deriving a provisioned server key's public
+    /// half), so no WireGuard cryptography is written in C# either.
+    ///
+    /// # Safety
+    ///
+    /// `private_key` must point to 32 readable bytes and `public_out` to
+    /// 32 writable bytes, for the duration of the call.
+    #[no_mangle]
+    pub unsafe extern "C" fn rod_wg_public(private_key: *const u8, public_out: *mut u8) -> i32 {
+        guard(
+            || match key_at(private_key) {
+                Some(private) => {
+                    if public_out.is_null() {
+                        return ERR_NULL;
+                    }
+                    let secret = x25519::StaticSecret::from(private);
+                    let public = x25519::PublicKey::from(&secret);
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(public.as_bytes().as_ptr(), public_out, 32);
+                    }
+                    OK
+                }
+                None => ERR_NULL,
+            },
+            ERR_PANIC,
+        )
+    }
+
     fn key_at(ptr: *const u8) -> Option<[u8; 32]> {
         if ptr.is_null() {
             return None;

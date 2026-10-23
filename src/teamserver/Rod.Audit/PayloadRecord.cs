@@ -35,6 +35,12 @@ namespace Rod.Audit;
 /// The teamserver's half of the envelope key pair (the artifact carries the
 /// same key baked in). Metadata-sized, so it rides the jsonl line.
 /// </param>
+/// <param name="WireGuardPublicKey">
+/// The artifact's WireGuard public half (32 bytes), when the build minted a
+/// per-artifact pair against a wireguard listener -- the peer its router
+/// registers, re-registered from this record whenever the listener's tunnel
+/// reopens. Null on every non-wireguard build.
+/// </param>
 /// <param name="Build">
 /// The build parameters as they were at bake time -- the beacon profile, the
 /// credential's minted budget, and the wire knobs the operator set. The
@@ -59,6 +65,7 @@ public sealed record PayloadRecord(
     Guid? EnvelopeKeyId = null,
     byte[]? EnvelopeKey = null,
     PayloadBuildProfile? Build = null,
+    byte[]? WireGuardPublicKey = null,
     // The loader tier's delivery reference: the stored payload this
     // artifact (a loader) fetches and runs from memory. Null on every
     // implant build -- non-null is the loader discriminator the loader

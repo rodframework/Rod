@@ -371,8 +371,17 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
                 return await BuildCarrierAsync(@params, triple, stagingDir, targetDir, cancellationToken);
 
             // A per-build target dir keeps builds hermetic (the shared cargo
-            // home and registry cache stay warm across builds).
+            // home and registry cache stay warm across builds). The
+            // wireguard front's build enables the crate's optional transport
+            // behind its cargo feature -- the compile-time half of the
+            // transport-enable set (Sec 15.3, ADR-004 as amended), the
+            // listener the bake dials being the other.
             var arguments = new List<string> { "build", "--release", "--target", triple };
+            if (@params.WireGuardPrivateKey is not null)
+            {
+                arguments.Add("--features");
+                arguments.Add("wireguard");
+            }
             var cargo = new ProcessStartInfo
             {
                 FileName = _cargoBinary,
@@ -597,6 +606,14 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
         };
         foreach (var argument in new[] { "build", "--release", "--target", triple })
             cargo.ArgumentList.Add(argument);
+        // The wireguard bake reaches the carrier through the forwarded
+        // feature: the implant core the cdylib links compiles its tunnel
+        // carriage only under it.
+        if (@params.WireGuardPrivateKey is not null)
+        {
+            cargo.ArgumentList.Add("--features");
+            cargo.ArgumentList.Add("wireguard");
+        }
         cargo.Environment["CARGO_TARGET_DIR"] = targetDir;
         cargo.Environment["CARGO_NET_GIT_FETCH_WITH_CLI"] = "true";
         // The NDK toolchain: one clang wrapper serves ring's C, the
