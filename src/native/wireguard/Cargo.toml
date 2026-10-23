@@ -1,0 +1,25 @@
+[package]
+name = "rod-wg-native"
+version = "1.0.0-dev"
+edition = "2021"
+publish = false
+
+# The teamserver's userspace WireGuard termination (architecture.md Sec 8,
+# Sec 15.3 ADR-004). A thin C-ABI cdylib over boringtun: the .NET side owns
+# the UDP socket and the frame routing, this side owns the tunnel state --
+# so no WireGuard cryptography is ever written in C#, and the audited
+# implementation stays the only crypto in the process.
+
+[lib]
+name = "rod_wg"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+boringtun = { version = "0.7", default-features = false }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
