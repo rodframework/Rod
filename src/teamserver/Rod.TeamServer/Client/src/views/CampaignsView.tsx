@@ -2,46 +2,33 @@ import type React from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import {
   type Campaign,
-  type CampaignRecipient,
+  type ReconAsset,
   createCampaign,
-  getCampaign,
-  launchCampaign,
   listCampaigns,
   listListeners,
-  revokeCampaign,
+  listReconAssets,
 } from '../api'
-import { CopyButton } from '../components/CopyButton'
 import { HelpHint } from '../components/HelpHint'
 import { Icon } from '../components/Icons'
+import { engagementPath } from '../slots'
 import { ago } from '../when'
 
 // The tracked-lure delivery surface (docs/operations/campaigns.md,
 // architecture.md Sec 11.5): the email-shaped half of delivery. A campaign
 // is created whole -- relay, template, recipients, build profile -- and
-// nothing leaves until launch; the engine then drives one build per
-// recipient (the price of enrollment attribution) and sends each message
-// once. The evidence columns are the point: opened and clicked are fetch
-// facts, executed is the enrollment itself -- the only proof the artifact
-// ran. The egress decisions (which relay, whose address, TLS posture) are
-// made here per campaign and recorded in the runbook, never defaulted by
-// the server.
+// nothing leaves until launch. The roster is the master list: each row
+// opens the campaign's detail page (the evidence columns, the recipients,
+// launch and revoke, the related-entities sidebar); the counts here size
+// the campaign at a glance. Recipients come from two vocabularies: a
+// hand-typed address, or a recon asset selected straight from the
+// targeting roster -- the unified entity model's link (Sec 15.4), spent
+// at creation.
 
 const STATE_HELP: Record<string, string> = {
   draft: 'Created; nothing has been sent and no builds were driven. Launch arms it.',
   launched: 'Armed: the engine drives per-recipient builds and sends.',
   completed: 'Every recipient is terminal (sent or failed). The lures stay live until revoked.',
   revoked: 'Burned: sends stopped and every lure in the campaign 404s.',
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  pending: 'pending',
-  building: 'building',
-  sent: 'sent',
-  failed: 'failed',
-}
-
-function stampCell(iso: string | null): React.ReactNode {
-  return iso ? <td title={new Date(iso).toLocaleString()}>{ago(iso)}</td> : <td className="muted">--</td>
 }
 
 export function CampaignsView({
@@ -52,9 +39,7 @@ export function CampaignsView({
   onlineTick: number
 }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
-  const [selected, setSelected] = useState<Campaign | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
 
   const refresh = useCallback(async () => {
@@ -70,34 +55,11 @@ export function CampaignsView({
     void refresh()
   }, [refresh, onlineTick])
 
-  const open = async (campaignId: string) => {
-    try {
-      setSelected(await getCampaign(engagementId, campaignId))
-      setError(null)
-    } catch (e) {
-      setError(String(e))
-    }
-  }
-
-  const act = async (campaignId: string, what: 'launch' | 'revoke') => {
-    setBusy(true)
-    try {
-      if (what === 'launch') await launchCampaign(engagementId, campaignId)
-      else await revokeCampaign(engagementId, campaignId)
-      await open(campaignId)
-      await refresh()
-      setError(null)
-    } catch (e) {
-      setError(String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const onCreated = async (created: Campaign) => {
     setShowCreate(false)
     await refresh()
-    await open(created.campaignId)
+    // Land on the new campaign's detail page, where launch waits.
+    window.location.hash = engagementPath(engagementId, 'campaigns', created.campaignId)
   }
 
   return (
@@ -108,7 +70,8 @@ export function CampaignsView({
           The tracked lure into tasking: per-recipient messages whose links bind to per-recipient
           builds, followed from send to open, click, and the enrollment itself. One build per
           recipient is the price of enrollment attribution; delivery is single-attempt; the relay
-          and its TLS posture are per-campaign decisions, never server defaults.
+          and its TLS posture are per-campaign decisions, never server defaults. Each row opens the
+          campaign's detail page -- the evidence and the actions live there.
         </HelpHint>
       </h2>
       {error && <p className="error">{error}</p>}
@@ -143,7 +106,6 @@ export function CampaignsView({
                 <th>Recipients</th>
                 <th>Evidence (o/c/x)</th>
                 <th>Created</th>
-                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -151,11 +113,8 @@ export function CampaignsView({
                 <tr key={c.campaignId}>
                   <td>
                     <a
-                      href={`#/engagements/${engagementId}/delivery/campaigns`}
-                      onClick={(e) => {
-                        e.preventDefault()
-                        void open(c.campaignId)
-                      }}
+                      href={engagementPath(engagementId, 'campaigns', c.campaignId)}
+                      title="Open the campaign's detail page"
                     >
                       {c.name}
                     </a>
@@ -168,23 +127,11 @@ export function CampaignsView({
                     {c.opened}/{c.clicked}/{c.executed}
                   </td>
                   <td title={new Date(c.createdAt).toLocaleString()}>{ago(c.createdAt)}</td>
-                  <td>
-                    {c.state === 'draft' && (
-                      <button disabled={busy} onClick={() => void act(c.campaignId, 'launch')}>
-                        Launch
-                      </button>
-                    )}
-                    {c.state !== 'revoked' && c.state !== 'draft' && (
-                      <button className="ghost" disabled={busy} onClick={() => void act(c.campaignId, 'revoke')}>
-                        Revoke
-                      </button>
-                    )}
-                  </td>
                 </tr>
               ))}
               {campaigns.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="muted">
+                  <td colSpan={5} className="muted">
                     No campaigns yet.
                   </td>
                 </tr>
@@ -192,93 +139,8 @@ export function CampaignsView({
             </tbody>
           </table>
         </div>
-
-        {selected && <Detail campaign={selected} onAct={act} busy={busy} />}
       </div>
     </section>
-  )
-}
-
-function Detail({
-  campaign,
-  onAct,
-  busy,
-}: {
-  campaign: Campaign
-  onAct: (id: string, what: 'launch' | 'revoke') => Promise<void>
-  busy: boolean
-}) {
-  const rows = campaign.recipients ?? []
-  return (
-    <>
-      <h4>
-        {campaign.name}{' '}
-        <span className="muted" title={STATE_HELP[campaign.state]}>
-          ({campaign.state})
-        </span>
-      </h4>
-      <p className="muted">
-        From {campaign.from} via {campaign.relayHost}:{campaign.relayPort} ({campaign.relayTls}
-        {campaign.relayUsername ? `, auth as ${campaign.relayUsername}` : ''}) -- front{' '}
-        {campaign.listenerName ?? campaign.listenerId}.
-        {campaign.state === 'draft' && (
-          <>
-            {' '}
-            <button className="primary" disabled={busy} onClick={() => void onAct(campaign.campaignId, 'launch')}>
-              Launch
-            </button>
-          </>
-        )}
-        {campaign.state !== 'revoked' && campaign.state !== 'draft' && (
-          <>
-            {' '}
-            <button className="ghost" disabled={busy} onClick={() => void onAct(campaign.campaignId, 'revoke')}>
-              Revoke
-            </button>
-          </>
-        )}
-      </p>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Recipient</th>
-              <th>Status</th>
-              <th>Lure</th>
-              <th>Sent</th>
-              <th>Opened</th>
-              <th>Clicked</th>
-              <th>Executed</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r: CampaignRecipient) => (
-              <tr key={r.recipientId}>
-                <td>
-                  {r.email}
-                  {r.name ? <span className="muted"> ({r.name})</span> : null}
-                </td>
-                <td>
-                  {STATUS_LABEL[r.status]}
-                  {r.failure ? <span className="muted"> -- {r.failure}</span> : null}
-                </td>
-                <td>{r.lureUrl ? <CopyButton text={r.lureUrl} label="Copy link" /> : <span className="muted">{r.lureId}</span>}</td>
-                {stampCell(r.sentAt)}
-                {stampCell(r.openedAt)}
-                {stampCell(r.clickedAt)}
-                {r.executedAt ? (
-                  <td title={new Date(r.executedAt).toLocaleString()}>
-                    {ago(r.executedAt)} <span className="muted">implant {r.enrolledImplantId}</span>
-                  </td>
-                ) : (
-                  <td className="muted">--</td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
   )
 }
 
@@ -286,6 +148,9 @@ function Detail({
 // essentials the per-recipient artifact needs (language, class, target,
 // cadence, fuse); the server parses it with the build pipeline's own
 // parser, so anything invalid refuses at the seam with its own words.
+// Recipients arrive from two vocabularies: typed lines (email [name])
+// and selected recon assets -- an asset carries its own address and
+// becomes the link the sidebar later draws.
 function CreateForm({
   engagementId,
   onCreated,
@@ -294,6 +159,7 @@ function CreateForm({
   onCreated: (created: Campaign) => void
 }) {
   const [listeners, setListeners] = useState<{ id: string; name: string; transport: string }[]>([])
+  const [assets, setAssets] = useState<ReconAsset[]>([])
   const [error, setError] = useState<string | null>(null)
 
   const [name, setName] = useState('')
@@ -308,29 +174,47 @@ function CreateForm({
   const [body, setBody] = useState('')
   const [bodyIsHtml, setBodyIsHtml] = useState(false)
   const [recipients, setRecipients] = useState('')
+  // The selected recon-asset ids; they ride the create body as
+  // reconAssetId recipients beside the typed lines.
+  const [selectedAssets, setSelectedAssets] = useState<Set<string>>(new Set())
   const [language, setLanguage] = useState('rust')
   const [targetOs, setTargetOs] = useState('linux')
   const [targetArch, setTargetArch] = useState('amd64')
   const [sleepSeconds, setSleepSeconds] = useState('30')
 
+  const emailAssets = assets.filter((a) => a.kind === 'email')
+
   useEffect(() => {
     void (async () => {
       try {
-        const all = await listListeners(engagementId)
+        const [all, roster] = await Promise.all([
+          listListeners(engagementId),
+          listReconAssets(engagementId).catch(() => [] as ReconAsset[]),
+        ])
         // The lure rides the web family only; the server refuses the rest,
         // the select simply does not offer them.
         const web = all.filter((l) => l.transport === 'http' || l.transport === 'https')
         setListeners(web)
         setListenerId((current) => current || web[0]?.id || '')
+        setAssets(roster)
       } catch (e) {
         setError(String(e))
       }
     })()
   }, [engagementId])
 
+  const toggleAsset = (assetId: string) => {
+    setSelectedAssets((current) => {
+      const next = new Set(current)
+      if (next.has(assetId)) next.delete(assetId)
+      else next.add(assetId)
+      return next
+    })
+  }
+
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
-    const parsed = recipients
+    const typed = recipients
       .split('\n')
       .map((line) => line.trim())
       .filter((line) => line.length > 0)
@@ -338,6 +222,7 @@ function CreateForm({
         const [email, ...rest] = line.split(/\s+/)
         return { email, name: rest.join(' ') || undefined }
       })
+    const fromAssets = [...selectedAssets].map((reconAssetId) => ({ reconAssetId }))
     try {
       const created = await createCampaign(engagementId, {
         name,
@@ -351,7 +236,7 @@ function CreateForm({
         subject,
         body,
         bodyIsHtml,
-        recipients: parsed,
+        recipients: [...typed, ...fromAssets],
         build: {
           language,
           class: 'Implant',
@@ -446,15 +331,35 @@ function CreateForm({
         </label>
       </fieldset>
       <fieldset>
-        <legend>Recipients (one per line: email [display name])</legend>
+        <legend>Recipients (typed: one per line, email [display name])</legend>
         <textarea
           value={recipients}
           onChange={(e) => setRecipients(e.target.value)}
           placeholder={'alice@target.example Alice\ntarget.bob@example.com'}
           rows={3}
-          required
         />
       </fieldset>
+      {emailAssets.length > 0 && (
+        <fieldset>
+          <legend>Recipients from recon assets (the targeting vocabulary, selected straight)</legend>
+          <div className="asset-picker">
+            {emailAssets.map((a) => (
+              <label key={a.assetId} className="checkbox asset-picker-item">
+                <input
+                  type="checkbox"
+                  checked={selectedAssets.has(a.assetId)}
+                  onChange={() => toggleAsset(a.assetId)}
+                />
+                <code>{a.value}</code>
+                {a.displayName ? <span className="muted"> {a.displayName}</span> : null}
+              </label>
+            ))}
+          </div>
+          {selectedAssets.size > 0 && (
+            <p className="muted">{selectedAssets.size} recon asset(s) selected as recipients.</p>
+          )}
+        </fieldset>
+      )}
       <fieldset>
         <legend>Per-recipient build (one build per recipient -- the attribution price)</legend>
         <label>

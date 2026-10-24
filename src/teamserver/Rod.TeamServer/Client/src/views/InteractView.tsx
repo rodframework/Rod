@@ -324,6 +324,13 @@ export function InteractView({
           <a className="back-link" href={`#/engagements/${engagementId}/action/implants`}>
             ← Implants
           </a>
+          <a
+            className="button-link sm"
+            href={`#/engagements/${engagementId}/action/implants/${implantId}`}
+            title="The implant's detail page -- the record and its related entities"
+          >
+            Details
+          </a>
           <span className="console-host" title={`Implant ${implantId}`}>
             <Icon name={osIconFor(implant?.os)} className="wire-icon" />
             {hostLabel}

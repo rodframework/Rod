@@ -1878,6 +1878,167 @@ tbody tr.selected {
   background: var(--danger-soft);
 }
 
+/* --- Entity detail pages: the record and its related entities -------------- */
+
+/* The master-detail drill-in layout: the entity's own record on the
+   left, the related-entities sidebar on the right (ADR-013 -- every
+   entity detail page carries one). Narrow screens fold the sidebar
+   under the record. */
+.entity-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 20px;
+  align-items: start;
+}
+
+.entity-detail-main {
+  min-width: 0;
+}
+
+.entity-detail-aside {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.entity-detail-aside > h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.entity-actions {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.detail-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 18px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.detail-fact {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 10px;
+  font-size: 12.5px;
+  align-items: baseline;
+}
+
+.detail-fact-label {
+  color: var(--muted);
+}
+
+.detail-fact-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The related-entities sidebar body: link groups with their labels,
+   each link a title and a one-line subtitle. */
+.related {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.related-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.related-group-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.related-link {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--text);
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.related-link:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  text-decoration: none;
+}
+
+.related-link .wire-icon {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  color: var(--muted);
+  align-self: center;
+}
+
+.related-link-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.related-link-title {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.related-link-subtitle {
+  color: var(--muted);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.related-empty {
+  margin: 0;
+  font-size: 12.5px;
+}
+
+/* The campaign create form's recon-asset selection: the targeting
+   vocabulary as checkboxes, one per email-kind asset. */
+.asset-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.asset-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* --- Responsive: icon rail, then top row ---------------------------------------------------------- */
 
 @media (max-width: 1080px) {

@@ -163,7 +163,12 @@ export function ReconAssetsView({
               {filtered.map((asset) => (
                 <tr key={asset.assetId}>
                   <td>
-                    <code>{asset.value}</code>
+                    <a
+                      href={`#/engagements/${engagementId}/recon/assets/${asset.assetId}`}
+                      title="Open the asset's detail page -- its campaigns and implants"
+                    >
+                      <code>{asset.value}</code>
+                    </a>
                   </td>
                   <td title={KIND_HINT[asset.kind]}>{asset.kind}</td>
                   <td>

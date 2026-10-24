@@ -17,6 +17,7 @@ import { usePollIntervalMs } from '../clientPrefs'
 import { AuditView } from './AuditView'
 import { TimelineView } from './TimelineView'
 import { ImplantsView } from './ImplantsView'
+import { ImplantDetailView } from './ImplantDetailView'
 import { InteractView } from './InteractView'
 import { LaunchersView } from './LaunchersView'
 import { ListenersView } from './ListenersView'
@@ -32,7 +33,9 @@ import { IntelView } from './IntelView'
 import { MembersView } from './MembersView'
 import { ReconView } from './ReconView'
 import { ReconAssetsView } from './ReconAssetsView'
+import { ReconAssetDetailView } from './ReconAssetDetailView'
 import { CampaignsView } from './CampaignsView'
+import { CampaignDetailView } from './CampaignDetailView'
 
 // The engagement detail body: the sub-surface named by the route only --
 // navigation lives in the shell's sidebar (the seven slots) and the sub
@@ -53,6 +56,7 @@ export function EngagementView({
   operator,
   sub,
   entityId,
+  interact,
 }: {
   engagementId: string
   operator: SessionOperator
@@ -60,11 +64,11 @@ export function EngagementView({
   // by it, so the view dispatch needs no slot prop.
   sub: SubId
   // An entity drill-in under the sub -- the implant id on the session
-  // console route today; detail pages add their own as they land.
+  // console and detail routes, the campaign and asset ids on their
+  // detail pages.
   entityId?: string
-  // True on the session console (`.../implants/{id}/interact`); the
-  // console is the only implant drill-in so far, so the flag itself is
-  // not yet read here.
+  // True on the session console (`.../implants/{id}/interact`); false or
+  // absent is the detail page.
   interact?: boolean
 }) {
   const [online, setOnline] = useState<LiveOperator[]>([])
@@ -216,14 +220,19 @@ export function EngagementView({
       {sub === 'timeline' && <TimelineView engagementId={engagementId} onlineTick={tick} />}
       {sub === 'picture' && <IntelView engagementId={engagementId} onlineTick={tick} />}
       {sub === 'workbench' && <ReconView engagementId={engagementId} onlineTick={tick} />}
-      {sub === 'assets' && <ReconAssetsView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'assets' && entityId && (
+        <ReconAssetDetailView engagementId={engagementId} assetId={entityId} onlineTick={tick} />
+      )}
+      {sub === 'assets' && !entityId && (
+        <ReconAssetsView engagementId={engagementId} onlineTick={tick} />
+      )}
       {sub === 'tasking' && <TaskLogView engagementId={engagementId} onlineTick={tick} />}
       {sub === 'automation' && <AutomationView engagementId={engagementId} onlineTick={tick} />}
       {sub === 'notifications' && (
         <NotificationsView engagementId={engagementId} onlineTick={tick} />
       )}
       {sub === 'members' && <MembersView engagementId={engagementId} operator={operator} />}
-      {sub === 'implants' && entityId && (
+      {sub === 'implants' && entityId && interact && (
         <InteractView
           engagementId={engagementId}
           implantId={entityId}
@@ -232,8 +241,17 @@ export function EngagementView({
           onlineImplants={onlineImplants}
         />
       )}
+      {sub === 'implants' && entityId && !interact && (
+        <ImplantDetailView engagementId={engagementId} implantId={entityId} onlineTick={tick} />
+      )}
       {sub === 'implants' && !entityId && (
         <ImplantsView engagementId={engagementId} onlineTick={tick} onlineImplants={onlineImplants} />
+      )}
+      {sub === 'campaigns' && entityId && (
+        <CampaignDetailView engagementId={engagementId} campaignId={entityId} onlineTick={tick} />
+      )}
+      {sub === 'campaigns' && !entityId && (
+        <CampaignsView engagementId={engagementId} onlineTick={tick} />
       )}
       {sub === 'shells' && <ShellsView engagementId={engagementId} onlineTick={tick} />}
       {sub === 'webshells' && <WebShellsView engagementId={engagementId} onlineTick={tick} />}
@@ -241,7 +259,6 @@ export function EngagementView({
       {sub === 'evidence' && <ReportView engagementId={engagementId} />}
       {sub === 'listeners' && <ListenersView engagementId={engagementId} />}
       {sub === 'launchers' && <LaunchersView engagementId={engagementId} onlineTick={tick} />}
-      {sub === 'campaigns' && <CampaignsView engagementId={engagementId} onlineTick={tick} />}
       {sub === 'build' && <PayloadBuildView engagementId={engagementId} />}
       {sub === 'payloads' && <PayloadsView engagementId={engagementId} onlineTick={tick} />}
       {/* Interim until the split boards land: the harvest and the exfil

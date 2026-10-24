@@ -73,6 +73,11 @@ export interface Implant {
   // The baked carrier set the artifact's endpoints dial; null when the
   // enroll derived none.
   carriers: string[] | null
+  // The delivery campaign whose lure this implant followed (Sec 11.5):
+  // the campaign and the recipient row, null pair on every ordinary
+  // enrollment.
+  campaignId: string | null
+  campaignRecipientId: string | null
 }
 
 export interface Task {
@@ -438,6 +443,67 @@ export async function mintDeployToken(
 
 export async function listImplants(engagementId: string): Promise<Implant[]> {
   return jsonOrThrow(await fetch(`engagements/${engagementId}/implants`))
+}
+
+// --- Implant provenance (architecture.md Sec 15.4, the unified entity
+// model) -----------------------------------------------------------
+//
+// The detail read's second half: the chain around one implant -- the
+// ancestors back to the first foothold, the children it derived (the
+// lateral-movement tree this detail roots), and the campaign leg (null
+// on every ordinary, campaign-free enrollment). The campaign leg carries
+// the recipient row whose baked credential the implant redeemed and, when
+// the target was selected from the recon vocabulary, the recon asset --
+// Sec 15.4's link, read back. This is the related-entities sidebar's
+// data source.
+
+export interface ProvenanceAncestor {
+  implantId: string
+  hostname: string | null
+  os: string | null
+  class: string
+  createdAt: string
+  retiredAt: string | null
+}
+
+export interface ProvenanceChild {
+  implantId: string
+  hostname: string | null
+  class: string
+  createdAt: string
+}
+
+export interface ImplantCampaignProvenance {
+  campaignId: string
+  campaignName: string
+  campaignState: string
+  recipientId: string
+  email: string
+  name: string | null
+  sentAt: string | null
+  openedAt: string | null
+  clickedAt: string | null
+  executedAt: string | null
+  payloadId: string | null
+  reconAssetId: string | null
+}
+
+export interface ImplantProvenance {
+  ancestors: ProvenanceAncestor[]
+  children: ProvenanceChild[]
+  campaign: ImplantCampaignProvenance | null
+}
+
+export interface ImplantDetail {
+  implant: Implant
+  provenance: ImplantProvenance
+}
+
+export async function getImplantDetail(
+  engagementId: string,
+  implantId: string,
+): Promise<ImplantDetail> {
+  return jsonOrThrow(await fetch(`engagements/${engagementId}/implants/${implantId}`))
 }
 
 export interface IssueTaskInput {
@@ -3134,6 +3200,9 @@ export interface CampaignRecipient {
   clickedAt: string | null
   executedAt: string | null
   enrolledImplantId: string | null
+  // The recon asset this recipient was selected from, when it was -- the
+  // targeting vocabulary's link back (Sec 15.4).
+  reconAssetId: string | null
 }
 
 // A campaign row. The relay password never appears on read-back -- the
@@ -3167,6 +3236,12 @@ export interface Campaign {
 // The create body. The build profile rides as the same shape the Build
 // panel posts; the server parses it with the build pipeline's own parser
 // and refuses the token knobs (the campaign mints per recipient itself).
+// A recipient names exactly one of a hand-typed address or a recon asset
+// -- the targeting vocabulary selects directly.
+export type CampaignRecipientInput =
+  | { email: string; name?: string }
+  | { reconAssetId: string; name?: string }
+
 export interface CreateCampaignInput {
   name: string
   listenerId: string
@@ -3179,7 +3254,7 @@ export interface CreateCampaignInput {
   subject: string
   body: string
   bodyIsHtml: boolean
-  recipients: { email: string; name?: string }[]
+  recipients: CampaignRecipientInput[]
   build: Record<string, unknown>
 }
 
@@ -3215,7 +3290,11 @@ export async function createCampaign(
           body: input.body,
           bodyIsHtml: input.bodyIsHtml,
         },
-        recipients: input.recipients.map((r) => ({ email: r.email, name: r.name ?? null })),
+        recipients: input.recipients.map((r) =>
+          'reconAssetId' in r
+            ? { reconAssetId: r.reconAssetId, name: r.name ?? null }
+            : { email: r.email, name: r.name ?? null },
+        ),
         build: input.build,
       }),
     }),

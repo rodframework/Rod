@@ -710,6 +710,13 @@ export function ImplantsView({
                               <div className="row-actions">
                                 <a
                                   className="button-link sm"
+                                  href={`#/engagements/${engagementId}/action/implants/${implant.implantId}`}
+                                  title="Open the implant's detail page -- the record and its related entities"
+                                >
+                                  Details
+                                </a>
+                                <a
+                                  className="button-link sm"
                                   href={`#/engagements/${engagementId}/action/implants/${implant.implantId}/interact`}
                                   title="Open the session console"
                                 >
