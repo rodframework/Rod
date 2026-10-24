@@ -1142,7 +1142,21 @@ export async function listAudit(
   cursor?: string,
 ): Promise<ListPage<AuditEventEntry>> {
   const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
-  return jsonOrThrow(await fetch(`engagements/${engagementId}/audit${query}`))
+  const page = await jsonOrThrow<ListPage<AuditEventEntry>>(
+    await fetch(`engagements/${engagementId}/audit${query}`),
+  )
+  // The trail stores implant ids as dashed guids while the fleet, the
+  // routes, and every other surface use the compact form, so an event's
+  // implant reference must be normalized before it feeds a link or a
+  // search -- the raw form addresses no implant the console knows.
+  return {
+    ...page,
+    items: page.items.map((e) => ({
+      ...e,
+      implantId:
+        e.implantId.replaceAll('-', '') === '0'.repeat(32) ? '' : e.implantId.replaceAll('-', ''),
+    })),
+  }
 }
 
 // --- Artifacts  -----------------------------------------------

@@ -110,8 +110,13 @@ export function TimelineView({
       operator === '' ? byStage : byStage.filter((e) => e.operatorHandle === operator)
     const needle = query.trim().toLowerCase()
     if (needle === '') return byOperator
-    return byOperator.filter((e) =>
-      [
+    // Ids live in two spellings across the surfaces (the trail's dashed
+    // guids, the fleet's compact ids), and the entity filter's promise is
+    // that pasting an id narrows the stream -- so a match may also read
+    // through dashes, without changing what any other needle matches.
+    const compactNeedle = needle.replaceAll('-', '')
+    return byOperator.filter((e) => {
+      const haystack = [
         e.kind,
         e.verb,
         e.payload,
@@ -124,8 +129,8 @@ export function TimelineView({
       ]
         .join(' ')
         .toLowerCase()
-        .includes(needle),
-    )
+      return haystack.includes(needle) || haystack.replaceAll('-', '').includes(compactNeedle)
+    })
   }, [events, stage, operator, query])
 
   const toggle = (eventId: string) => {
@@ -225,7 +230,7 @@ export function TimelineView({
               const open = expanded.has(e.eventId)
               const stageOfEvent = stageOfKind(e.kind)
               const implantLink =
-                e.implantId !== EMPTY_GUID && e.implantId !== ''
+                e.implantId !== ''
                   ? engagementPath(engagementId, 'implants', e.implantId, 'interact')
                   : null
               return (

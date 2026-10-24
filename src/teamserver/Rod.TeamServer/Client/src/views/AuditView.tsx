@@ -34,11 +34,12 @@ const ALL_KINDS = '(all)'
 
 // Events without an operator or implant carry the empty GUID on the wire (a
 // non-nullable server field), not null -- render it as a dash, not as
-// "00000000-...".
+// "00000000-...". Implant ids arrive normalized to the compact form, so
+// the absent marker also reads as the empty string.
 const EMPTY_GUID = '00000000-0000-0000-0000-000000000000'
 
 function shortId(id: string): string {
-  return id === EMPTY_GUID ? '\u2014' : id.slice(0, 8)
+  return id === EMPTY_GUID || id === '' ? '\u2014' : id.slice(0, 8)
 }
 
 export function AuditView({

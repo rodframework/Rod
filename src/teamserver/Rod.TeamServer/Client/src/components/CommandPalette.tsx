@@ -515,12 +515,13 @@ export function CommandPalette({
   return (
     <>
       <div className="palette-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
-        <div className="palette" onKeyDown={onKey}>
-          <div className="palette-input">
+      <div className="palette" role="dialog" aria-label="Command palette" onKeyDown={onKey}>
+        <div className="palette-input">
             <Icon name={pending ? 'chevronRight' : 'terminal'} className="wire-icon" />
             <input
               ref={inputRef}
               value={query}
+              aria-label={pendingLabel ?? 'Command palette search'}
               placeholder={
                 pendingLabel ??
                 (engagementId
