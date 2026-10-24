@@ -15,6 +15,7 @@ import { SLOTS, engagementPath } from '../slots'
 import { LiveContext } from '../shell'
 import { usePollIntervalMs } from '../clientPrefs'
 import { AuditView } from './AuditView'
+import { TimelineView } from './TimelineView'
 import { ImplantsView } from './ImplantsView'
 import { InteractView } from './InteractView'
 import { LaunchersView } from './LaunchersView'
@@ -212,7 +213,7 @@ export function EngagementView({
           ))}
         </nav>
       )}
-      {sub === 'timeline' && <AuditView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'timeline' && <TimelineView engagementId={engagementId} onlineTick={tick} />}
       {sub === 'picture' && <IntelView engagementId={engagementId} onlineTick={tick} />}
       {sub === 'workbench' && <ReconView engagementId={engagementId} onlineTick={tick} />}
       {sub === 'assets' && <ReconAssetsView engagementId={engagementId} onlineTick={tick} />}
