@@ -4,8 +4,8 @@ The operator UI keeps its panels to a headline row with a question mark
 beside it: the standfirst -- the sentence or two of orientation each panel
 opens with -- is folded behind that mark and rides out on hover or keyboard
 focus, and everything else lives in hover text on the field it describes.
-Every page -- top-level or engagement tab -- opens on the same single page
-title naming its sidebar entry; page content sits in cards, one concern per
+Every page -- top-level or engagement surface -- opens on the same single
+page title naming its surface; page content sits in cards, one concern per
 card (a flow's form and the roster it feeds may share one). A card opens on
 a header of its own: either a heading naming the concern in the console's
 vocabulary -- Roster, Fleet, New campaign, Invite an operator, never the
@@ -15,6 +15,68 @@ the card's own actions (refresh, a form toggle) is a header row: heading
 left, actions right, one aligned line. This page is the long form:
 what each panel shows, and what every build and listener field does, in
 one place. Screenshots-age; this text is the reference.
+
+## Navigation -- the seven slots
+
+Engagement navigation is fixed at seven lifecycle slots
+(architecture.md Sec 15.4, ADR-013): **overview / recon / delivery /
+action / assets / report / admin**, in the order an engagement lives
+them. The slots are a scarce resource -- a new domain answers *which
+slot it enters* before it exists, never an eighth sidebar entry; its
+screens land inside the slot as sub-surfaces, which are cheap. The
+sidebar carries the slots; the content area opens each slot with its
+own sub-nav strip (Delivery's listeners, launchers, campaigns, shells,
+web shells, build; Action's implants, task log, automation; and so on),
+so the sidebar promises a working mode and never a screen list.
+
+The hash route names slot and sub, with entity drill-ins for the
+master-detail surfaces: `#/engagements/{id}/{slot}/{sub}`, a detail
+page at `.../{sub}/{entityId}`, and the session console at
+`.../implants/{implantId}/interact`. Pre-slot deep links keep
+resolving -- the retired tab ids map onto their surfaces (Intel to the
+target picture, Audit to the ledger, and so on), so an old bookmark
+lands on the work, not on a fallback. `g` then the slot's number
+(1-7, the sidebar's order) jumps while an engagement is open; the
+chord dies on a pause, any other key, or focus in a field.
+
+Every entity listing is a master list whose rows open a **detail
+page**, and every detail page carries a **related-entities sidebar**:
+the explicit links of the unified entity model (an implant's lineage
+and the campaign that delivered it, a campaign's recon assets and the
+implants its recipients enrolled, a recon asset's referencing
+campaigns) drawn as navigation, not strings to eyeball. The **density
+toggle** on the topbar switches every table and feed row between the
+comfortable reading posture and the compact scanning one --
+browser-local, like every console preference.
+
+The overview slot is the timeline and nothing else: entering an
+engagement lands on the audited event stream, the surface everything
+else writes into.
+
+## Timeline -- the overview main screen
+
+The timeline is the console's main screen: the audited event stream
+itself -- every recorded fact plus the comments and chat that ride
+beside the chain (marked *unchained*) -- newest first, one row per
+event with its stage chip, kind, actor, implant link, and payload
+line; a row unfolds its full payload and output. The stream lands from
+the audit endpoint's newest window and refreshes on the live beat;
+older history walks the keyset with **Load older**.
+
+Three filters narrow the loaded window, all client-side because a
+filter must feel instant, not round-trip: **stage** (the lifecycle
+stage each kind reads into -- setup, recon, delivery, action, assets,
+collab -- classified from the kind alone, an unknown future kind
+reading as *other*), **operator** (derived from the window, system
+included), and free text across kind, verb, payload, outcome, and the
+entity ids -- which is the entity filter: paste an implant id and the
+stream narrows to it. The implant reference on a row links into that
+implant's detail page.
+
+The same trail has two other reads, and each keeps its own surface:
+the **Audit ledger** under Report is the dense forensic table (paged,
+kind-filtered), and the report exports render the narrative
+projections. The timeline is the watch's live read.
 
 ## Operating surfaces
 
@@ -168,7 +230,10 @@ carrier returns.
   meantime. Devices group by the hostname reported at enroll, so two hosts
   reporting the same hostname (cloned machines) share a group; the group
   header's hover says so, and the rows underneath stay per-identity. Notes and
-  retire live on the row, and everything else opens from its context menu
+  retire live on the row; **Details** opens the implant's detail page
+  (the record, the recent tasks, and the related-entities sidebar --
+  lineage, the delivering campaign, the recon asset), **Interact** the
+  session console; and everything else opens from its context menu
   (right-click or the three-dot button): shell commands, the file browser,
   the process browser, recon, persistence, collection, modules -- each
   entry gated on the implant's class, argument-bearing verbs opening a
@@ -180,8 +245,9 @@ carrier returns.
   module's verb renders a labeled form the moment it registers -- the UI
   holds no per-verb table, and a verb nobody described falls back to the
   raw-arguments form.
-- **Session console** (`#/engagements/{id}/implants/{implantId}`, the
-  Interact link on a row) -- one implant, rendered as a terminal: a title
+- **Session console** (`#/engagements/{id}/action/implants/{implantId}/interact`,
+  the Interact link on a row; its title bar carries a Details link to
+  the implant's detail page) -- one implant, rendered as a terminal: a title
   bar naming the device, identity, and live state; a scrolling transcript of
   that implant's task history (each task a line with time, status tag, verb,
   and arguments; short output unfolds under the line, long output folds
@@ -211,7 +277,7 @@ carrier returns.
   operator, the safety valve). Closing the pane releases the typing claim
   but leaves a bound relay listening; the pane that reopens re-detects it
   by the refusal a second bind gets.
-- **Task log** (beside Implants, in the Operate group) -- the engagement's
+- **Task log** (beside Implants, in the Action slot) -- the engagement's
   task history as a filterable, live log: by implant (switches to that
   implant's own feed), verb, status, issuing operator, or free text. Each
   row carries a chevron that unfolds the full output (and a one-line
@@ -227,7 +293,7 @@ carrier returns.
   shown verbatim.
   The log's tasking is read-only -- canceling a queued task happens in
   that implant's session console. Issuing happens in the implant menu and
-  the console; this tab is for reading.
+  the console; this surface is for reading.
 
 Two browsing panes open from the menu (and the console): the **process
 browser** (`recon.ps` as a filterable table with a confirmed per-row
@@ -249,10 +315,13 @@ payload and redeploy.
 
 **Ctrl+K** opens the palette anywhere in the console; **Esc** closes it. The
 palette is the keyboard's reach over what the mouse already reaches: one
-fuzzy field whose entries are navigation (every tab, Settings, System, the
-engagements list), entities (implants by hostname, user, or id -- Enter
-opens the session console), verbs (the capability registry; Enter opens the
-verb's dialog), and task snippets (Enter runs). Matching scores a
+fuzzy field whose entries are navigation (every sub-surface, Settings,
+System, the engagements list), entities (implants by hostname, user, or
+id -- Enter opens the session console; campaigns and recon assets --
+Enter opens the detail page), verbs (the capability registry; Enter
+opens the verb's dialog), and task snippets (Enter runs). Slot jumps
+(`g` 1-7) and the density toggle round out the keyboard leg; see
+[Navigation](#navigation--the-seven-slots). Matching scores a
 subsequence -- a prefix beats a word start beats a substring beats
 scattered letters -- and implant entries tie-break online-first, so the
 shortest reach lands on the live box.
@@ -374,7 +443,7 @@ bridge is a decision about engagement data leaving the box
 
 ## Handoff digest
 
-The Handoff digest is the Audit panel's window mode (architecture.md
+The Handoff digest is the Audit ledger's window mode (architecture.md
 Sec 11.1): the resuming operator's read of what happened on the watch
 while nobody sat at this console. The live stream has no replay -- events
 that fired while disconnected never happened, console-side -- so the
@@ -441,7 +510,7 @@ scope is refused before any connection opens (`422` with the violated
 rule, the refusal its own audit event). The panel opens the engagement's
 **ROE editor** -- a scope line above the form ("Engagement scope: 2
 verbs, any implant, 16 targets", or "unrestricted") with an **Edit
-scope** button (writers and the owner; the recon tab is the ROE-gated
+scope** button (writers and the owner; the workbench is the ROE-gated
 surface, but the profile gates tasking everywhere). The dialog edits all
 three allow-lists as one-entry-per-line text areas -- permitted verbs
 (exact or `namespace.*` wildcards), permitted implants (exact ids), and
@@ -453,19 +522,30 @@ target entry is refused by name rather than silently matching nothing.
 The **Findings** list under the form is the workbench's own history --
 the engagement's `recon.*` artifacts paged out of the loot board,
 task-less and attributed to the running operator -- reopening in the
-same pane. The findings join the Intel picture beside this panel: the
-Loot section's rows and the Topology projection's dashed recon-seen
-hosts both read the same artifacts this panel produces.
+same pane. The findings join the reads beside this panel: the loot
+board's rows and the topology projection's dashed recon-seen hosts
+both read the same artifacts this panel produces.
 
-## Intel
+The slot's third surface is the **recon-assets roster**: the named
+targeting vocabulary -- emails, domains, hosts, addresses -- recorded
+as campaign-worthy, with a kind filter and a record form. An asset's
+whole point is selection: campaign creation picks recipients straight
+from the roster, and every recipient and enrolled implant carries the
+asset link back. Each row opens the asset's detail page (the record,
+deletion, and the sidebar walking forward to the referencing campaigns
+and the implants they enrolled); deleting an asset refuses while any
+campaign still references it.
 
-The Intel panel is the picture of what the engagement learned
+## Target picture
+
+The target picture is what the engagement learned about the target
 (architecture.md Sec 11.2) -- the read the operator consults instead of
-re-reading transcripts. Four sections share the card.
+re-reading transcripts, the recon slot's read half (the workbench
+fills it). Two sections share the card.
 
 **Hosts** is the device dimension: implants grouped under the hostname
 they reported at enroll (case-insensitive; an implant that reported
-none stands alone under the Implants tab), each row showing fleet
+none stands alone under the fleet), each row showing fleet
 occupancy, the OS and account the enrollment reported, the crew's
 labels, and the note count. "Notes & labels" opens the attributed-facts
 panel: notes append (immutable, like implant notes), labels set and
@@ -503,6 +583,23 @@ the recon observations listed underneath. Nothing is stored -- the
 projection re-reads the fleet, the trail, and the enumeration-typed task
 outputs (task outputs and the workbench's task-less findings artifacts
 alike) every time -- and a broken audit chain refuses to render over it.
+
+## Assets -- the engagement's holdings
+
+The assets slot holds what the engagement gathered and built: the
+harvest, the exfil board, and the durable payload library
+([Payloads](#payloads) below). Two of the three were the old Intel
+panel's sections; the slots rework drew the line -- loot and
+credentials are holdings, not target knowledge.
+
+**Loot** (the typed board over the artifact store) and
+**Credentials** (the harvest board) render exactly as they did inside
+Intel, each now owning its surface: loot rows classified by what
+gathered them (screenshots preview inline, other kinds download,
+opening records the `ArtifactViewed` pull), credential rows masked
+until revealed with their capture attribution. The classification is
+the producing verb's declared output kind, any module verb included,
+and the projection re-reads at render time -- nothing is stored.
 
 The transcript surfaces ride the same taxonomy: a completed task's
 output block in the session console and the task log renders as the
@@ -654,7 +751,7 @@ shell access beacons without a file landing first. The shell console's
 Upgrade render produces the same commands for a shell it already caught;
 this panel is where an operator cuts them ahead of any catch. The form and
 the **Kept launchers** list below it share one card -- cutting a launcher
-and coming back to it is one surface, the same layout the Build tab gives
+and coming back to it is one surface, the same layout the Build surface gives
 its form and job strip. The one pick
 that matters is the **payload** -- the build the fetch delivers
 (the engagement's newest stands in). The rest live behind the "fetch front
@@ -671,7 +768,7 @@ Linux builds; PowerShell's `iwr` for Windows builds. A command for another OS
 would spend the fetch credential on bytes that cannot run, so it never
 renders (a payload with no recorded target keeps every family -- the shell
 being pasted into is then the only clue). Copy the one the target's shell
-has; the beacon lands in the Implants table on its enrollment, already
+has; the beacon lands in the fleet table on its enrollment, already
 reporting its cadence. Over an https front every family's command disables
 transport verification -- the front's certificate comes from the engagement
 CA, which no stock target toolchain trusts (the implant itself pins that CA);
@@ -687,7 +784,7 @@ the credential dies by budget, expiry, or revocation.
 
 **Kept launchers** is the list every render lands in: when it was cut, for
 which payload (named by the payload library's fingerprint -- the same
-identifier the Payloads tab's Fingerprint column shows, so a row matches
+identifier the Payloads library's Fingerprint column shows, so a row matches
 its artifact without an id detour; a deleted payload falls back to the
 bare artifact id), over which front, and the credential's standing as one
 plain line -- `usable · 1 of 1 downloads left · until 19:00`, or `no
@@ -698,7 +795,7 @@ beneath it (re-rendered from the row's URL and credential, so an old row
 always copies in the current shape). **Commands** appears only while the credential still
 serves fetches -- a dead credential's one-liner would download nothing
 (the route refuses the fetch; the artifact itself stays downloadable to
-the operator from the Payloads tab). **Delete** closes the row's whole
+the operator from the Payloads library). **Delete** closes the row's whole
 lifecycle: the credential dies wherever a copy of the command carries it,
 the row goes, and the mint's history stays on the audit trail -- for a
 surgical revoke that keeps the row, the API's `:revoke` endpoint remains.
@@ -720,7 +817,7 @@ mint lands in the roster below with **Revoke**: the serving URL 404s,
 the baked credential stops enrolling, and browsers already holding the
 script go quiet at their next contact. The hooked browsers themselves
 need no surface of their own -- they are Browser-class rows in the
-Implants table, taskable from the same menu (fingerprint, cookies, DOM
+fleet table, taskable from the same menu (fingerprint, cookies, DOM
 read, screenshot, redirect, prompt), their results in the same task log
 and audit trail as any implant's.
 
@@ -752,14 +849,27 @@ the enrollment), and sends each message once on the build's completion.
 Single-attempt, no retry: a failure lands on the row with its reason, and
 a retry is a new campaign.
 
-The list's evidence columns are the point: **o/c/x** counts opens,
-clicks, and executions. An open is the pixel firing (best-effort -- mail
-clients that block remote images never fire it), a click is the lure
-fetch, and an **executed** recipient is an enrollment fact -- the implant
-that redeemed the baked credential, its id on the row. The detail table
-carries the per-recipient arc: status and failure, the lure link to copy,
-and the four stamps. **Revoke** burns the campaign from any live state:
-no further sends, and every lure in it 404s from that moment.
+Each roster row opens the campaign's **detail page**, where launch and
+revoke sit beside what they arm or burn. The list's evidence columns
+are the point: **o/c/x** counts opens, clicks, and executions. An open
+is the pixel firing (best-effort -- mail clients that block remote
+images never fire it), a click is the lure fetch, and an **executed**
+recipient is an enrollment fact -- the implant that redeemed the baked
+credential. The detail page's recipients table carries the
+per-recipient arc -- status and failure, the lure link to copy, the
+four stamps -- with the entity links drawn as navigation: a recipient
+selected from the recon vocabulary links to its asset, and an executed
+row links to the implant it enrolled. The related-entities sidebar
+folds the same links into groups (the campaign's recon assets, its
+implants). **Revoke** burns the campaign from any live state: no
+further sends, and every lure in it 404s from that moment.
+
+Recipients come from two vocabularies: the typed lines above, or the
+**recon-asset picker** -- the roster's email-kind assets as checkboxes,
+each riding the create body as a `reconAssetId` reference. A campaign
+built that way is linked from its targets back: the asset's detail
+page lists the campaigns that selected it and the implants they
+enrolled.
 
 ## Build
 
@@ -806,7 +916,7 @@ panel closed.
 
 **Class**: there is no class pick -- the form builds the full implant
 alone. The stager class is retired with the .NET trees: staged delivery
-rides the Launchers tab's one-liners, which fetch the artifact over the
+rides the Launchers surface's one-liners, which fetch the artifact over the
 token-gated route and (on Linux, via the memfd family) can run it without
 landing a file.
 
@@ -883,7 +993,7 @@ row carries its artifact, its baked token (revoke it there), the front it dials
 "deleted" note once the artifact is removed from the library, because a job row
 outlives the payload it produced. The queue itself is bounded (50 finished jobs
 per engagement) and lives for the process lifetime; the record of every
-artifact that ever finished is the Payloads tab, so the two do not try to be
+artifact that ever finished is the Payloads library, so the two do not try to be
 each other.
 
 ## Payloads
@@ -957,7 +1067,7 @@ socket closes, the target-side one-liner exits with it, and the row's
 status settles -- an ended row keeps its readable transcript until
 dismissed.
 
-**Upgrade** renders the same paste-ready launchers the Launchers tab cuts
+**Upgrade** renders the same paste-ready launchers the Launchers surface cuts
 (the fetch one-liners that grow the shell into an enrolled implant), with
 the same picks: which build the fetch delivers -- a payload whose baked
 enrollment credential is dead cannot enroll the beacon it downloads, so
@@ -1108,15 +1218,17 @@ next request, so the console walks back to the login view), and this
 account's **API tokens** shelf -- password and tokens are self-service;
 the admin never needs to stand in. The **Console** tab is this
 browser's own preferences, kept in localStorage and never sent to the
-server. Its one knob is the refresh cadence -- how often presence-style
+server. One knob is the refresh cadence -- how often presence-style
 surfaces (the redirector roster, the engagement view's fallback refresh,
 the shell roster) re-read while their tab is visible; build progress
-keeps its own faster cadence because it is task progress, not presence.
-Saves re-arm running timers on the spot.
+keeps its own faster cadence because it is task progress, not
+presence. The other is the table density (comfortable or compact) --
+its toggle rides the topbar where it is used; the Console tab records
+the standing choice. Saves re-arm running timers on the spot.
 
 ## Members
 
-Each engagement's `#/engagements/{id}/members` tab -- the crew roster
+Each engagement's `#/engagements/{id}/admin/members` surface -- the crew roster
 that decides reach (architecture.md Sec 3). The table lists the owner
 first (access by creation: writes plus grant management) beside every
 member with their tier and grant date: a **writer** acts (tasking,
@@ -1157,7 +1269,7 @@ whole enrollment. The ledger names each credential's state (unused, enrolled --
 with the node it minted, expired, revoked); *Revoke* (two clicks) makes an
 unused credential permanently unusable. The attach/detach/promote half --
 where nodes meet engagements -- lives in each engagement's
-[Listeners](#listeners) tab (a membership question, not a deployment
+[Listeners](#listeners) surface (a membership question, not a deployment
 one); the runbook walks the whole flow
 ([redirectors.md](redirectors.md), Sec 0).
 
@@ -1183,14 +1295,15 @@ one glance before the first build is ever queued.
 
 ## Evidence panels
 
-- **Audit** -- the append-only, hash-chained ledger; tampering with a stored
-  event breaks the chain at the next link. Paged and filterable; the raw feed
-  the report renders from. Its second reading mode is the handoff digest
-  (see [Handoff digest](#handoff-digest)) -- the windowed watch-resume read
-  of the same trail. (The Timeline tab retired: it was a third
-  projection of the same trail -- the narrative rendering lives as the
-  Report's timeline section, and the standalone `/timeline` endpoint stays a
-  scripting deliverable.)
+- **Audit ledger** (under the Report slot) -- the append-only, hash-chained
+  ledger; tampering with a stored event breaks the chain at the next link.
+  Paged and filterable; the raw feed the report renders from. Its second
+  reading mode is the handoff digest (see
+  [Handoff digest](#handoff-digest)) -- the windowed watch-resume read
+  of the same trail. The watch's live read of it is the
+  [timeline](#timeline--the-overview-main-screen) on the overview slot;
+  the narrative rendering lives as the Report's timeline section, and
+  the standalone `/timeline` endpoint stays a scripting deliverable.
 - **Report** -- the whole engagement as a reproducible JSON/Markdown export,
   timeline included. (The Artifacts tab retired: evidence objects -- file
   pulls, exfil chunks, the operator-side attach -- surface in the task
@@ -1231,7 +1344,7 @@ its own fuse -- beacon.sleep's cadence control is the template.
 **Comments** are the engagement's mutable process knowledge: free text an
 operator attaches to a task (the task log's expanded row), an implant
 (the session console), an artifact (the loot board's rows), the
-engagement itself (the Members panel), or an operator (the member rows).
+engagement itself (the Members surface), or an operator (the member rows).
 The author may edit or delete within the deployment's edit window
 (`Collaboration:CommentEditWindowMinutes`, default one day); after that
 the comment is read-only until the engagement ends. Comments ride the
@@ -1247,7 +1360,7 @@ never the chain.
 
 **Task references** work wherever operators type: `@task-<id>` links a
 task, `$cred-<id>` addresses a harvested credential row (the credentials
-panel carries each row's id). In comments and chat the server validates
+board carries each row's id). In comments and chat the server validates
 every well-formed token at publish -- a dangling reference is refused
 with the offender named -- and the placeholder stays a placeholder. In
 task input the validation runs at issuance and the substitution runs on

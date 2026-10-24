@@ -3244,20 +3244,23 @@ Where the program touches the existing layers:
   (nmap, masscan, Amass, Maltego), phishing campaigns (GoPhish), and
   browser hook (BeEF). "Because X has it" is not an argument; the kernel
   test of Sec 15.1 still gates every adoption.
-- **UI information architecture** (ADR-013). Navigation organizes by
-  engagement and lifecycle stage -- overview / recon / delivery / action /
-  assets / report / admin, seven slots treated as a scarce resource: a new
-  domain answers *which slot it enters* before it exists. The timeline is
-  the main screen -- the audited event stream, filterable by entity,
-  operator, and stage. Master-detail covers every entity listing; a
-  command palette (reusing the search index), keyboard-first tasking, and
-  a table density toggle keep the console fast; every entity detail page
+- **UI information architecture** (ADR-013) _(shipped)_. Navigation
+  organizes by engagement and lifecycle stage -- overview / recon /
+  delivery / action / assets / report / admin, seven slots treated as a
+  scarce resource: a new domain answers *which slot it enters* before it
+  exists. The timeline is the main screen -- the audited event stream,
+  filterable by entity, operator, and stage. Master-detail covers every
+  entity listing (the implant, campaign, and recon-asset pages landed;
+  the remaining listings follow as they gain detail reads); a command
+  palette (reusing the search index), keyboard-first tasking, and a
+  table density toggle keep the console fast; every entity detail page
   carries a related-entities sidebar (source campaign, parent implant,
-  produced credentials); a Maltego-style topology view ships as an
-  optional render module. Tables, details, timelines, and matrices are
-  **generic components** driven by Sec 15.2's schema and output taxonomy
-  -- the UI, like the framework, knows no specific capability, so a new
-  domain lands without touching navigation.
+  produced credentials -- lineage, the campaign leg, and the recon-asset
+  link draw today); a Maltego-style topology view ships as an optional
+  render module _(future)_. Tables, details, timelines, and matrices
+  are **generic components** driven by Sec 15.2's schema and output
+  taxonomy -- the UI, like the framework, knows no specific capability,
+  so a new domain lands without touching navigation.
 - **Unified entity model.** Integration runs through one entity model, one
   timeline, and references -- never point-to-point feature APIs. The
   first-class entities: Engagement, Operator, ReconAsset, Campaign and

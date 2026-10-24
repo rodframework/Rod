@@ -78,7 +78,7 @@ required fields present, unknown fields ignored):
 | `Enumeration` | `host` required; `port`, `state`, `service`, `addresses`, `os`, `arch` optional | the topology view and the task row's structure table |
 | `ProcessList` | `pid`, `image` required; `ppid`, `user` optional | the process table |
 | `FileList` | `name` required; `dir`, `size`, `mtime` optional | the file table |
-| `Credential` | `kind`, `principal` required; `secret`, `source`, `host`, `note` optional | the credentials board (Intel tab) and the task row's credential table |
+| `Credential` | `kind`, `principal` required; `secret`, `source`, `host`, `note` optional | the credentials board (Assets slot) and the task row's credential table |
 | `File` | no inline grammar -- the bulk rides the exfil chunk path into the artifact store | the loot board's file kind, the task row's artifact download |
 | `Screenshot` | a PNG artifact through the exfil chunk path | the loot board's screenshot kind, the inline preview |
 | `Text` | none | the transcript alone (the default and the degradation target) |

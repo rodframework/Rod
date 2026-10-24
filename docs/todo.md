@@ -28,19 +28,18 @@ engagement names the need.
 
 ## Active
 
-Phase P1 -- long-board parity (architecture.md Sec 15). P0 (the
-replacement threshold, ADR-007) shipped; the parking condition cleared,
-so the queue moved up by the file's own mechanics.
-
-- **UI information-architecture rework** -- lifecycle navigation, timeline
-  main screen, command palette (Sec 15.4, ADR-013). _AC:_ a new domain
-  lands without navigation changes; entity detail pages carry the
-  related-entities sidebar.
+Nothing queued. Phase P1 -- long-board parity (architecture.md Sec 15)
+shipped with the UI information-architecture rework (ADR-013; the
+record is the commit history), which also cleared P2's parking
+condition: the items below left the hold and enter Active one at a
+time, when an engagement names the need -- Active is advisory order,
+not a queue, and an empty queue is the honest state between needs.
 
 ## On hold
 
-Phase P2 -- ecosystem and trust (architecture.md Sec 15).
-Parked on P1; P1 shipped is the reopen condition.
+Phase P2 -- ecosystem and trust (architecture.md Sec 15). Unparked:
+the parking condition was P1 shipped, and it did; each item below now
+waits only for an engagement to name it.
 
 - **3 OS x 2 arch implant e2e matrix.** _AC:_ CI green across the matrix;
   the matrix badge lands in the README.
