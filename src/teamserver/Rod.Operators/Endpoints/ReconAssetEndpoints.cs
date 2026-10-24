@@ -53,6 +53,7 @@ public static class ReconAssetEndpoints
         string engagementId,
         IEngagementRepository engagements,
         IReconAssetStore assets,
+        IOperatorRepository operators,
         CancellationToken cancellationToken)
     {
         if (!EngagementId.TryParse(engagementId, out var engagement))
@@ -61,7 +62,22 @@ public static class ReconAssetEndpoints
             return TypedResults.NotFound(new Problem("Engagement does not exist."));
 
         var rows = await assets.ListByEngagementAsync(engagement, cancellationToken);
-        return TypedResults.Ok(rows.Select(ReconAssetResponse.Of).ToArray());
+
+        // Resolve the rows' recording operators to handles once per
+        // request, the tolerance the audit read applies (the bare id when
+        // the account no longer resolves): the member role cannot walk
+        // the operator roster to do it client-side, so the read names the
+        // actor itself.
+        var handles = new Dictionary<Guid, string>();
+        foreach (var id in rows.Select(r => r.CreatedBy.Value).Where(id => id != Guid.Empty).Distinct())
+        {
+            var op = await operators.FindAsync(new OperatorId(id), cancellationToken);
+            handles[id] = op?.Handle ?? id.ToString();
+        }
+
+        return TypedResults.Ok(rows
+            .Select(r => ReconAssetResponse.Of(r, handles.GetValueOrDefault(r.CreatedBy.Value, r.CreatedBy.Value.ToString())))
+            .ToArray());
     }
 
     private static async Task<IResult> RecordReconAssetAsync(
@@ -70,6 +86,7 @@ public static class ReconAssetEndpoints
         ClaimsPrincipal user,
         IEngagementRepository engagements,
         IReconAssetStore assets,
+        IOperatorRepository operators,
         IAuditStore audit,
         TimeProvider clock,
         CancellationToken cancellationToken)
@@ -141,9 +158,13 @@ public static class ReconAssetEndpoints
                 at: at),
             cancellationToken);
 
+        // The recorder is the principal itself; resolve the handle with the
+        // same tolerance the listing applies.
+        var recordedBy = await operators.FindAsync(operatorId.Value, cancellationToken);
+
         return Results.Created(
             $"/engagements/{engagement}/recon-assets/{asset.Id}",
-            ReconAssetResponse.Of(asset));
+            ReconAssetResponse.Of(asset, recordedBy?.Handle ?? operatorId.Value.ToString()));
     }
 
     private static async Task<IResult> DeleteReconAssetAsync(
@@ -285,15 +306,21 @@ public static class ReconAssetEndpoints
         string? DisplayName,
         string? SourceArtifactId,
         string CreatedBy,
+        // The recording operator's handle, resolved at read time -- the
+        // member role cannot walk the operator roster to map the id
+        // client-side, so the read names the actor itself. The bare id
+        // stands in when the account no longer resolves.
+        string CreatedByHandle,
         DateTimeOffset CreatedAt)
     {
-        public static ReconAssetResponse Of(ReconAsset asset) => new(
+        public static ReconAssetResponse Of(ReconAsset asset, string createdByHandle) => new(
             asset.Id.ToString(),
             asset.Kind.ToString().ToLowerInvariant(),
             asset.Value,
             asset.DisplayName,
             asset.SourceArtifactId?.ToString("N"),
             asset.CreatedBy.ToString(),
+            createdByHandle,
             asset.CreatedAt);
     }
 }

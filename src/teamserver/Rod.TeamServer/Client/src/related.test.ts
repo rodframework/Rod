@@ -33,6 +33,7 @@ const implant = (over: Partial<Implant> = {}): Implant => ({
   sleepSeconds: 30,
   jitterSeconds: 5,
   deployedBy: null,
+  deployedByHandle: null,
   enrolledViaListenerId: null,
   lastSeenAt: null,
   lastCarrier: null,
@@ -49,6 +50,7 @@ const asset = (over: Partial<ReconAsset> = {}): ReconAsset => ({
   displayName: null,
   sourceArtifactId: null,
   createdBy: guid('o001'),
+  createdByHandle: 'operator',
   createdAt: '2026-01-01T00:00:00Z',
   ...over,
 })

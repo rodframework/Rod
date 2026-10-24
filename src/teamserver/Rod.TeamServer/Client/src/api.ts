@@ -60,6 +60,10 @@ export interface Implant {
   // The operator the implant's events attribute to (the token issuer) --
   // who deployed this beacon.
   deployedBy: string | null
+  // The deploying operator's handle, resolved server-side -- the member
+  // role cannot walk the operator roster to map the id client-side. The
+  // bare id stands in when the account no longer resolves.
+  deployedByHandle: string | null
   // The listener whose socket carried the enrollment, when the transport
   // could attribute one -- what a listener-deletion warning counts against.
   enrolledViaListenerId: string | null
@@ -1749,6 +1753,10 @@ export interface ReconAsset {
   // The workbench artifact the asset was recorded from, when it was.
   sourceArtifactId: string | null
   createdBy: string
+  // The recording operator's handle, resolved server-side -- the member
+  // role cannot walk the operator roster to map the id client-side. The
+  // bare id stands in when the account no longer resolves.
+  createdByHandle: string
   createdAt: string
 }
 

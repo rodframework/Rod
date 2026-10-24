@@ -5921,6 +5921,12 @@
               "string"
             ]
           },
+          "deployedByHandle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "enrolledViaListenerId": {
             "type": [
               "null",
@@ -6255,6 +6261,7 @@
           "displayName",
           "sourceArtifactId",
           "createdBy",
+          "createdByHandle",
           "createdAt"
         ],
         "type": "object",
@@ -6281,6 +6288,9 @@
             ]
           },
           "createdBy": {
+            "type": "string"
+          },
+          "createdByHandle": {
             "type": "string"
           },
           "createdAt": {

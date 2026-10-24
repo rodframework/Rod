@@ -174,7 +174,7 @@ export function ReconAssetsView({
                   <td>
                     {asset.displayName ?? <span className="muted">&mdash;</span>}
                   </td>
-                  <td title={`${new Date(asset.createdAt).toLocaleString()} by ${asset.createdBy.slice(0, 8)}`}>
+                  <td title={`${new Date(asset.createdAt).toLocaleString()} by ${asset.createdByHandle}`}>
                     {ago(asset.createdAt)}
                   </td>
                   <td>

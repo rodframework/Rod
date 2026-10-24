@@ -58,11 +58,16 @@ public class ReconAssetEndpointTests
             Assert.Equal("The Target", asset.DisplayName);
             Assert.Null(asset.SourceArtifactId);
 
+            // Provenance names the recorder by handle, resolved on the read
+            // -- the member role cannot walk the operator roster to do it.
+            Assert.Equal(AuthenticatedHost.Handle, asset.CreatedByHandle);
+
             var listed = await client.GetFromJsonAsync<ReconAssetEndpoints.ReconAssetResponse[]>(
                 $"/engagements/{engagement}/recon-assets");
             Assert.NotNull(listed);
             var row = Assert.Single(listed!, a => a.AssetId == asset.AssetId);
             Assert.Equal("target@example.com", row.Value);
+            Assert.Equal(AuthenticatedHost.Handle, row.CreatedByHandle);
 
             // The recording is a fact on the engagement's trail.
             var audit = host.Services.GetRequiredService<IAuditStore>();
@@ -171,6 +176,36 @@ public class ReconAssetEndpointTests
                 $"/engagements/{other}/recon-assets");
             Assert.NotNull(listed);
             Assert.Empty(listed!);
+        }
+    }
+
+    [Fact]
+    public async Task Record_AsAMember_TheReadNamesThatMembersHandle()
+    {
+        var (client, host, engagement) = await NewAsync();
+        using (client)
+        using (host)
+        {
+            // A member beside the engagement's lead: the provenance read
+            // must name whoever actually recorded the row, not the session
+            // that opened the engagement.
+            await AuthenticatedHost.RegisterOperatorAsync(host, "spotter", "spotter-p@ss!");
+            var added = await client.PostAsJsonAsync(
+                $"/engagements/{engagement}/members", new { handle = "spotter", role = "writer" });
+            added.EnsureSuccessStatusCode();
+
+            var member = AuthenticatedHost.CreateClient(host);
+            using (member)
+            {
+                await AuthenticatedHost.LoginAsync(member, "spotter", "spotter-p@ss!");
+                var asset = await RecordAsync(member, engagement, "domain", "target.example");
+                Assert.Equal("spotter", asset.CreatedByHandle);
+
+                var listed = await client.GetFromJsonAsync<ReconAssetEndpoints.ReconAssetResponse[]>(
+                    $"/engagements/{engagement}/recon-assets");
+                Assert.NotNull(listed);
+                Assert.Equal("spotter", Assert.Single(listed!, a => a.AssetId == asset.AssetId).CreatedByHandle);
+            }
         }
     }
 

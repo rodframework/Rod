@@ -64,6 +64,7 @@ public static class ImplantEndpoints
         string engagementId,
         IImplantRepository implants,
         ISessionRegistry sessions,
+        IOperatorRepository operators,
         CancellationToken cancellationToken)
     {
         if (!Guid.TryParse(engagementId, out var engagementValue))
@@ -75,11 +76,23 @@ public static class ImplantEndpoints
         var onlineById = online.Select(s => s.ImplantId).ToHashSet();
         var sessionById = online.ToDictionary(s => s.ImplantId);
 
+        // Resolve the deploying operators to handles once per request, the
+        // tolerance the audit read applies (the bare id when the account no
+        // longer resolves): the member role cannot walk the operator roster
+        // to do it client-side, so the read names the actor itself.
+        var handles = new Dictionary<Guid, string>();
+        foreach (var id in enrolled.Select(i => i.DeployedBy.Value).Where(id => id != Guid.Empty).Distinct())
+        {
+            var op = await operators.FindAsync(new OperatorId(id), cancellationToken);
+            handles[id] = op?.Handle ?? id.ToString();
+        }
+
         var body = enrolled
             .Select(i => ProjectImplant(
                 i,
                 onlineById.Contains(i.Id),
-                sessionById.GetValueOrDefault(i.Id)))
+                sessionById.GetValueOrDefault(i.Id),
+                handles.GetValueOrDefault(i.DeployedBy.Value)))
             .ToArray();
 
         return TypedResults.Ok(body);
@@ -101,6 +114,7 @@ public static class ImplantEndpoints
         string implantId,
         IImplantRepository implants,
         ISessionRegistry sessions,
+        IOperatorRepository operators,
         CoreState.Campaigns.ICampaignStore campaigns,
         CancellationToken cancellationToken)
     {
@@ -116,10 +130,12 @@ public static class ImplantEndpoints
 
         var online = (await sessions.ListActiveAsync(engagementKey, cancellationToken))
             .ToDictionary(s => s.ImplantId);
+        var deployedBy = await operators.FindAsync(implant.DeployedBy, cancellationToken);
         var response = ProjectImplant(
             implant,
             online.ContainsKey(implant.Id),
-            online.GetValueOrDefault(implant.Id));
+            online.GetValueOrDefault(implant.Id),
+            deployedBy?.Handle ?? implant.DeployedBy.ToString());
 
         // The ancestors: walk parent links outward until the chain roots,
         // breaks, or hits the depth guard -- a parent outside this
@@ -183,7 +199,8 @@ public static class ImplantEndpoints
 
     // The listing/detail row projection, one shape for both reads.
     private static ImplantResponse ProjectImplant(
-        Implant i, bool isOnline, Rod.CoreState.Sessions.Session? session) => new(
+        Implant i, bool isOnline, Rod.CoreState.Sessions.Session? session,
+        string? deployedByHandle) => new(
         i.Id.ToString(),
         i.EngagementId.ToString(),
         i.Class.ToString(),
@@ -199,6 +216,7 @@ public static class ImplantEndpoints
         SleepSeconds: i.SleepSeconds,
         JitterSeconds: i.JitterSeconds,
         DeployedBy: i.DeployedBy.ToString(),
+        DeployedByHandle: deployedByHandle,
         EnrolledViaListenerId: i.EnrolledViaListenerId?.ToString("N"),
         LastSeenAt: i.LastSeenAt,
         LastCarrier: session?.LastCarrier,
@@ -619,6 +637,11 @@ public static class ImplantEndpoints
         double? JitterSeconds = null,
         // The operator the implant's events attribute to (the token issuer).
         string? DeployedBy = null,
+        // The deploying operator's handle, resolved at read time -- the
+        // member role cannot walk the operator roster to map the id
+        // client-side, so the read names the actor itself. The bare id
+        // stands in when the account no longer resolves.
+        string? DeployedByHandle = null,
         // The listener whose socket carried the enrollment, when the transport
         // could attribute one -- what a listener deletion warns about.
         string? EnrolledViaListenerId = null,

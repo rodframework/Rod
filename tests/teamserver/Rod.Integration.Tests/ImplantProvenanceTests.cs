@@ -166,6 +166,29 @@ public class ImplantProvenanceTests
     }
 
     [Fact]
+    public async Task Rows_NameTheDeployingOperatorByHandle()
+    {
+        var (client, host, engagement) = await NewAsync();
+        using (client)
+        using (host)
+        {
+            var implant = await EnrollAsync(client, engagement);
+
+            // The fleet listing and the detail agree: provenance names the
+            // deploying operator by handle, resolved on the read -- the
+            // member role cannot walk the operator roster to do it.
+            var listed = await client.GetFromJsonAsync<ImplantEndpoints.ImplantResponse[]>(
+                $"/engagements/{engagement}/implants");
+            Assert.NotNull(listed);
+            Assert.Equal(AuthenticatedHost.Handle,
+                Assert.Single(listed!, i => i.ImplantId == implant).DeployedByHandle);
+
+            var detail = await DetailAsync(client, engagement, implant);
+            Assert.Equal(AuthenticatedHost.Handle, detail.Implant.DeployedByHandle);
+        }
+    }
+
+    [Fact]
     public async Task Detail_OfAForeignImplant_IsNotFound()
     {
         var (client, host, engagement) = await NewAsync();

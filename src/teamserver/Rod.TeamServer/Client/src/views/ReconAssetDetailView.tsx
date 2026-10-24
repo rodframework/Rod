@@ -140,7 +140,13 @@ export function ReconAssetDetailView({
             {fact('value', <code>{asset.value}</code>)}
             {fact('kind', asset.kind)}
             {fact('display name', asset.displayName ?? <span className="muted">&mdash;</span>)}
-            {fact('recorded', <> {ago(asset.createdAt)} by <code>{asset.createdBy.slice(0, 8)}</code></>)}
+            {fact(
+              'recorded',
+              <>
+                {' '}
+                {ago(asset.createdAt)} by <code title={asset.createdBy}>{asset.createdByHandle}</code>
+              </>,
+            )}
           </div>
           {error && <p className="error">{error}</p>}
         </div>
