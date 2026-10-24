@@ -935,7 +935,7 @@ function ImplantDetail({
           {implant.deployedBy ? (
             <>
               {' '}
-              · deployed by <code title={implant.deployedBy}>{implant.deployedByHandle ?? implant.deployedBy.slice(0, 8)}</code>
+              · deployed by <code title={implant.deployedBy}>{implant.deployedByHandle}</code>
             </>
           ) : null}
         </>,

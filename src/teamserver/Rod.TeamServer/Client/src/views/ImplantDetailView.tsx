@@ -146,7 +146,7 @@ export function ImplantDetailView({
             {fact(
               'deployed by',
               implant.deployedBy ? (
-                <code title={implant.deployedBy}>{implant.deployedByHandle ?? implant.deployedBy.slice(0, 8)}</code>
+                <code title={implant.deployedBy}>{implant.deployedByHandle}</code>
               ) : (
                 dash
               ),

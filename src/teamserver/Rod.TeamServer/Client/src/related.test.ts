@@ -33,7 +33,7 @@ const implant = (over: Partial<Implant> = {}): Implant => ({
   sleepSeconds: 30,
   jitterSeconds: 5,
   deployedBy: null,
-  deployedByHandle: null,
+  deployedByHandle: 'operator',
   enrolledViaListenerId: null,
   lastSeenAt: null,
   lastCarrier: null,

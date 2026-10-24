@@ -92,7 +92,7 @@ public static class ImplantEndpoints
                 i,
                 onlineById.Contains(i.Id),
                 sessionById.GetValueOrDefault(i.Id),
-                handles.GetValueOrDefault(i.DeployedBy.Value)))
+                handles.GetValueOrDefault(i.DeployedBy.Value, i.DeployedBy.ToString())))
             .ToArray();
 
         return TypedResults.Ok(body);
@@ -200,7 +200,7 @@ public static class ImplantEndpoints
     // The listing/detail row projection, one shape for both reads.
     private static ImplantResponse ProjectImplant(
         Implant i, bool isOnline, Rod.CoreState.Sessions.Session? session,
-        string? deployedByHandle) => new(
+        string deployedByHandle) => new(
         i.Id.ToString(),
         i.EngagementId.ToString(),
         i.Class.ToString(),
@@ -685,6 +685,11 @@ public static class ImplantEndpoints
         DateTimeOffset CreatedAt,
         bool IsOnline,
         DateTimeOffset? RetiredAt,
+        // The deploying operator's handle, resolved at read time -- the
+        // member role cannot walk the operator roster to map the id
+        // client-side, so the read names the actor itself. The bare id
+        // stands in when the account no longer resolves.
+        string DeployedByHandle,
         string? ParentImplantId = null,
         string? Hostname = null,
         string? Os = null,
@@ -696,11 +701,6 @@ public static class ImplantEndpoints
         double? JitterSeconds = null,
         // The operator the implant's events attribute to (the token issuer).
         string? DeployedBy = null,
-        // The deploying operator's handle, resolved at read time -- the
-        // member role cannot walk the operator roster to map the id
-        // client-side, so the read names the actor itself. The bare id
-        // stands in when the account no longer resolves.
-        string? DeployedByHandle = null,
         // The listener whose socket carried the enrollment, when the transport
         // could attribute one -- what a listener deletion warns about.
         string? EnrolledViaListenerId = null,

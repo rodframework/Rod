@@ -5833,7 +5833,8 @@
           "killDate",
           "createdAt",
           "isOnline",
-          "retiredAt"
+          "retiredAt",
+          "deployedByHandle"
         ],
         "type": "object",
         "properties": {
@@ -5866,6 +5867,9 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "deployedByHandle": {
+            "type": "string"
           },
           "parentImplantId": {
             "type": [
@@ -5916,12 +5920,6 @@
             "format": "double"
           },
           "deployedBy": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "deployedByHandle": {
             "type": [
               "null",
               "string"
