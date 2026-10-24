@@ -1649,6 +1649,57 @@ export function runReconPortScan(
   return runRecon(engagementId, 'portscan', ports ? { target, ports } : { target })
 }
 
+// --- Recon assets (architecture.md Sec 15.4, the unified entity model) ------
+//
+// The named targeting vocabulary: emails, domains, hosts, and addresses the
+// recon stage recorded as campaign-worthy. An asset selects directly as a
+// campaign recipient (the create body takes reconAssetId in place of a
+// hand-typed address), and every campaign recipient and enrolled implant
+// carries its reconAssetId back -- the link the related-entities sidebar
+// draws. Deletion refuses (409) while any campaign recipient still
+// references the asset.
+
+export type ReconAssetKind = 'email' | 'domain' | 'host' | 'address'
+
+export interface ReconAsset {
+  assetId: string
+  kind: ReconAssetKind
+  value: string
+  displayName: string | null
+  // The workbench artifact the asset was recorded from, when it was.
+  sourceArtifactId: string | null
+  createdBy: string
+  createdAt: string
+}
+
+export async function listReconAssets(engagementId: string): Promise<ReconAsset[]> {
+  return jsonOrThrow(await fetch(`engagements/${engagementId}/recon-assets`))
+}
+
+export async function createReconAsset(
+  engagementId: string,
+  input: { kind: ReconAssetKind; value: string; displayName?: string; sourceArtifactId?: string },
+): Promise<ReconAsset> {
+  return jsonOrThrow(
+    await fetch(`engagements/${engagementId}/recon-assets`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        kind: input.kind,
+        value: input.value,
+        displayName: input.displayName ?? null,
+        sourceArtifactId: input.sourceArtifactId ?? null,
+      }),
+    }),
+  )
+}
+
+export async function deleteReconAsset(engagementId: string, assetId: string): Promise<void> {
+  await jsonOrThrow(await fetch(`engagements/${engagementId}/recon-assets/${assetId}`, {
+    method: 'DELETE',
+  }))
+}
+
 // --- Task snippets --------------------------------------------
 //
 // The console's saved command sequences (docs/operations/operator-ui.md):

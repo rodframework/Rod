@@ -443,7 +443,7 @@ export function ImplantsView({
     if (!target) return []
     return implantMenuEntries(target, {
       onConsole: () => {
-        window.location.hash = `#/engagements/${engagementId}/implants/${implantId}`
+        window.location.hash = `#/engagements/${engagementId}/action/implants/${implantId}/interact`
       },
       onShell: () => setShell({ implantId, host: target.hostname ?? implantId.slice(0, 8) }),
       onIssue: (verb) => {
@@ -710,7 +710,7 @@ export function ImplantsView({
                               <div className="row-actions">
                                 <a
                                   className="button-link sm"
-                                  href={`#/engagements/${engagementId}/implants/${implant.implantId}`}
+                                  href={`#/engagements/${engagementId}/action/implants/${implant.implantId}/interact`}
                                   title="Open the session console"
                                 >
                                   Interact

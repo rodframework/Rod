@@ -5,7 +5,7 @@ import { CommandPalette } from './components/CommandPalette'
 import { Icon } from './components/Icons'
 import { EngagementNav } from './components/Nav'
 import { useLive } from './shell'
-import { ENGAGEMENT_TABS, type TabId } from './tabs'
+import { resolveEngagementLocation } from './slots'
 import { EngagementView } from './views/EngagementView'
 import { EngagementsView } from './views/EngagementsView'
 import { HomeView } from './views/HomeView'
@@ -33,7 +33,16 @@ import { LoginView } from './views/LoginView'
 type Route =
   | { kind: 'home' }
   | { kind: 'engagements' }
-  | { kind: 'engagement'; engagementId: string; tab: string; implantId?: string }
+  | {
+      kind: 'engagement'
+      engagementId: string
+      // Raw hash segments; App resolves them (legacy tabs included) into
+      // the slot/sub pair the engagement view renders.
+      slot: string
+      sub?: string
+      entityId?: string
+      interact?: boolean
+    }
   | { kind: 'coverage' }
   | { kind: 'settings' }
   | { kind: 'system' }
@@ -42,17 +51,39 @@ type Route =
 
 function parseHash(): Route {
   const hash = window.location.hash.replace(/^#/, '')
-  // Most specific first: the session console under the implants tab (an
-  // implant drill-in), then any tabbed engagement route, then the bare
-  // engagement route's default tab.
+  // Most specific first: the session console in both its shapes (the
+  // pre-slot implants drill-in, and the slot-shaped interact route), then
+  // any entity detail, sub-surface, slot, and bare engagement route.
   const consoleRoute = /^\/engagements\/([\da-fA-F-]+)\/implants\/([\da-fA-F-]+)\/?$/.exec(hash)
   if (consoleRoute) {
-    return { kind: 'engagement', engagementId: consoleRoute[1], tab: 'implants', implantId: consoleRoute[2] }
+    return {
+      kind: 'engagement',
+      engagementId: consoleRoute[1],
+      slot: 'action',
+      sub: 'implants',
+      entityId: consoleRoute[2],
+      interact: true,
+    }
   }
-  const tabbed = /^\/engagements\/([\da-fA-F-]+)\/(\w+)\/?$/.exec(hash)
-  if (tabbed) return { kind: 'engagement', engagementId: tabbed[1], tab: tabbed[2] }
+  const detail = /^\/engagements\/([\da-fA-F-]+)\/(\w+)\/(\w+)\/([\da-fA-F-]+)(?:\/(interact))?\/?$/.exec(
+    hash,
+  )
+  if (detail) {
+    return {
+      kind: 'engagement',
+      engagementId: detail[1],
+      slot: detail[2],
+      sub: detail[3],
+      entityId: detail[4],
+      interact: detail[5] === 'interact' || undefined,
+    }
+  }
+  const subbed = /^\/engagements\/([\da-fA-F-]+)\/(\w+)\/(\w+)\/?$/.exec(hash)
+  if (subbed) return { kind: 'engagement', engagementId: subbed[1], slot: subbed[2], sub: subbed[3] }
+  const slotted = /^\/engagements\/([\da-fA-F-]+)\/(\w+)\/?$/.exec(hash)
+  if (slotted) return { kind: 'engagement', engagementId: slotted[1], slot: slotted[2] }
   const match = /^\/engagements\/([\da-fA-F-]+)\/?$/.exec(hash)
-  if (match) return { kind: 'engagement', engagementId: match[1], tab: 'implants' }
+  if (match) return { kind: 'engagement', engagementId: match[1], slot: 'overview' }
   if (/^\/engagements\/?$/.test(hash)) return { kind: 'engagements' }
   if (/^\/redirectors\/?$/.test(hash)) return { kind: 'redirectors' }
   if (/^\/coverage\/?$/.test(hash)) return { kind: 'coverage' }
@@ -476,21 +507,11 @@ function App() {
     return <LoginView onLogin={onLogin} />
   }
 
-  // Retired tab ids redirect to where their surface went, so stale deep
-  // links land on the work instead of the fallback.
-  const RETIRED_TAB_REDIRECTS: Partial<Record<string, TabId>> = {
-    // Evidence attach/download moved into the task log's expanded rows.
-    artifacts: 'tasking',
-    // The windowed watch-resume read became the Audit panel's window mode.
-    digest: 'audit',
-  }
-
-  // Unknown tab segments (stale links) fall back to the fleet -- the primary
-  // operating surface.
-  const routeTab = route.kind === 'engagement' ? route.tab : ''
-  const activeTab: TabId =
-    RETIRED_TAB_REDIRECTS[routeTab] ??
-    ((ENGAGEMENT_TABS as readonly string[]).includes(routeTab) ? (routeTab as TabId) : 'implants')
+  // The route's raw slot/sub segments resolve through the slot module
+  // (legacy pre-slot tabs included); anything unrecognized lands on the
+  // timeline -- the orienting surface.
+  const location =
+    route.kind === 'engagement' ? resolveEngagementLocation(route) : null
 
   return (
     <div className="shell">
@@ -504,7 +525,10 @@ function App() {
         </a>
         {route.kind === 'engagement' ? (
           <nav className="sidebar-nav">
-            <EngagementNav engagementId={route.engagementId} active={activeTab} />
+            <EngagementNav
+              engagementId={route.engagementId}
+              active={location?.slot.id ?? 'overview'}
+            />
           </nav>
         ) : (
           <RecentEngagements />
@@ -538,20 +562,25 @@ function App() {
               // say so plainly instead of rendering a page of errors.
               <p className="muted">Diagnostics is the deployment admin's surface.</p>
             )
-          ) : (
+          ) : route.kind === 'engagement' && location ? (
             <EngagementView
               engagementId={route.engagementId}
               operator={operator}
-              tab={activeTab}
-              implantId={route.implantId}
+              sub={location.sub.id}
+              entityId={location.entityId}
+              interact={location.interact}
             />
-          )}
+          ) : null}
         </main>
       </div>
       {paletteOpen && (
         <CommandPalette
           engagementId={route.kind === 'engagement' ? route.engagementId : null}
-          contextImplantId={route.kind === 'engagement' ? (route.implantId ?? null) : null}
+          contextImplantId={
+            route.kind === 'engagement' && location?.sub.id === 'implants'
+              ? (location.entityId ?? null)
+              : null
+          }
           onClose={() => setPaletteOpen(false)}
         />
       )}

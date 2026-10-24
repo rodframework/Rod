@@ -10,7 +10,8 @@ import {
   listOnline,
   subscribeToEngagement,
 } from '../api'
-import type { TabId } from '../tabs'
+import type { SubId } from '../slots'
+import { SLOTS, engagementPath } from '../slots'
 import { LiveContext } from '../shell'
 import { usePollIntervalMs } from '../clientPrefs'
 import { AuditView } from './AuditView'
@@ -29,33 +30,41 @@ import { NotificationsView } from './NotificationsView'
 import { IntelView } from './IntelView'
 import { MembersView } from './MembersView'
 import { ReconView } from './ReconView'
+import { ReconAssetsView } from './ReconAssetsView'
 import { CampaignsView } from './CampaignsView'
 
-// The engagement detail body: the active view only -- navigation lives in the
-// shell's sidebar and the live summary (connection state, fleet counts,
-// operator presence) is published to the topbar through LiveContext. One SSE
-// stream stays open so every connected operator sees tasking, results, and
-// presence live; the stream's hello/leave events also drive the operator
-// roster, and a monotonically increasing tick lets child views refresh
-// without polling of their own. The online-implant roster (the presence
-// query's projection: an implant is online exactly while its session is
-// active) is fetched here and handed to the Implants view, on the live tick
-// and a short reconciliation poll -- quiet heartbeats produce no SSE event,
-// so the poll is what keeps a beaconing implant's last-seen moving.
+// The engagement detail body: the sub-surface named by the route only --
+// navigation lives in the shell's sidebar (the seven slots) and the sub
+// tab strip this view lays down -- and the live summary (connection
+// state, fleet counts, operator presence) is published to the topbar
+// through LiveContext. One SSE stream stays open so every connected
+// operator sees tasking, results, and presence live; the stream's
+// hello/leave events also drive the operator roster, and a monotonically
+// increasing tick lets child views refresh without polling of their own.
+// The online-implant roster (the presence query's projection: an implant
+// is online exactly while its session is active) is fetched here and
+// handed to the Implants view, on the live tick and a short
+// reconciliation poll -- quiet heartbeats produce no SSE event, so the
+// poll is what keeps a beaconing implant's last-seen moving.
 
 export function EngagementView({
   engagementId,
   operator,
-  tab,
-  implantId,
+  sub,
+  entityId,
 }: {
   engagementId: string
   operator: SessionOperator
-  tab: TabId
-  // Set only on the session-console route (#/engagements/{id}/implants/{implantId}):
-  // the implants tab then renders the per-implant console instead of the fleet
-  // table. Undefined on every plain tab route.
-  implantId?: string
+  // The active sub-surface (slots.ts's vocabulary); the slot is implied
+  // by it, so the view dispatch needs no slot prop.
+  sub: SubId
+  // An entity drill-in under the sub -- the implant id on the session
+  // console route today; detail pages add their own as they land.
+  entityId?: string
+  // True on the session console (`.../implants/{id}/interact`); the
+  // console is the only implant drill-in so far, so the flag itself is
+  // not yet read here.
+  interact?: boolean
 }) {
   const [online, setOnline] = useState<LiveOperator[]>([])
   const [connected, setConnected] = useState(false)
@@ -183,38 +192,61 @@ export function EngagementView({
     [connected, online, implantCount, onlineImplants.length, operator.operatorId, claims, driving],
   )
 
+  // The slot the active sub belongs to, and its sibling subs: the tab
+  // strip this view lays down above the content.
+  const slot = SLOTS.find((s) => s.subs.some((x) => x.id === sub)) ?? SLOTS[0]
+
   return (
     <LiveContext.Provider value={live}>
       {error && <p className="error">{error}</p>}
-      {tab === 'tasking' && <TaskLogView engagementId={engagementId} onlineTick={tick} />}
-      {tab === 'automation' && <AutomationView engagementId={engagementId} onlineTick={tick} />}
-      {tab === 'notifications' && (
+      {slot.subs.length > 1 && (
+        <nav className="subnav" aria-label={`${slot.label} surfaces`}>
+          {slot.subs.map((item) => (
+            <a
+              key={item.id}
+              className={`subnav-item${item.id === sub ? ' active' : ''}`}
+              href={engagementPath(engagementId, item.id)}
+            >
+              {item.label}
+            </a>
+          ))}
+        </nav>
+      )}
+      {sub === 'timeline' && <AuditView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'picture' && <IntelView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'workbench' && <ReconView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'assets' && <ReconAssetsView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'tasking' && <TaskLogView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'automation' && <AutomationView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'notifications' && (
         <NotificationsView engagementId={engagementId} onlineTick={tick} />
       )}
-      {tab === 'recon' && <ReconView engagementId={engagementId} onlineTick={tick} />}
-      {tab === 'intel' && <IntelView engagementId={engagementId} onlineTick={tick} />}
-      {tab === 'members' && <MembersView engagementId={engagementId} operator={operator} />}
-      {tab === 'implants' && implantId && (
+      {sub === 'members' && <MembersView engagementId={engagementId} operator={operator} />}
+      {sub === 'implants' && entityId && (
         <InteractView
           engagementId={engagementId}
-          implantId={implantId}
+          implantId={entityId}
           operator={operator}
           onlineTick={tick}
           onlineImplants={onlineImplants}
         />
       )}
-      {tab === 'implants' && !implantId && (
+      {sub === 'implants' && !entityId && (
         <ImplantsView engagementId={engagementId} onlineTick={tick} onlineImplants={onlineImplants} />
       )}
-      {tab === 'shells' && <ShellsView engagementId={engagementId} onlineTick={tick} />}
-      {tab === 'webshells' && <WebShellsView engagementId={engagementId} onlineTick={tick} />}
-      {tab === 'audit' && <AuditView engagementId={engagementId} onlineTick={tick} />}
-      {tab === 'report' && <ReportView engagementId={engagementId} />}
-      {tab === 'listeners' && <ListenersView engagementId={engagementId} />}
-      {tab === 'launchers' && <LaunchersView engagementId={engagementId} onlineTick={tick} />}
-      {tab === 'campaigns' && <CampaignsView engagementId={engagementId} onlineTick={tick} />}
-      {tab === 'build' && <PayloadBuildView engagementId={engagementId} />}
-      {tab === 'payloads' && <PayloadsView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'shells' && <ShellsView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'webshells' && <WebShellsView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'audit' && <AuditView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'evidence' && <ReportView engagementId={engagementId} />}
+      {sub === 'listeners' && <ListenersView engagementId={engagementId} />}
+      {sub === 'launchers' && <LaunchersView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'campaigns' && <CampaignsView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'build' && <PayloadBuildView engagementId={engagementId} />}
+      {sub === 'payloads' && <PayloadsView engagementId={engagementId} onlineTick={tick} />}
+      {/* Interim until the split boards land: the harvest and the exfil
+          board still live inside the target-picture view. */}
+      {sub === 'credentials' && <IntelView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'loot' && <IntelView engagementId={engagementId} onlineTick={tick} />}
       <button
         className={chatOpen ? 'ghost sm chat-toggle active' : 'ghost sm chat-toggle'}
         title={chatOpen ? 'Close the watch channel' : 'Open the watch channel'}

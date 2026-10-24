@@ -607,7 +607,7 @@ export function HomeView() {
         key: 'kill-expired',
         tone: 'danger',
         text: `${killExpiredCount} active implant${killExpiredCount === 1 ? '' : 's'} past kill date`,
-        href: killSoonest ? `#/engagements/${killSoonest.engagementId}/implants` : '#/engagements',
+        href: killSoonest ? `#/engagements/${killSoonest.engagementId}/action/implants` : '#/engagements',
         title: 'Active (non-retired) rows whose baked kill date has passed -- the artifact refuses to run past it',
       })
     }
@@ -617,7 +617,7 @@ export function HomeView() {
         key: 'kill-soon',
         tone: 'warn',
         text: `${killSoonCount} implant${killSoonCount === 1 ? '' : 's'} hit kill date within ${KILL_DATE_HORIZON_DAYS}d -- next in ${inDays}d`,
-        href: `#/engagements/${killSoonest.engagementId}/implants`,
+        href: `#/engagements/${killSoonest.engagementId}/action/implants`,
         title: `Soonest kill date: ${new Date(killSoonest.at).toLocaleString()}`,
       })
     }
@@ -914,7 +914,7 @@ export function HomeView() {
                     <a
                       key={task.taskId}
                       className="recent-row"
-                      href={`#/engagements/${engagement.engagementId}/tasking`}
+                      href={`#/engagements/${engagement.engagementId}/action/tasking`}
                       title={`${engagement.name} -- ${task.verb} ${task.arguments}`}
                     >
                       <span className="recent-time" title={new Date(task.createdAt).toLocaleString()}>

@@ -134,7 +134,7 @@ export function ShellsView({
         {catchers.length > 0 && (
           <p className="muted">
             Paste-ready catch one-liners live under{' '}
-            <a href={`#/engagements/${engagementId}/launchers`}>Launchers</a> — copy one there,
+            <a href={`#/engagements/${engagementId}/delivery/launchers`}>Launchers</a> — copy one there,
             paste it on the target, and the shell lands in this roster.
           </p>
         )}

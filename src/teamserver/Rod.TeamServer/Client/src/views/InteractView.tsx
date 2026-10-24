@@ -296,7 +296,7 @@ export function InteractView({
         <div className="empty">
           <Icon name="cpu" />
           Implant {implantId.slice(0, 8)} is not enrolled in this engagement.{' '}
-          <a href={`#/engagements/${engagementId}/implants`}>Back to the implants</a>.
+          <a href={`#/engagements/${engagementId}/action/implants`}>Back to the implants</a>.
         </div>
       </div>
     )
@@ -321,7 +321,7 @@ export function InteractView({
     <>
       <div className="terminal console-terminal">
         <div className="console-titlebar">
-          <a className="back-link" href={`#/engagements/${engagementId}/implants`}>
+          <a className="back-link" href={`#/engagements/${engagementId}/action/implants`}>
             ← Implants
           </a>
           <span className="console-host" title={`Implant ${implantId}`}>

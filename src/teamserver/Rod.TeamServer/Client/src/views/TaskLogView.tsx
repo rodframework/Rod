@@ -362,7 +362,7 @@ function LogRow({
         <td>
           <a
             className="button-link sm"
-            href={`#/engagements/${engagementId}/implants/${task.implantId}`}
+            href={`#/engagements/${engagementId}/action/implants/${task.implantId}/interact`}
             title="Open the session console -- queued tasks cancel there"
             onClick={(e) => e.stopPropagation()}
           >

@@ -136,6 +136,43 @@
   flex: none;
 }
 
+/* --- Sub-navigation: the slot's surfaces, above the content ----------------- */
+
+/* The content area's own tab strip: the seven slots promise a working
+   mode in the sidebar, and this strip arranges that mode's screens.
+   Plain anchors like the sidebar -- deep links and middle-click ride the
+   hashchange listener. */
+.subnav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.subnav-item {
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: background 0.12s, color 0.12s;
+}
+
+.subnav-item:hover {
+  color: var(--text);
+  background: var(--surface-3);
+  text-decoration: none;
+}
+
+.subnav-item.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .avatar {
   width: 24px;
   height: 24px;

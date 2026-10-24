@@ -940,7 +940,7 @@ export function PayloadBuildView({
                 {jobs.length - RECENT_BUILDS_SHOWN} older job
                 {jobs.length - RECENT_BUILDS_SHOWN === 1 ? '' : 's'} hidden -- every finished
                 artifact stays in the{' '}
-                <a href={`#/engagements/${engagementId}/payloads`}>Payloads</a> library.
+                <a href={`#/engagements/${engagementId}/assets/payloads`}>Payloads</a> library.
               </p>
             )}
           </div>
@@ -949,7 +949,7 @@ export function PayloadBuildView({
         )}
 
         <p className="muted">
-          Finished payloads live on in the <a href={`#/engagements/${engagementId}/payloads`}>Payloads</a> tab.
+          Finished payloads live on in the <a href={`#/engagements/${engagementId}/assets/payloads`}>Payloads</a> library.
         </p>
       </div>
     </section>

@@ -151,7 +151,7 @@ export function CampaignsView({
                 <tr key={c.campaignId}>
                   <td>
                     <a
-                      href={`#/engagements/${engagementId}/campaigns`}
+                      href={`#/engagements/${engagementId}/delivery/campaigns`}
                       onClick={(e) => {
                         e.preventDefault()
                         void open(c.campaignId)

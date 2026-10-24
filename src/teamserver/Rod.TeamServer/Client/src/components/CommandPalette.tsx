@@ -16,7 +16,7 @@ import type { CapabilityDescriptor } from '../api'
 import { searchHitHash } from '../collabFormat'
 import { fuzzyBest } from '../fuzzy'
 import { osIconFor } from '../osKind'
-import { NAV_GROUPS } from '../tabs'
+import { SLOTS, engagementPath } from '../slots'
 import { formForDescriptor } from '../verbForms'
 import { DIRECT_VERBS } from '../views/implantMenu'
 import { Icon, type IconName } from './Icons'
@@ -170,7 +170,7 @@ export function CommandPalette({
   }
 
   const consoleOf = (implantId: string) =>
-    `#/engagements/${engagementId}/implants/${implantId}`
+    engagementId ? engagementPath(engagementId, 'implants', implantId, 'interact') : '#/engagements'
 
   // Issues one step of a run. Returns null on success, the refusal text on
   // failure -- the ordinary gates decide, verbatim like a typed task.
@@ -359,20 +359,21 @@ export function CommandPalette({
       }
     }
 
-    for (const group of NAV_GROUPS) {
-      for (const item of group.items) {
+    // Navigation entries: the slots' sub-surfaces -- one entry per
+    // sub, detailed by its slot, so the palette's go-section mirrors the
+    // sidebar's promise at the finer grain the keyboard wants.
+    for (const slot of SLOTS) {
+      for (const item of slot.subs) {
         list.push({
-          key: `tab:${item.id}`,
+          key: `sub:${item.id}`,
           section: 'navigate',
           label: item.label,
-          detail: group.label ?? undefined,
-          keywords: [item.label, item.id],
+          detail: slot.label,
+          keywords: [item.label, item.id, slot.label],
           bonus: 0,
           icon: item.icon,
           run: () =>
-            navigate(
-              engagementId ? `#/engagements/${engagementId}/${item.id}` : '#/engagements',
-            ),
+            navigate(engagementId ? engagementPath(engagementId, item.id) : '#/engagements'),
         })
       }
     }

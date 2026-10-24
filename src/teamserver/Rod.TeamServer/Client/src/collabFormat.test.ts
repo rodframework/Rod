@@ -101,10 +101,10 @@ describe('searchHitHash', () => {
 
   it('routes each corpus to the surface that shows it', () => {
     const base = '#/engagements/e-id'
-    expect(searchHitHash('e-id', hit('comment'))).toBe(`${base}/tasking`)
-    expect(searchHitHash('e-id', hit('task_output'))).toBe(`${base}/tasking`)
-    expect(searchHitHash('e-id', hit('credential'))).toBe(`${base}/intel`)
-    expect(searchHitHash('e-id', hit('artifact'))).toBe(`${base}/intel`)
-    expect(searchHitHash('e-id', hit('chat_message'))).toBe(`${base}/audit`)
+    expect(searchHitHash('e-id', hit('comment'))).toBe(`${base}/action/tasking`)
+    expect(searchHitHash('e-id', hit('task_output'))).toBe(`${base}/action/tasking`)
+    expect(searchHitHash('e-id', hit('credential'))).toBe(`${base}/assets/credentials`)
+    expect(searchHitHash('e-id', hit('artifact'))).toBe(`${base}/assets/loot`)
+    expect(searchHitHash('e-id', hit('chat_message'))).toBe(`${base}/overview/timeline`)
   })
 })

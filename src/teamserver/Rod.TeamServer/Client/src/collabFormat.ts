@@ -60,20 +60,22 @@ export async function collectChatHistory(
 
 // --- Global search: hit routing --------------------------------------------
 
-// Where a search hit lands: the surface that shows the corpus it came from.
-// Comments and tasks live in the task log, credentials and artifacts in the
-// intel picture, chat in the mutable timeline -- the audit view.
+// Where a search hit lands: the sub-surface that shows the corpus it came
+// from. Comments and tasks live in the task log, credentials and loot on
+// the assets boards, chat in the overview timeline that merges it beside
+// the audit stream.
 export function searchHitHash(engagementId: string, hit: SearchHitRow): string {
   const base = `#/engagements/${engagementId}`
   switch (hit.corpus) {
     case 'comment':
     case 'task_output':
-      return `${base}/tasking`
+      return `${base}/action/tasking`
     case 'credential':
+      return `${base}/assets/credentials`
     case 'artifact':
-      return `${base}/intel`
+      return `${base}/assets/loot`
     case 'chat_message':
-      return `${base}/audit`
+      return `${base}/overview/timeline`
     default:
       return base
   }
