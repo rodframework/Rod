@@ -249,7 +249,10 @@ export function EngagementsView() {
                       <a href={`#/engagements/${e.engagementId}`}>{e.name}</a>
                     </td>
                     <td className="muted">{e.description ?? ''}</td>
-                    <td>{e.ownerHandle || e.ownerId.slice(0, 8)}</td>
+                    {/* The owner's handle, resolved by the read; the bare id
+                        stands in when the account no longer resolves, so the
+                        fallback never shows a fragment. Hover carries the id. */}
+                    <td title={e.ownerId}>{e.ownerHandle}</td>
                     <td>
                       {/*
                           Your standing on this engagement (architecture.md

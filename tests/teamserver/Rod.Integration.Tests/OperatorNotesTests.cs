@@ -52,6 +52,7 @@ public sealed class OperatorNotesTests : IClassFixture<PostgresFixture>
             Assert.NotNull(firstNote);
             Assert.Equal(implantId, firstNote!.ImplantId);
             Assert.Equal(operatorId.ToString(), firstNote.Author);
+            Assert.Equal(AuthenticatedHost.Handle, firstNote.AuthorHandle);
 
             var second = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/implants/{implantId}/notes",
@@ -60,6 +61,8 @@ public sealed class OperatorNotesTests : IClassFixture<PostgresFixture>
 
             // The implant view reads its notes back oldest first -- a note's
             // only storage is the trail, so the listing is a query over it.
+            // The listing names the writer by handle, resolved on the read --
+            // the member role cannot walk the operator roster client-side.
             var listed = await client.GetFromJsonAsync<ImplantEndpoints.ImplantNoteResponse[]>(
                 $"/engagements/{engagementId}/implants/{implantId}/notes");
             Assert.NotNull(listed);
@@ -67,6 +70,7 @@ public sealed class OperatorNotesTests : IClassFixture<PostgresFixture>
             Assert.Equal("IT-WKS-04,Marketing dept, JBS's box", listed[0].Text);
             Assert.Equal("burned once in Q2, watch EDR", listed[1].Text);
             Assert.Equal(operatorId.ToString(), listed[0].Author);
+            Assert.All(listed, n => Assert.Equal(AuthenticatedHost.Handle, n.AuthorHandle));
 
             // The note landed in the engagement trail as an ImplantNoteAdded
             // event: attributed to the writer, bound to the implant, the note

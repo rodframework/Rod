@@ -106,6 +106,7 @@ public sealed class HostIntelEndpointsTests
             var note = await first.Content.ReadFromJsonAsync<HostEndpoints.HostNoteResponse>();
             Assert.NotNull(note);
             Assert.Equal("db-internal", note!.Host);
+            Assert.Equal(AuthenticatedHost.Handle, note.AuthorHandle);
 
             await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/hosts/db-internal/labels",
@@ -122,11 +123,13 @@ public sealed class HostIntelEndpointsTests
             var readBack = Assert.Single(notes!);
             Assert.Equal(note.NoteId, readBack.NoteId);
             Assert.Equal("db-internal", readBack.Host);
+            Assert.Equal(AuthenticatedHost.Handle, readBack.AuthorHandle);
 
             var labels = await client.GetFromJsonAsync<HostEndpoints.HostLabelResponse[]>(
                 $"/engagements/{engagementId}/hosts/db-internal/labels");
             var owned = Assert.Single(labels!);
             Assert.Equal("owned", owned.Label);
+            Assert.Equal(AuthenticatedHost.Handle, owned.SetByHandle);
 
             // A host only a note names -- no label, no implant, no
             // observation -- still holds its place in the listing: the

@@ -82,8 +82,10 @@ public static class EngagementEndpoints
             .ToList();
 
         // The owner handle lives on the Operator, not the engagement. Resolve it
-        // per engagement; an unknown owner (engagement predates the operator) is
-        // surfaced as empty rather than failing the whole list. The same loop
+        // per engagement with the tolerance every operator-facing read applies
+        // (the bare id when the account no longer resolves) -- the same
+        // convention the task and audit reads name their actors by, so the
+        // roster never falls back to a fragment. The same loop
         // sizes each engagement's fleet -- active (non-retired) implants and how
         // many hold a live session -- off the same repositories the fleet table
         // reads, so the landing roster carries the posture without the operator
@@ -102,7 +104,7 @@ public static class EngagementEndpoints
                 e.Name,
                 e.Description,
                 e.OwnerId.ToString(),
-                owner?.Handle ?? string.Empty,
+                owner?.Handle ?? e.OwnerId.ToString(),
                 e.OwnerId == caller.Value ? "owner" : reach[e.Id],
                 e.CreatedAt,
                 RoeProfileResponse.From(e.Roe),

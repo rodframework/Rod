@@ -39,18 +39,22 @@ public sealed class ImplantLabelEndpointTests
             Assert.NotNull(firstLabel);
             Assert.Equal("jump", firstLabel!.Label);
             Assert.Equal(operatorId.ToString(), firstLabel.SetBy);
+            Assert.Equal(AuthenticatedHost.Handle, firstLabel.SetByHandle);
 
             var second = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/implants/{implantId}/labels",
                 new ImplantEndpoints.SetLabelRequest(Label: "watch-edr"));
             second.EnsureSuccessStatusCode();
 
-            // The listing is the reduced set: both labels, attributed.
+            // The listing is the reduced set: both labels, attributed -- and
+            // naming the setter by handle, resolved on the read the way the
+            // member role needs (it cannot walk the operator roster).
             var listed = await client.GetFromJsonAsync<ImplantEndpoints.ImplantLabelResponse[]>(
                 $"/engagements/{engagementId}/implants/{implantId}/labels");
             Assert.NotNull(listed);
             Assert.Equal(new[] { "jump", "watch-edr" }, listed!.Select(l => l.Label).ToArray());
             Assert.All(listed, l => Assert.Equal(operatorId.ToString(), l.SetBy));
+            Assert.All(listed, l => Assert.Equal(AuthenticatedHost.Handle, l.SetByHandle));
 
             // Clearing one drops it from the reduced set.
             var cleared = await client.DeleteAsync(

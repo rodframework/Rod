@@ -760,7 +760,11 @@ export function ImplantsView({
                                       <span className="muted">No labels.</span>
                                     ) : (
                                       labels.map((l) => (
-                                        <span key={l.label} className="chip" title={`set by ${l.setBy.slice(0, 8)}`}>
+                                        <span
+                                          key={l.label}
+                                          className="chip"
+                                          title={`set by ${l.setByHandle} (${l.setBy})`}
+                                        >
                                           {l.label}
                                           <button
                                             className="chip-x"
@@ -790,7 +794,7 @@ export function ImplantsView({
                                       notes.map((n) => (
                                         <li key={n.noteId}>
                                           <span className="notes-meta">
-                                            <code>{n.author.slice(0, 8)}</code>{' '}
+                                            <code title={n.author}>{n.authorHandle}</code>{' '}
                                             {new Date(n.at).toLocaleString()}
                                           </span>
                                           {n.text}

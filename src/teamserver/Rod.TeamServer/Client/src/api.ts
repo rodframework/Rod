@@ -1407,6 +1407,10 @@ export interface ImplantNote {
   noteId: string
   implantId: string
   author: string
+  // The writing operator's handle, resolved by the read -- the member role
+  // cannot walk the operator roster to map the id client-side. The bare id
+  // stands in when the account no longer resolves.
+  authorHandle: string
   text: string
   at: string
 }
@@ -1445,6 +1449,10 @@ export async function addImplantNote(
 export interface ImplantLabel {
   label: string
   setBy: string
+  // The setting operator's handle, resolved by the read -- the member role
+  // cannot walk the operator roster to map the id client-side. The bare id
+  // stands in when the account no longer resolves.
+  setByHandle: string
   setAt: string
 }
 
@@ -1486,6 +1494,10 @@ export interface HostNote {
   noteId: string
   host: string
   author: string
+  // The writing operator's handle, resolved by the read -- the member role
+  // cannot walk the operator roster to map the id client-side. The bare id
+  // stands in when the account no longer resolves.
+  authorHandle: string
   text: string
   at: string
 }
@@ -1493,6 +1505,10 @@ export interface HostNote {
 export interface HostLabel {
   label: string
   setBy: string
+  // The setting operator's handle, resolved by the read -- the member role
+  // cannot walk the operator roster to map the id client-side. The bare id
+  // stands in when the account no longer resolves.
+  setByHandle: string
   setAt: string
 }
 
@@ -1866,6 +1882,10 @@ export interface CommentRow {
   subjectKind: CommentSubjectKind
   subjectId: string
   authorId: string
+  // The writing operator's handle, resolved by the read -- the member role
+  // cannot walk the operator roster to map the id client-side. The bare id
+  // stands in when the account no longer resolves.
+  authorHandle: string
   body: string
   createdAt: string
   editedAt: string | null
@@ -1924,6 +1944,10 @@ export interface ChatChannelRow {
   id: string
   name: string
   createdBy: string
+  // The creating operator's handle, resolved by the read -- the member role
+  // cannot walk the operator roster to map the id client-side. The bare id
+  // stands in when the account no longer resolves.
+  createdByHandle: string
   createdAt: string
 }
 
@@ -1931,6 +1955,10 @@ export interface ChatMessageRow {
   id: string
   channelId: string
   authorId: string
+  // The sending operator's handle, resolved by the read -- the member role
+  // cannot walk the operator roster to map the id client-side. The bare id
+  // stands in when the account no longer resolves.
+  authorHandle: string
   body: string
   sentAt: string
 }

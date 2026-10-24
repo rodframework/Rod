@@ -138,7 +138,7 @@ export function ChatPanel({
           messages.map((m) => (
             <div key={m.id} className="chat-line">
               <span className="notes-meta">
-                <code>{m.authorId.slice(0, 8)}</code> {new Date(m.sentAt).toLocaleTimeString()}
+                <code title={m.authorId}>{m.authorHandle}</code> {new Date(m.sentAt).toLocaleTimeString()}
               </span>
               {m.body}
             </div>

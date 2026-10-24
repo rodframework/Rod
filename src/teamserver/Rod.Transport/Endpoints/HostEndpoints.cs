@@ -164,6 +164,7 @@ public static class HostEndpoints
         string host,
         IEngagementRepository engagements,
         IAuditStore audit,
+        IOperatorRepository operators,
         CancellationToken cancellationToken)
     {
         var engagement = await ResolveEngagementAsync(engagementId, engagements, cancellationToken);
@@ -176,15 +177,28 @@ public static class HostEndpoints
         var notes = ParseHostFacts(await audit.ListAsync(engagement.Value, cancellationToken))
             .Where(f => f.Kind == AuditEventKind.HostNoteAdded
                 && string.Equals(f.Host, key, StringComparison.Ordinal))
+            .ToArray();
+
+        // Resolve the notes' authors to handles once per request, the
+        // tolerance the audit read applies (the bare id when the account no
+        // longer resolves): the member role cannot walk the operator roster
+        // to do it client-side, so the read names the actor itself.
+        var handles = new Dictionary<Guid, string>();
+        foreach (var id in notes.Select(f => f.OperatorId).Where(id => id != Guid.Empty).Distinct())
+        {
+            var op = await operators.FindAsync(new OperatorId(id), cancellationToken);
+            handles[id] = op?.Handle ?? id.ToString();
+        }
+
+        return Results.Ok(notes
             .Select(f => new HostNoteResponse(
                 f.EventId.ToString(),
                 f.Host,
                 new OperatorId(f.OperatorId).ToString(),
+                handles.GetValueOrDefault(f.OperatorId, f.OperatorId.ToString()),
                 f.Text ?? string.Empty,
                 f.At))
-            .ToArray();
-
-        return Results.Ok(notes);
+            .ToArray());
     }
 
     private static async Task<IResult> AddHostNoteAsync(
@@ -194,6 +208,7 @@ public static class HostEndpoints
         ClaimsPrincipal user,
         IEngagementRepository engagements,
         IAuditStore audit,
+        IOperatorRepository operators,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -235,9 +250,19 @@ public static class HostEndpoints
                 at: at),
             cancellationToken);
 
+        // The writer is the principal itself; resolve the handle with the
+        // tolerance the listing applies.
+        var writer = await operators.FindAsync(author.Value, cancellationToken);
+
         return Results.Created(
             $"/engagements/{engagementId}/hosts/{key}/notes",
-            new HostNoteResponse(noteId.ToString(), key, author.Value.ToString(), body.Text, at));
+            new HostNoteResponse(
+                noteId.ToString(),
+                key,
+                author.Value.ToString(),
+                writer?.Handle ?? author.Value.ToString(),
+                body.Text,
+                at));
     }
 
     private static async Task<IResult> ListHostLabelsAsync(
@@ -245,6 +270,7 @@ public static class HostEndpoints
         string host,
         IEngagementRepository engagements,
         IAuditStore audit,
+        IOperatorRepository operators,
         CancellationToken cancellationToken)
     {
         var engagement = await ResolveEngagementAsync(engagementId, engagements, cancellationToken);
@@ -254,12 +280,27 @@ public static class HostEndpoints
         if (key is null)
             return Results.BadRequest(new Problem("Host name is required."));
 
-        var labels = ReduceLabels(ParseHostFacts(await audit.ListAsync(engagement.Value, cancellationToken)))
-            .GetValueOrDefault(key, [])
-            .Select(l => new HostLabelResponse(l.Label, new OperatorId(l.OperatorId).ToString(), l.At))
-            .ToArray();
+        var reduced = ReduceLabels(ParseHostFacts(await audit.ListAsync(engagement.Value, cancellationToken)))
+            .GetValueOrDefault(key, []);
 
-        return Results.Ok(labels);
+        // Resolve the labels' setters to handles once per request, the
+        // tolerance the audit read applies (the bare id when the account no
+        // longer resolves): the member role cannot walk the operator roster
+        // to do it client-side, so the read names the actor itself.
+        var handles = new Dictionary<Guid, string>();
+        foreach (var id in reduced.Select(l => l.OperatorId).Where(id => id != Guid.Empty).Distinct())
+        {
+            var op = await operators.FindAsync(new OperatorId(id), cancellationToken);
+            handles[id] = op?.Handle ?? id.ToString();
+        }
+
+        return Results.Ok(reduced
+            .Select(l => new HostLabelResponse(
+                l.Label,
+                new OperatorId(l.OperatorId).ToString(),
+                handles.GetValueOrDefault(l.OperatorId, l.OperatorId.ToString()),
+                l.At))
+            .ToArray());
     }
 
     private static async Task<IResult> SetHostLabelAsync(
@@ -269,6 +310,7 @@ public static class HostEndpoints
         ClaimsPrincipal user,
         IEngagementRepository engagements,
         IAuditStore audit,
+        IOperatorRepository operators,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -316,9 +358,13 @@ public static class HostEndpoints
                 at: at),
             cancellationToken);
 
+        // The setter is the principal itself; resolve the handle with the
+        // tolerance the listing applies.
+        var setter = await operators.FindAsync(actor.Value, cancellationToken);
+
         return Results.Created(
             $"/engagements/{engagementId}/hosts/{key}/labels",
-            new HostLabelResponse(label, actor.Value.ToString(), at));
+            new HostLabelResponse(label, actor.Value.ToString(), setter?.Handle ?? actor.Value.ToString(), at));
     }
 
     private static async Task<IResult> ClearHostLabelAsync(
@@ -484,19 +530,25 @@ public static class HostEndpoints
         string[] UngroupedImplantIds);
 
     // One note about a host: the audit event's id (a note is its event), the
-    // host it describes, the writing operator, the text, and when.
+    // host it describes, the writing operator and its handle (resolved at
+    // read time; the bare id stands in when the account no longer resolves),
+    // the text, and when.
     public sealed record HostNoteResponse(
         string NoteId,
         string Host,
         string Author,
+        string AuthorHandle,
         string Text,
         DateTimeOffset At);
 
     // One label a host currently carries: the marker text, the operator whose
-    // set action last won the reduction, and when.
+    // set action last won the reduction and its handle (resolved at read
+    // time; the bare id stands in when the account no longer resolves), and
+    // when.
     public sealed record HostLabelResponse(
         string Label,
         string SetBy,
+        string SetByHandle,
         DateTimeOffset SetAt);
 
     public sealed record AddHostNoteRequest(string Text);

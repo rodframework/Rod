@@ -440,7 +440,9 @@ function Identity({
       {open && (
         <div className="identity-menu">
           <div className="identity-menu-head">
-            <strong>{operator.handle}</strong>
+            {/* The handle is the identity the crew reads; the account's id
+                stays one hover away for support work. */}
+            <strong title={operator.operatorId}>{operator.handle}</strong>
             <span
               className="muted"
               title={
@@ -449,7 +451,7 @@ function Identity({
                   : 'Deployment member: self-service over your own password and tokens; deployment management belongs to the admin.'
               }
             >
-              {operator.role === 'admin' ? 'admin' : 'member'} · {operator.operatorId.slice(0, 8)}
+              {operator.role === 'admin' ? 'admin' : 'member'}
             </span>
           </div>
           <button className="link" onClick={onLogout}>

@@ -58,6 +58,7 @@ describe('collectChatHistory', () => {
     id,
     channelId: 'channel',
     authorId: '00000000-0000-0000-0000-000000000001',
+    authorHandle: 'watch-lead',
     body: id,
     sentAt: '2026-10-22T00:00:00Z',
   })

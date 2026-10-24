@@ -54,13 +54,16 @@ public class CollaborationEndpointsTests
         var comment = await created.Content.ReadFromJsonAsync<CommentBody>();
         Assert.NotNull(comment);
         Assert.True(comment!.Editable);
+        Assert.Equal(AuthenticatedHost.Handle, comment.AuthorHandle);
 
-        // The panel read returns it, scoped by subject.
+        // The panel read returns it, scoped by subject, naming the author by
+        // handle -- resolved on the read, the member role's only path to it.
         var listed = await env.Http.GetFromJsonAsync<CommentListBody>(
             $"/engagements/{implant.EngagementId}/comments?subjectKind=implant&subjectId={implant.Id}");
         Assert.NotNull(listed);
         var row = Assert.Single(listed!.Items);
         Assert.Equal(body, row.Body);
+        Assert.Equal(AuthenticatedHost.Handle, row.AuthorHandle);
 
         // The author edits within the window; the row changes in place.
         var edited = await env.Http.PatchAsJsonAsync(
@@ -148,11 +151,13 @@ public class CollaborationEndpointsTests
             new { Body = $"watch handoff at 06:00 {ChatMarker}" });
         Assert.Equal(HttpStatusCode.Created, sent.StatusCode);
 
+        // The transcript names the sender by handle, resolved on the read.
         var messages = await env.Http.GetFromJsonAsync<MessageListBody>(
             $"/engagements/{implant.EngagementId}/chat/channels/{general.Id}/messages");
         Assert.NotNull(messages);
         Assert.Single(messages!.Items);
         Assert.Equal($"watch handoff at 06:00 {ChatMarker}", messages.Items[0].Body);
+        Assert.Equal(AuthenticatedHost.Handle, messages.Items[0].AuthorHandle);
 
         var timeline = await env.Http.GetFromJsonAsync<AuditListBody>(
             $"/engagements/{implant.EngagementId}/audit/");
@@ -345,6 +350,66 @@ public class CollaborationEndpointsTests
         Assert.DoesNotContain(bySecret!.Items, h => h.Corpus == "credential");
     }
 
+    [Fact]
+    public async Task CommentsAndChat_NameWhoeverWroteThem_ByHandle()
+    {
+        await using var env = await TestEnv.StartAsync();
+        var implant = await EngagementSetup.EnrollOwnedImplantAsync(env.Host);
+        await AuthenticatedHost.LoginAsync(env.Http);
+
+        // A member beside the engagement's lead: the reads must name whoever
+        // actually wrote the row, not the session that opened the engagement
+        // -- and the member's own session resolves the same way, without the
+        // roster walk the member role cannot make.
+        await AuthenticatedHost.RegisterOperatorAsync(env.Host, "runner", "runner-p@ss!");
+        var added = await env.Http.PostAsJsonAsync(
+            $"/engagements/{implant.EngagementId}/members", new { handle = "runner", role = "writer" });
+        added.EnsureSuccessStatusCode();
+
+        var member = new HttpClient(new CookieHandler(new HttpClientHandler()))
+        {
+            BaseAddress = new Uri($"http://127.0.0.1:{env.HttpPort}"),
+        };
+        using (member)
+        {
+            await AuthenticatedHost.LoginAsync(member, "runner", "runner-p@ss!");
+
+            var memberComment = await member.PostAsJsonAsync(
+                $"/engagements/{implant.EngagementId}/comments",
+                new { SubjectKind = "implant", SubjectId = implant.Id.ToString(), Body = "member's take" });
+            Assert.Equal(HttpStatusCode.Created, memberComment.StatusCode);
+            var memberCommentBody = await memberComment.Content.ReadFromJsonAsync<CommentBody>();
+            Assert.Equal("runner", memberCommentBody!.AuthorHandle);
+
+            var channels = await member.GetFromJsonAsync<ChannelListBody>(
+                $"/engagements/{implant.EngagementId}/chat/channels");
+            var sent = await member.PostAsJsonAsync(
+                $"/engagements/{implant.EngagementId}/chat/channels/{channels!.Items[0].Id}/messages",
+                new { Body = "member on the watch" });
+            Assert.Equal(HttpStatusCode.Created, sent.StatusCode);
+            var sentBody = await sent.Content.ReadFromJsonAsync<MessageListBody.MessageRow>();
+            Assert.Equal("runner", sentBody!.AuthorHandle);
+
+            // The member's own reads name the same actor.
+            var memberListed = await member.GetFromJsonAsync<CommentListBody>(
+                $"/engagements/{implant.EngagementId}/comments?subjectKind=implant&subjectId={implant.Id}");
+            Assert.Equal("runner", Assert.Single(memberListed!.Items).AuthorHandle);
+            var memberMessages = await member.GetFromJsonAsync<MessageListBody>(
+                $"/engagements/{implant.EngagementId}/chat/channels/{channels.Items[0].Id}/messages");
+            Assert.Equal("runner", Assert.Single(memberMessages!.Items).AuthorHandle);
+        }
+
+        // The lead's reads name the member, not the lead.
+        var listed = await env.Http.GetFromJsonAsync<CommentListBody>(
+            $"/engagements/{implant.EngagementId}/comments?subjectKind=implant&subjectId={implant.Id}");
+        Assert.Equal("runner", Assert.Single(listed!.Items).AuthorHandle);
+        var leadChannels = await env.Http.GetFromJsonAsync<ChannelListBody>(
+            $"/engagements/{implant.EngagementId}/chat/channels");
+        var messages = await env.Http.GetFromJsonAsync<MessageListBody>(
+            $"/engagements/{implant.EngagementId}/chat/channels/{leadChannels!.Items[0].Id}/messages");
+        Assert.Equal("runner", Assert.Single(messages!.Items).AuthorHandle);
+    }
+
     // Runs one collect.cred task over the beacon to completion and returns
     // the harvested credential row's stable id, picked by principal.
     private static async Task<Guid> RunTaskCollectingCredentialsAsync(
@@ -401,6 +466,7 @@ public class CollaborationEndpointsTests
     private sealed class CommentBody
     {
         public string Id { get; set; } = "";
+        public string AuthorHandle { get; set; } = "";
         public string Body { get; set; } = "";
         public DateTimeOffset? EditedAt { get; set; }
         public bool Editable { get; set; }
@@ -413,6 +479,7 @@ public class CollaborationEndpointsTests
         public sealed class CommentRow
         {
             public string Id { get; set; } = "";
+            public string AuthorHandle { get; set; } = "";
             public string Body { get; set; } = "";
             public DateTimeOffset? EditedAt { get; set; }
         }
@@ -435,6 +502,7 @@ public class CollaborationEndpointsTests
 
         public sealed class MessageRow
         {
+            public string AuthorHandle { get; set; } = "";
             public string Body { get; set; } = "";
         }
     }

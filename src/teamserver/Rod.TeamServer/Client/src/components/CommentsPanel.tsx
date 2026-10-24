@@ -86,7 +86,7 @@ export function CommentsPanel({
           comments.map((c) => (
             <li key={c.id}>
               <span className="notes-meta">
-                <code>{c.authorId.slice(0, 8)}</code> {new Date(c.createdAt).toLocaleString()}
+                <code title={c.authorId}>{c.authorHandle}</code> {new Date(c.createdAt).toLocaleString()}
                 {c.editedAt ? ' (edited)' : ''}
                 {c.editable && (
                   <>

@@ -229,7 +229,7 @@ function HostFacts({
           notes.map((n) => (
             <li key={n.noteId}>
               <span className="notes-meta">
-                <code>{n.author.slice(0, 8)}</code> {new Date(n.at).toLocaleString()}
+                <code title={n.author}>{n.authorHandle}</code> {new Date(n.at).toLocaleString()}
               </span>
               {n.text}
             </li>

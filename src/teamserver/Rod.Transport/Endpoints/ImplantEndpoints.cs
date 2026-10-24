@@ -299,6 +299,7 @@ public static class ImplantEndpoints
         string implantId,
         IImplantRepository implants,
         IAuditStore audit,
+        IOperatorRepository operators,
         CancellationToken cancellationToken)
     {
         if (!Guid.TryParse(engagementId, out var engagementValue))
@@ -312,17 +313,31 @@ public static class ImplantEndpoints
         if (implant is null || implant.EngagementId != new EngagementId(engagementValue))
             return Results.NotFound(new Problem("Implant does not exist in this engagement."));
 
-        var notes = (await audit.ForImplantAsync(implantValue, cancellationToken))
+        var events = await audit.ForImplantAsync(implantValue, cancellationToken);
+        var notes = events
             .Where(e => e.Kind == AuditEventKind.ImplantNoteAdded)
+            .ToArray();
+
+        // Resolve the notes' authors to handles once per request, the
+        // tolerance the audit read applies (the bare id when the account no
+        // longer resolves): the member role cannot walk the operator roster
+        // to do it client-side, so the read names the actor itself.
+        var handles = new Dictionary<Guid, string>();
+        foreach (var id in notes.Select(e => e.OperatorId).Where(id => id != Guid.Empty).Distinct())
+        {
+            var op = await operators.FindAsync(new OperatorId(id), cancellationToken);
+            handles[id] = op?.Handle ?? id.ToString();
+        }
+
+        return Results.Ok(notes
             .Select(e => new ImplantNoteResponse(
                 e.EventId.ToString(),
                 new ImplantId(e.ImplantId).ToString(),
                 new OperatorId(e.OperatorId).ToString(),
+                handles.GetValueOrDefault(e.OperatorId, e.OperatorId.ToString()),
                 e.Payload,
                 e.At))
-            .ToArray();
-
-        return Results.Ok(notes);
+            .ToArray());
     }
 
     private static async Task<IResult> AddNoteAsync(
@@ -332,6 +347,7 @@ public static class ImplantEndpoints
         ClaimsPrincipal user,
         IImplantRepository implants,
         IAuditStore audit,
+        IOperatorRepository operators,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -376,12 +392,17 @@ public static class ImplantEndpoints
                 at: at),
             cancellationToken);
 
+        // The writer is the principal itself; resolve the handle with the
+        // tolerance the listing applies.
+        var writer = await operators.FindAsync(author.Value, cancellationToken);
+
         return Results.Created(
             $"/engagements/{engagementId}/implants/{implantId}/notes",
             new ImplantNoteResponse(
                 noteId.ToString(),
                 implantId,
                 author.Value.ToString(),
+                writer?.Handle ?? author.Value.ToString(),
                 body.Text,
                 at));
     }
@@ -403,6 +424,7 @@ public static class ImplantEndpoints
         string implantId,
         IImplantRepository implants,
         IAuditStore audit,
+        IOperatorRepository operators,
         CancellationToken cancellationToken)
     {
         if (!Guid.TryParse(engagementId, out var engagementValue))
@@ -417,8 +439,26 @@ public static class ImplantEndpoints
         if (implant is null || implant.EngagementId != new EngagementId(engagementValue))
             return Results.NotFound(new Problem("Implant does not exist in this engagement."));
 
-        var labels = ReduceLabels(await audit.ForImplantAsync(implantValue, cancellationToken));
-        return Results.Ok(labels);
+        var reduced = ReduceLabels(await audit.ForImplantAsync(implantValue, cancellationToken));
+
+        // Resolve the labels' setters to handles once per request, the
+        // tolerance the audit read applies (the bare id when the account no
+        // longer resolves): the member role cannot walk the operator roster
+        // to do it client-side, so the read names the actor itself.
+        var handles = new Dictionary<Guid, string>();
+        foreach (var id in reduced.Select(l => l.OperatorId).Where(id => id != Guid.Empty).Distinct())
+        {
+            var op = await operators.FindAsync(new OperatorId(id), cancellationToken);
+            handles[id] = op?.Handle ?? id.ToString();
+        }
+
+        return Results.Ok(reduced
+            .Select(l => new ImplantLabelResponse(
+                l.Label,
+                new OperatorId(l.OperatorId).ToString(),
+                handles.GetValueOrDefault(l.OperatorId, l.OperatorId.ToString()),
+                l.At))
+            .ToArray());
     }
 
     private static async Task<IResult> SetLabelAsync(
@@ -428,6 +468,7 @@ public static class ImplantEndpoints
         ClaimsPrincipal user,
         IImplantRepository implants,
         IAuditStore audit,
+        IOperatorRepository operators,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -482,9 +523,13 @@ public static class ImplantEndpoints
                 at: at),
             cancellationToken);
 
+        // The setter is the principal itself; resolve the handle with the
+        // tolerance the listing applies.
+        var setter = await operators.FindAsync(actor.Value, cancellationToken);
+
         return Results.Created(
             $"/engagements/{engagementId}/implants/{implantId}/labels",
-            new ImplantLabelResponse(label, actor.Value.ToString(), at));
+            new ImplantLabelResponse(label, actor.Value.ToString(), setter?.Handle ?? actor.Value.ToString(), at));
     }
 
     private static async Task<IResult> ClearLabelAsync(
@@ -535,11 +580,14 @@ public static class ImplantEndpoints
     // The live label set: walk the implant's label events oldest first and let
     // the newest action per label win (case-insensitive -- "web" and "Web"
     // are the same marker). Returns the reduced set in the order the labels
-    // were (re)set.
-    private static List<ImplantLabelResponse> ReduceLabels(IReadOnlyList<AuditEvent> events)
+    // were (re)set, as raw facts -- the read edge shapes the response and
+    // resolves the setter handles.
+    private static List<(string Label, Guid OperatorId, DateTimeOffset At)> ReduceLabels(
+        IReadOnlyList<AuditEvent> events)
     {
         var order = new List<string>();
-        var byLabel = new Dictionary<string, ImplantLabelResponse>(StringComparer.OrdinalIgnoreCase);
+        var byLabel = new Dictionary<string, (string Label, Guid OperatorId, DateTimeOffset At)>(
+            StringComparer.OrdinalIgnoreCase);
         foreach (var e in events)
         {
             if (e.Kind != AuditEventKind.ImplantLabeled)
@@ -554,10 +602,7 @@ public static class ImplantEndpoints
 
             if (!byLabel.ContainsKey(e.Payload))
                 order.Add(e.Payload);
-            byLabel[e.Payload] = new ImplantLabelResponse(
-                e.Payload,
-                new OperatorId(e.OperatorId).ToString(),
-                e.At);
+            byLabel[e.Payload] = (e.Payload, e.OperatorId, e.At);
         }
 
         return order.Select(label => byLabel[label]).ToList();
@@ -755,22 +800,26 @@ public static class ImplantEndpoints
     public sealed record SetLabelRequest(string Label);
 
     // One note on an implant: the audit event's id (a note is its event -- the
-    // two are one object), the implant it describes, the writing operator, the
-    // text, and when.
+    // two are one object), the implant it describes, the writing operator and
+    // its handle (resolved at read time; the bare id stands in when the
+    // account no longer resolves), the text, and when.
     public sealed record ImplantNoteResponse(
         string NoteId,
         string ImplantId,
         string Author,
+        string AuthorHandle,
         string Text,
         DateTimeOffset At);
 
     // One label an implant currently carries: the marker text, the operator
-    // whose set action last won the reduction, and when. No event id -- a
-    // label is the reduced state of many events, not one object the way a
-    // note is.
+    // whose set action last won the reduction and its handle (resolved at
+    // read time; the bare id stands in when the account no longer resolves),
+    // and when. No event id -- a label is the reduced state of many events,
+    // not one object the way a note is.
     public sealed record ImplantLabelResponse(
         string Label,
         string SetBy,
+        string SetByHandle,
         DateTimeOffset SetAt);
 
     public sealed record RetireImplantResponse(

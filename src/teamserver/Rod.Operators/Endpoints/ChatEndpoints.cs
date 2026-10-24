@@ -38,6 +38,7 @@ public static class ChatEndpoints
         string engagementId,
         ChatService chat,
         IEngagementRepository engagements,
+        IOperatorRepository operators,
         CancellationToken cancellationToken)
     {
         var (error, engagement) = await BindAsync(engagementId, engagements, cancellationToken);
@@ -45,8 +46,23 @@ public static class ChatEndpoints
             return error;
 
         var channels = await chat.ListChannelsAsync(engagement, cancellationToken);
+
+        // Resolve the channels' creators to handles once per request, the
+        // tolerance the audit read applies (the bare id when the account no
+        // longer resolves): the member role cannot walk the operator roster
+        // to do it client-side, so the read names the actor itself.
+        var handles = new Dictionary<Guid, string>();
+        foreach (var id in channels.Select(c => c.CreatedBy.Value).Distinct())
+        {
+            var op = await operators.FindAsync(new OperatorId(id), cancellationToken);
+            handles[id] = op?.Handle ?? id.ToString();
+        }
+
         return Results.Ok(new ChatChannelListResponse(
-            channels.Select(ChatChannelResponse.Of).ToArray()));
+            channels.Select(c => ChatChannelResponse.Of(
+                c,
+                handles.GetValueOrDefault(c.CreatedBy.Value, c.CreatedBy.Value.ToString())))
+                .ToArray()));
     }
 
     private static async Task<IResult> CreateChannelAsync(
@@ -55,6 +71,7 @@ public static class ChatEndpoints
         ClaimsPrincipal user,
         ChatService chat,
         IEngagementRepository engagements,
+        IOperatorRepository operators,
         CancellationToken cancellationToken)
     {
         if (user.TryGetOperatorId() is not { } operatorId)
@@ -79,9 +96,13 @@ public static class ChatEndpoints
             return Results.BadRequest(new Problem(ex.Message));
         }
 
+        // The creator is the principal itself; resolve the handle with the
+        // tolerance the listing applies.
+        var creator = await operators.FindAsync(operatorId, cancellationToken);
+
         return Results.Created(
             $"/engagements/{engagement}/chat/channels/{channel.Id}",
-            ChatChannelResponse.Of(channel));
+            ChatChannelResponse.Of(channel, creator?.Handle ?? operatorId.ToString()));
     }
 
     private static async Task<IResult> ListMessagesAsync(
@@ -91,6 +112,7 @@ public static class ChatEndpoints
         string? cursor,
         ChatService chat,
         IEngagementRepository engagements,
+        IOperatorRepository operators,
         CancellationToken cancellationToken)
     {
         var (error, engagement) = await BindAsync(engagementId, engagements, cancellationToken);
@@ -119,8 +141,24 @@ public static class ChatEndpoints
         var nextCursor = page.HasMore && page.Items.Count > 0
             ? TimestampIdCursor.Encode(page.Items[0].SentAt, page.Items[0].Id.Value)
             : null;
+
+        // Resolve the page's authors to handles once per request, the
+        // tolerance the audit read applies (the bare id when the account no
+        // longer resolves): the member role cannot walk the operator roster
+        // to do it client-side, so the read names the actor itself.
+        var handles = new Dictionary<Guid, string>();
+        foreach (var id in page.Items.Select(m => m.AuthorId.Value).Distinct())
+        {
+            var op = await operators.FindAsync(new OperatorId(id), cancellationToken);
+            handles[id] = op?.Handle ?? id.ToString();
+        }
+
         return Results.Ok(new ChatMessageListResponse(
-            page.Items.Select(ChatMessageResponse.Of).ToArray(), nextCursor));
+            page.Items.Select(m => ChatMessageResponse.Of(
+                m,
+                handles.GetValueOrDefault(m.AuthorId.Value, m.AuthorId.Value.ToString())))
+                .ToArray(),
+            nextCursor));
     }
 
     private static async Task<IResult> SendAsync(
@@ -130,6 +168,7 @@ public static class ChatEndpoints
         ClaimsPrincipal user,
         ChatService chat,
         IEngagementRepository engagements,
+        IOperatorRepository operators,
         CancellationToken cancellationToken)
     {
         if (user.TryGetOperatorId() is not { } operatorId)
@@ -159,9 +198,13 @@ public static class ChatEndpoints
             return Results.BadRequest(new Problem(ex.Message));
         }
 
+        // The sender is the principal itself; resolve the handle with the
+        // tolerance the listing applies.
+        var author = await operators.FindAsync(operatorId, cancellationToken);
+
         return Results.Created(
             $"/engagements/{engagement}/chat/channels/{channel}/messages/{message.Id}",
-            ChatMessageResponse.Of(message));
+            ChatMessageResponse.Of(message, author?.Handle ?? operatorId.ToString()));
     }
 
     private static async Task<(IResult? Error, EngagementId Engagement)> BindAsync(
@@ -186,21 +229,31 @@ public static class ChatEndpoints
         string Id,
         string Name,
         string CreatedBy,
+        // The creating operator's handle, resolved at read time -- the member
+        // role cannot walk the operator roster to map the id client-side, so
+        // the read names the actor itself. The bare id stands in when the
+        // account no longer resolves.
+        string CreatedByHandle,
         DateTimeOffset CreatedAt)
     {
-        public static ChatChannelResponse Of(ChatChannel c)
-            => new(c.Id.ToString(), c.Name, c.CreatedBy.ToString(), c.CreatedAt);
+        public static ChatChannelResponse Of(ChatChannel c, string createdByHandle)
+            => new(c.Id.ToString(), c.Name, c.CreatedBy.ToString(), createdByHandle, c.CreatedAt);
     }
 
     public sealed record ChatMessageResponse(
         string Id,
         string ChannelId,
         string AuthorId,
+        // The sending operator's handle, resolved at read time -- the member
+        // role cannot walk the operator roster to map the id client-side, so
+        // the read names the actor itself. The bare id stands in when the
+        // account no longer resolves.
+        string AuthorHandle,
         string Body,
         DateTimeOffset SentAt)
     {
-        public static ChatMessageResponse Of(ChatMessage m)
-            => new(m.Id.ToString(), m.ChannelId.ToString(), m.AuthorId.ToString(), m.Body, m.SentAt);
+        public static ChatMessageResponse Of(ChatMessage m, string authorHandle)
+            => new(m.Id.ToString(), m.ChannelId.ToString(), m.AuthorId.ToString(), authorHandle, m.Body, m.SentAt);
     }
 
     public sealed record ChatChannelListResponse(IReadOnlyList<ChatChannelResponse> Items);

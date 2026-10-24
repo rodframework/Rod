@@ -113,7 +113,7 @@ public sealed class EngagementService
         await _engagements.SaveAsync(engagement, cancellationToken);
 
         var owner = await _operators.FindAsync(engagement.OwnerId, cancellationToken);
-        return new EngagementEdited(engagement, owner?.Handle ?? string.Empty);
+        return new EngagementEdited(engagement, owner?.Handle ?? engagement.OwnerId.ToString());
     }
 
     /// <summary>

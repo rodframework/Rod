@@ -42,6 +42,7 @@ public static class CommentEndpoints
         ClaimsPrincipal user,
         CommentService comments,
         IEngagementRepository engagements,
+        IOperatorRepository operators,
         CancellationToken cancellationToken)
     {
         // An unknown engagement is a routing problem (404); everything the
@@ -73,9 +74,14 @@ public static class CommentEndpoints
             return Results.BadRequest(new Problem(ex.Message));
         }
 
+        // The author is the principal itself; resolve the handle with the
+        // tolerance the listing applies (the bare id when the account no
+        // longer resolves).
+        var author = await operators.FindAsync(operatorId, cancellationToken);
+
         return Results.Created(
             $"/engagements/{engagement}/comments/{comment.Id}",
-            CommentResponse.Of(comment, editable: true));
+            CommentResponse.Of(comment, editable: true, author?.Handle ?? operatorId.ToString()));
     }
 
     private static async Task<IResult> ListAsync(
@@ -85,6 +91,7 @@ public static class CommentEndpoints
         ClaimsPrincipal user,
         CommentService comments,
         IEngagementRepository engagements,
+        IOperatorRepository operators,
         CancellationToken cancellationToken)
     {
         if (!EngagementId.TryParse(engagementId, out var engagement))
@@ -102,9 +109,25 @@ public static class CommentEndpoints
             return Results.BadRequest(new Problem("Subject id is not a valid identifier."));
 
         var items = await comments.ListBySubjectAsync(engagement, kind, subject, cancellationToken);
+
+        // Resolve the rows' authors to handles once per request, the
+        // tolerance the audit read applies (the bare id when the account no
+        // longer resolves): the member role cannot walk the operator roster
+        // to do it client-side, so the read names the actor itself.
+        var handles = new Dictionary<Guid, string>();
+        foreach (var id in items.Select(c => c.AuthorId.Value).Distinct())
+        {
+            var op = await operators.FindAsync(new OperatorId(id), cancellationToken);
+            handles[id] = op?.Handle ?? id.ToString();
+        }
+
         var editableFor = user.TryGetOperatorId();
         return Results.Ok(new CommentListResponse(
-            items.Select(c => CommentResponse.Of(c, editable: editableFor is { } viewer && comments.IsEditable(c, viewer))).ToArray()));
+            items.Select(c => CommentResponse.Of(
+                c,
+                editable: editableFor is { } viewer && comments.IsEditable(c, viewer),
+                handles.GetValueOrDefault(c.AuthorId.Value, c.AuthorId.Value.ToString())))
+                .ToArray()));
     }
 
     private static async Task<IResult> EditAsync(
@@ -114,6 +137,7 @@ public static class CommentEndpoints
         ClaimsPrincipal user,
         CommentService comments,
         IEngagementRepository engagements,
+        IOperatorRepository operators,
         CancellationToken cancellationToken)
     {
         if (user.TryGetOperatorId() is not { } operatorId)
@@ -141,9 +165,14 @@ public static class CommentEndpoints
             return Results.BadRequest(new Problem(ex.Message));
         }
 
-        return comment is null
-            ? Results.NotFound(new Problem("Comment does not exist in this engagement."))
-            : Results.Ok(CommentResponse.Of(comment, editable: true));
+        if (comment is null)
+            return Results.NotFound(new Problem("Comment does not exist in this engagement."));
+
+        // The author's handle, resolved with the same tolerance the listing
+        // applies.
+        var author = await operators.FindAsync(comment.AuthorId, cancellationToken);
+
+        return Results.Ok(CommentResponse.Of(comment, editable: true, author?.Handle ?? comment.AuthorId.ToString()));
     }
 
     private static async Task<IResult> DeleteAsync(
@@ -210,17 +239,23 @@ public static class CommentEndpoints
         string SubjectKind,
         string SubjectId,
         string AuthorId,
+        // The writing operator's handle, resolved at read time -- the member
+        // role cannot walk the operator roster to map the id client-side, so
+        // the read names the actor itself. The bare id stands in when the
+        // account no longer resolves.
+        string AuthorHandle,
         string Body,
         DateTimeOffset CreatedAt,
         DateTimeOffset? EditedAt,
         bool Editable)
     {
-        public static CommentResponse Of(Comment c, bool editable)
+        public static CommentResponse Of(Comment c, bool editable, string authorHandle)
             => new(
                 c.Id.ToString(),
                 c.SubjectKind.ToString().ToLowerInvariant(),
                 c.SubjectId.ToString(),
                 c.AuthorId.ToString(),
+                authorHandle,
                 c.Body,
                 c.CreatedAt,
                 c.EditedAt,
