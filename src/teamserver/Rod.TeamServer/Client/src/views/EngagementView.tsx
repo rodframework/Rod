@@ -29,7 +29,9 @@ import { WebShellsView } from './WebShellsView'
 import { TaskLogView } from './TaskLogView'
 import { AutomationView } from './AutomationView'
 import { NotificationsView } from './NotificationsView'
-import { IntelView } from './IntelView'
+import { TargetPictureView } from './TargetPictureView'
+import { CredentialsBoardView } from './CredentialsBoardView'
+import { LootBoardView } from './LootBoardView'
 import { MembersView } from './MembersView'
 import { ReconView } from './ReconView'
 import { ReconAssetsView } from './ReconAssetsView'
@@ -218,7 +220,7 @@ export function EngagementView({
         </nav>
       )}
       {sub === 'timeline' && <TimelineView engagementId={engagementId} onlineTick={tick} />}
-      {sub === 'picture' && <IntelView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'picture' && <TargetPictureView engagementId={engagementId} onlineTick={tick} />}
       {sub === 'workbench' && <ReconView engagementId={engagementId} onlineTick={tick} />}
       {sub === 'assets' && entityId && (
         <ReconAssetDetailView engagementId={engagementId} assetId={entityId} onlineTick={tick} />
@@ -261,10 +263,10 @@ export function EngagementView({
       {sub === 'launchers' && <LaunchersView engagementId={engagementId} onlineTick={tick} />}
       {sub === 'build' && <PayloadBuildView engagementId={engagementId} />}
       {sub === 'payloads' && <PayloadsView engagementId={engagementId} onlineTick={tick} />}
-      {/* Interim until the split boards land: the harvest and the exfil
-          board still live inside the target-picture view. */}
-      {sub === 'credentials' && <IntelView engagementId={engagementId} onlineTick={tick} />}
-      {sub === 'loot' && <IntelView engagementId={engagementId} onlineTick={tick} />}
+      {sub === 'credentials' && (
+        <CredentialsBoardView engagementId={engagementId} onlineTick={tick} />
+      )}
+      {sub === 'loot' && <LootBoardView engagementId={engagementId} onlineTick={tick} />}
       <button
         className={chatOpen ? 'ghost sm chat-toggle active' : 'ghost sm chat-toggle'}
         title={chatOpen ? 'Close the watch channel' : 'Open the watch channel'}

@@ -1,77 +1,63 @@
 import { useCallback, useEffect, useState } from 'react'
-import { CommentsPanel } from '../components/CommentsPanel'
 import {
-  type CredentialRow,
   type HostEntry,
   type HostNote,
-  type LootEntry,
   type Topology,
   addHostNote,
   clearHostLabel,
-  fetchArtifactBlob,
   getTopology,
-  listCredentials,
   listHostNotes,
   listHosts,
-  listLoot,
   setHostLabel,
 } from '../api'
 import { HelpHint } from '../components/HelpHint'
-import { Icon } from '../components/Icons'
-import { saveBlob } from '../download'
 
-// The target-intel view (architecture.md Sec 11.2): what the engagement
-// learned, organized as a picture instead of transcripts. Four sections
-// share one card: the host roster (the enrollment-hostname grouping with the
-// crew's attributed labels and notes), the typed loot board (the artifact
-// store classified by what gathered each piece), the credential board (the
-// read-time projection over every task whose verb declared credential
-// output -- any module's harvest, architecture.md Sec 15.2), and the
-// topology graph (hosts, pivot links, and recon observations assembled at
-// read time). Everything is a read of stores that already hold the data; the
-// only writes are the label and note facts, which land in the audit trail
-// like their implant-side twins.
+// The target picture (architecture.md Sec 11.2): what the engagement
+// learned about the target, organized as a picture instead of
+// transcripts -- the recon slot's read half (the workbench fills it).
+// Two sections share one card: the host roster (the enrollment-hostname
+// grouping with the crew's attributed labels and notes) and the
+// topology graph (hosts, pivot links, and recon observations assembled
+// at read time). Everything is a read of stores that already hold the
+// data; the only writes are the label and note facts, which land in the
+// audit trail like their implant-side twins. The loot and credential
+// boards moved to the assets slot with the slots rework -- they are
+// what the engagement holds, not what it learned about the target.
 
-type Section = 'hosts' | 'loot' | 'credentials' | 'topology'
+type Section = 'hosts' | 'topology'
 
-const LOOT_KINDS = ['screenshot', 'credential', 'file', 'other'] as const
-
-export function IntelView({ engagementId, onlineTick }: { engagementId: string; onlineTick: number }) {
+export function TargetPictureView({
+  engagementId,
+  onlineTick,
+}: {
+  engagementId: string
+  onlineTick: number
+}) {
   const [section, setSection] = useState<Section>('hosts')
   return (
     <section className="view">
       <h2>
-        Intel
+        Target picture
         <HelpHint>
-          What the engagement learned: hosts grouped by the name they reported at enroll, loot
-          typed by what gathered it, credentials harvested by any verb that declared them, and
-          the network picture with its pivot links. Labels and notes are attributed trail
-          facts; opening loot records the pull.
+          What the engagement learned about the target: hosts grouped by the name they reported
+          at enroll, and the network picture with its pivot links and recon observations.
+          Labels and notes are attributed trail facts. The recon workbench fills the picture;
+          the assets slot holds what the engagement gathered from it.
         </HelpHint>
       </h2>
       <div className="card">
         <div className="table-toolbar">
-          {(['hosts', 'loot', 'credentials', 'topology'] as const).map((s) => (
+          {(['hosts', 'topology'] as const).map((s) => (
             <button
               key={s}
               className={section === s ? 'sm' : 'ghost sm'}
               onClick={() => setSection(s)}
             >
-              {s === 'hosts'
-                ? 'Hosts'
-                : s === 'loot'
-                  ? 'Loot'
-                  : s === 'credentials'
-                    ? 'Credentials'
-                    : 'Topology'}
+              {s === 'hosts' ? 'Hosts' : 'Topology'}
             </button>
           ))}
         </div>
         {section === 'hosts' && <HostsSection engagementId={engagementId} onlineTick={onlineTick} />}
-        {section === 'loot' && <LootSection engagementId={engagementId} onlineTick={onlineTick} />}
-        {section === 'credentials' && (
-          <CredentialsSection engagementId={engagementId} onlineTick={onlineTick} />
-        )}
         {section === 'topology' && <TopologySection engagementId={engagementId} onlineTick={onlineTick} />}
       </div>
     </section>
@@ -131,7 +117,7 @@ function HostsSection({ engagementId, onlineTick }: { engagementId: string; onli
       {ungrouped.length > 0 && (
         <p className="muted">
           {ungrouped.length} implant{ungrouped.length === 1 ? '' : 's'} reported no hostname and
-          stands alone (see the Implants tab).
+          stands alone (see the fleet under Action).
         </p>
       )}
       {hosts.length === 0 && <p className="muted">No hosts in the picture yet.</p>}
@@ -313,220 +299,6 @@ function HostFacts({
   )
 }
 
-// --- Loot: the typed board over the artifact store -------------------------
-
-function LootSection({ engagementId, onlineTick }: { engagementId: string; onlineTick: number }) {
-  const [kind, setKind] = useState<string>('')
-  const [items, setItems] = useState<LootEntry[]>([])
-  const [cursor, setCursor] = useState<string | null>(null)
-  const [preview, setPreview] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const page = await listLoot(engagementId, kind || undefined)
-        if (cancelled) return
-        setItems(page.items)
-        setCursor(page.nextCursor)
-        setError(null)
-      } catch (e) {
-        if (!cancelled) setError(String(e))
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [engagementId, kind, onlineTick])
-
-  const loadOlder = async () => {
-    if (!cursor) return
-    try {
-      const page = await listLoot(engagementId, kind || undefined, cursor)
-      setItems((current) => [...current, ...page.items])
-      setCursor(page.nextCursor)
-    } catch (e) {
-      setError(String(e))
-    }
-  }
-
-  const open = async (entry: LootEntry) => {
-    try {
-      const blob = await fetchArtifactBlob(engagementId, entry.artifactId)
-      if (entry.kind === 'screenshot') {
-        setPreview((current) => {
-          if (current) URL.revokeObjectURL(current)
-          return URL.createObjectURL(blob)
-        })
-        return
-      }
-      saveBlob(blob, entry.name)
-    } catch (e) {
-      setError(String(e))
-    }
-  }
-
-  return (
-    <div>
-      <div className="table-toolbar">
-        <button className={kind === '' ? 'sm' : 'ghost sm'} onClick={() => setKind('')}>
-          All
-        </button>
-        {LOOT_KINDS.map((k) => (
-          <button
-            key={k}
-            className={kind === k ? 'sm' : 'ghost sm'}
-            onClick={() => setKind(k)}
-          >
-            {k.charAt(0).toUpperCase() + k.slice(1)}
-          </button>
-        ))}
-      </div>
-      {preview && (
-        <div className="loot-preview">
-          <img src={preview} alt="captured screenshot" />
-          <button
-            className="ghost sm"
-            onClick={() => {
-              URL.revokeObjectURL(preview)
-              setPreview(null)
-            }}
-          >
-            Close preview
-          </button>
-        </div>
-      )}
-      <table>
-        <thead>
-          <tr>
-            <th>Captured</th>
-            <th>Kind</th>
-            <th>Name</th>
-            <th>Gathered by</th>
-            <th>Size</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((entry) => (
-            <LootRow
-              key={entry.artifactId}
-              engagementId={engagementId}
-              entry={entry}
-              onOpen={() => void open(entry)}
-            />
-          ))}
-        </tbody>
-      </table>
-      {items.length === 0 && <p className="muted">No loot captured yet.</p>}
-      {cursor && (
-        <button className="ghost sm" onClick={() => void loadOlder()}>
-          Load older
-        </button>
-      )}
-      {error && <p className="error">{error}</p>}
-    </div>
-  )
-}
-
-function formatBytes(size: number): string {
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KiB`
-  return `${(size / (1024 * 1024)).toFixed(1)} MiB`
-}
-
-// --- Credentials: the harvest board ----------------------------------------
-//
-// The read-time projection over every completed task whose verb declared
-// credential output (architecture.md Sec 15.2's second contract): any
-// module's harvest lands here through its declaration alone. Secrets stay
-// masked until revealed; the rows carry their capture attribution.
-
-function CredentialsSection({ engagementId, onlineTick }: { engagementId: string; onlineTick: number }) {
-  const [rows, setRows] = useState<CredentialRow[] | null>(null)
-  const [revealed, setRevealed] = useState<Set<number>>(new Set())
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const list = await listCredentials(engagementId)
-        if (!cancelled) {
-          setRows(list)
-          setError(null)
-        }
-      } catch (e) {
-        if (!cancelled) setError(String(e))
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [engagementId, onlineTick])
-
-  if (error) return <p className="error">{error}</p>
-  if (!rows) return <p className="muted">Assembling the harvest…</p>
-
-  return (
-    <div>
-      <table>
-        <thead>
-          <tr>
-            <th>Captured</th>
-            <th>Kind</th>
-            <th>Principal</th>
-            <th>Secret</th>
-            <th>Source</th>
-            <th>Host</th>
-            <th>Harvested by</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => (
-            <tr key={`${row.verb}-${row.principal}-${index}`}>
-              <td>{new Date(row.capturedAt).toLocaleString()}</td>
-              <td>
-                <span className="chip">{row.kind}</span>
-              </td>
-              <td>
-                <code>{row.principal}</code>
-              </td>
-              <td>
-                {row.secret === null ? (
-                  <span className="muted">—</span>
-                ) : revealed.has(index) ? (
-                  <code>{row.secret}</code>
-                ) : (
-                  <button
-                    className="ghost sm"
-                    onClick={() => setRevealed((current) => new Set(current).add(index))}
-                  >
-                    Reveal
-                  </button>
-                )}
-              </td>
-              <td>{row.source ?? <span className="muted">—</span>}</td>
-              <td>{row.host ?? <span className="muted">—</span>}</td>
-              <td title={row.taskId ? `task ${row.taskId}` : undefined}>
-                {row.verb}
-                {row.implantId ? ` (implant ${row.implantId.slice(0, 8)})` : ''}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {rows.length === 0 && (
-        <p className="muted">
-          No credentials harvested yet -- any verb that declares credential output lands its
-          rows here.
-        </p>
-      )}
-    </div>
-  )
-}
-
 // --- Topology: the assembled network picture --------------------------------
 
 function TopologySection({ engagementId, onlineTick }: { engagementId: string; onlineTick: number }) {
@@ -698,60 +470,5 @@ function TopologyGraph({ topology }: { topology: Topology }) {
         </details>
       )}
     </div>
-  )
-}
-
-// One loot row with the artifact's comments folded behind a chevron: a
-// working note on a captured file is process knowledge on that artifact.
-function LootRow({
-  engagementId,
-  entry,
-  onOpen,
-}: {
-  engagementId: string
-  entry: LootEntry
-  onOpen: () => void
-}) {
-  const [open, setOpen] = useState(false)
-  return (
-    <>
-      <tr>
-        <td>
-          <button
-            className={`ghost sm row-expand${open ? ' open' : ''}`}
-            title={open ? 'Hide comments' : 'Comments on this artifact'}
-            onClick={() => setOpen((v) => !v)}
-          >
-            <Icon name={open ? 'chevronDown' : 'chevronRight'} />
-          </button>{' '}
-          {new Date(entry.storedAt).toLocaleString()}
-        </td>
-        <td>
-          <span className="chip">{entry.kind}</span>
-        </td>
-        <td title={entry.contentType}>{entry.name}</td>
-        <td title={entry.taskId ? `task ${entry.taskId}` : 'pre-foothold finding'}>
-          {entry.verb ?? '—'}
-          {entry.implantId ? ` (implant ${entry.implantId.slice(0, 8)})` : ''}
-        </td>
-        <td>{formatBytes(entry.size)}</td>
-        <td>
-          <button className="ghost sm" onClick={onOpen}>
-            {entry.kind === 'screenshot' ? 'Open' : 'Download'}
-          </button>
-        </td>
-      </tr>
-      {open && (
-        <tr>
-          <td colSpan={6}>
-            <CommentsPanel
-              engagementId={engagementId}
-              subjectKind="artifact"
-              subjectId={entry.artifactId}
-            />
-          </td>
-        </tr>
-      )}
-    </>
   )
 }
