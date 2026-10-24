@@ -6,6 +6,8 @@ import { Icon } from './components/Icons'
 import { EngagementNav } from './components/Nav'
 import { useLive } from './shell'
 import { resolveEngagementLocation } from './slots'
+import { SLOTS, engagementPath } from './slots'
+import { useTableDensity } from './clientPrefs'
 import { EngagementView } from './views/EngagementView'
 import { EngagementsView } from './views/EngagementsView'
 import { HomeView } from './views/HomeView'
@@ -216,6 +218,27 @@ function RecentEngagements() {
   )
 }
 
+// The density toggle (ADR-013): comfortable is the reading posture,
+// compact the scanning one. Browser-local and instant -- the shell's
+// data attribute cascades into every table and feed row.
+function DensityToggle() {
+  const [density, setDensity] = useTableDensity()
+  const compact = density === 'compact'
+  return (
+    <button
+      className="ghost sm"
+      onClick={() => setDensity(compact ? 'comfortable' : 'compact')}
+      title={
+        compact
+          ? 'Tables are compact (scanning posture). Click for comfortable rows.'
+          : 'Tables are comfortable (reading posture). Click for compact rows.'
+      }
+    >
+      {compact ? 'Compact' : 'Comfortable'}
+    </button>
+  )
+}
+
 // The engagement's position in the topbar: its name once resolved, then the
 // short id chip every other surface joins by.
 function EngagementCrumb({ engagementId }: { engagementId: string }) {
@@ -284,6 +307,7 @@ function Topbar({
         >
           Search… <kbd>ctrl k</kbd>
         </button>
+        <DensityToggle />
         {live && route.kind === 'engagement' && (
           <>
             <span
@@ -447,6 +471,8 @@ function App() {
   // The command palette (docs/operations/operator-ui.md): Ctrl+K opens it
   // anywhere in the authenticated shell, Esc closes it.
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // The density every table and feed row inherits (ADR-013).
+  const [density] = useTableDensity()
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -458,6 +484,42 @@ function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  // Slot jumps (ADR-013's keyboard-first console): g then the slot's
+  // number (1-7, the sidebar's order) navigates while an engagement is
+  // open. The chord dies on a pause, any other key, a modifier, or focus
+  // in a field -- it must never eat an operator's typing.
+  useEffect(() => {
+    let goAt = 0
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const typing =
+        !!target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      if (typing || event.ctrlKey || event.metaKey || event.altKey) {
+        goAt = 0
+        return
+      }
+      if (event.key === 'g' || event.key === 'G') {
+        goAt = Date.now()
+        return
+      }
+      if (goAt > 0 && Date.now() - goAt < 1500 && /^[1-7]$/.test(event.key)) {
+        goAt = 0
+        if (route.kind === 'engagement') {
+          const slot = SLOTS[Number(event.key) - 1]
+          window.location.hash = engagementPath(route.engagementId, slot.subs[0].id)
+        }
+        return
+      }
+      goAt = 0
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [route])
 
   useEffect(() => {
     let cancelled = false
@@ -514,7 +576,7 @@ function App() {
     route.kind === 'engagement' ? resolveEngagementLocation(route) : null
 
   return (
-    <div className="shell">
+    <div className="shell" data-density={density}>
       <aside className="sidebar">
         <a className="brand" href="#/" title="Back to the home dashboard">
           <img className="brand-logo" src="brand-logo.png" alt="" width="28" height="28" />

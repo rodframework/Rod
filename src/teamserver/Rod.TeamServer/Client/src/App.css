@@ -824,6 +824,27 @@ th {
   white-space: nowrap;
 }
 
+/* The compact posture (ADR-013's density toggle): tighter cells and
+   feed rows for scanning -- the shell's data-density attribute
+   cascades into every listing; comfortable (the default above) is the
+   reading posture. */
+.shell[data-density='compact'] th,
+.shell[data-density='compact'] td {
+  padding: 4px 8px;
+}
+
+.shell[data-density='compact'] table {
+  font-size: 12px;
+}
+
+.shell[data-density='compact'] .timeline-body {
+  padding: 3px 8px;
+}
+
+.shell[data-density='compact'] .detail-fact {
+  grid-template-columns: 100px minmax(0, 1fr);
+}
+
 /* --- Table toolbar / sorting / paging ---------------------------------------- */
 
 /* The shared disclosure chevron: every table whose rows unfold a detail

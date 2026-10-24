@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  type Campaign,
   type Engagement,
   type Implant,
+  type ReconAsset,
   type SearchHitRow,
   type TaskSnippet,
   deleteTaskSnippet,
   issueTask,
+  listCampaigns,
   listEngagements,
   listImplants,
+  listReconAssets,
   listTaskSnippets,
   searchEngagement,
 } from '../api'
@@ -95,6 +99,8 @@ export function CommandPalette({
   const [inspect, setInspect] = useState<TaskSnippet | null>(null)
 
   const [implants, setImplants] = useState<Implant[]>([])
+  const [campaigns, setCampaigns] = useState<Campaign[]>([])
+  const [assets, setAssets] = useState<ReconAsset[]>([])
   const [snippets, setSnippets] = useState<TaskSnippet[]>([])
   // The engagement-wide server search (architecture.md Sec 15.3): the same
   // query that fuzzy-matches the palette's local entries also asks the
@@ -119,11 +125,17 @@ export function CommandPalette({
           listImplants(engagementId).catch(() => [] as Implant[]),
           loadCapabilityGroups().catch(() => [] as CapabilityGroup[]),
           listTaskSnippets(engagementId).catch(() => [] as TaskSnippet[]),
-        ]).then(([fleet, catalog, saved]) => {
+          // The entity kinds with detail pages: the palette jumps
+          // straight to them, beside the implants it already reached.
+          listCampaigns(engagementId).catch(() => [] as Campaign[]),
+          listReconAssets(engagementId).catch(() => [] as ReconAsset[]),
+        ]).then(([fleet, catalog, saved, campaigns, assets]) => {
           if (cancelled) return
           setImplants(fleet)
           setGroups(catalog)
           setSnippets(saved)
+          setCampaigns(campaigns)
+          setAssets(assets)
         })
       : listEngagements()
           .catch(() => [] as Engagement[])
@@ -344,6 +356,30 @@ export function CommandPalette({
       for (const implant of implants) {
         list.push(implantEntry(implant, () => navigate(consoleOf(implant.implantId))))
       }
+      for (const campaign of campaigns) {
+        list.push({
+          key: `campaign:${campaign.campaignId}`,
+          section: 'navigate',
+          label: campaign.name,
+          detail: `campaign · ${campaign.state}`,
+          keywords: [campaign.name, 'campaign'],
+          bonus: 0,
+          icon: 'send',
+          run: () => navigate(engagementPath(engagementId, 'campaigns', campaign.campaignId)),
+        })
+      }
+      for (const asset of assets) {
+        list.push({
+          key: `asset:${asset.assetId}`,
+          section: 'navigate',
+          label: asset.displayName ?? asset.value,
+          detail: `recon asset · ${asset.kind}`,
+          keywords: [asset.value, asset.displayName ?? '', 'recon asset', asset.kind],
+          bonus: 0,
+          icon: 'target',
+          run: () => navigate(engagementPath(engagementId, 'assets', asset.assetId)),
+        })
+      }
     } else {
       for (const engagement of engagements) {
         list.push({
@@ -414,7 +450,7 @@ export function CommandPalette({
     // the data the list is built from, and every handler re-reads its
     // action from the loop variable rather than from a cached snapshot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, engagementId, implants, snippets, descriptors, engagements, contextImplantId, serverHits])
+  }, [pending, engagementId, implants, snippets, descriptors, engagements, contextImplantId, serverHits, campaigns, assets])
 
   const matches = useMemo(() => {
     if (query.trim() === '') return entries.slice(0, MAX_ENTRIES)
