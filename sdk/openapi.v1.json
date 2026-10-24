@@ -5974,6 +5974,7 @@
           "taskId",
           "implantId",
           "issuedBy",
+          "issuedByHandle",
           "verb",
           "arguments",
           "status",
@@ -5991,6 +5992,9 @@
             "type": "string"
           },
           "issuedBy": {
+            "type": "string"
+          },
+          "issuedByHandle": {
             "type": "string"
           },
           "verb": {
@@ -6678,6 +6682,7 @@
           "engagementId",
           "implantId",
           "issuedBy",
+          "issuedByHandle",
           "verb",
           "arguments",
           "status",
@@ -6701,6 +6706,9 @@
             "type": "string"
           },
           "issuedBy": {
+            "type": "string"
+          },
+          "issuedByHandle": {
             "type": "string"
           },
           "verb": {

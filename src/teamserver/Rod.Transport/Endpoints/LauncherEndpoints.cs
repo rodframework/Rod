@@ -77,6 +77,7 @@ public static class LauncherEndpoints
         IPayloadStore payloads,
         IDeployTokenService tokens,
         ILauncherStore launchers,
+        IOperatorRepository operators,
         IAuditStore audit,
         TimeProvider clock,
         CancellationToken cancellationToken)
@@ -136,13 +137,24 @@ public static class LauncherEndpoints
             operatorId.Value);
         await launchers.SaveAsync(row, cancellationToken);
 
-        return Results.Ok(await ResponseOfAsync(row, set.Launchers, set.Payload.Fingerprint, tokens, cancellationToken));
+        // The renderer is the principal itself; resolve the handle with the
+        // tolerance the listing applies.
+        var creator = await operators.FindAsync(operatorId.Value, cancellationToken);
+
+        return Results.Ok(await ResponseOfAsync(
+            row,
+            set.Launchers,
+            set.Payload.Fingerprint,
+            creator?.Handle ?? operatorId.Value.ToString(),
+            tokens,
+            cancellationToken));
     }
 
     private static async Task<IResult> ListLaunchersAsync(
         string engagementId,
         ILauncherStore launchers,
         IPayloadStore payloads,
+        IOperatorRepository operators,
         IDeployTokenService tokens,
         CancellationToken cancellationToken)
     {
@@ -150,6 +162,18 @@ public static class LauncherEndpoints
             return Results.BadRequest(new Problem("Engagement id is not a valid identifier."));
 
         var rows = await launchers.ListByEngagementAsync(engagement, cancellationToken);
+
+        // Resolve the rows' cutting operators to handles once per request,
+        // the tolerance the audit read applies (the bare id when the account
+        // no longer resolves): the member role cannot walk the operator
+        // roster to do it client-side, so the read names the actor itself.
+        var handles = new Dictionary<Guid, string>();
+        foreach (var id in rows.Select(r => r.CreatedBy.Value).Where(id => id != Guid.Empty).Distinct())
+        {
+            var op = await operators.FindAsync(new OperatorId(id), cancellationToken);
+            handles[id] = op?.Handle ?? id.ToString();
+        }
+
         var body = new List<LauncherResponse>();
         foreach (var row in rows)
         {
@@ -165,7 +189,13 @@ public static class LauncherEndpoints
                 .Select(l => new ShellLauncherResponse(l.Id, l.Os, l.Command))
                 .ToArray();
             var delivered = await payloads.FindAsync(row.PayloadId, engagement.Value, cancellationToken);
-            body.Add(await ResponseOfAsync(row, rendered, delivered?.Fingerprint, tokens, cancellationToken));
+            body.Add(await ResponseOfAsync(
+                row,
+                rendered,
+                delivered?.Fingerprint,
+                handles.GetValueOrDefault(row.CreatedBy.Value, row.CreatedBy.Value.ToString()),
+                tokens,
+                cancellationToken));
         }
         return Results.Ok(body);
     }
@@ -308,6 +338,7 @@ public static class LauncherEndpoints
         Launcher row,
         IReadOnlyList<ShellLauncherResponse> commands,
         string? payloadFingerprint,
+        string createdByHandle,
         IDeployTokenService tokens,
         CancellationToken cancellationToken)
     {
@@ -324,6 +355,7 @@ public static class LauncherEndpoints
             row.ExpiresAt,
             row.CreatedAt,
             row.CreatedBy.ToString(),
+            createdByHandle,
             row.RevokedAt,
             TokenRemainingUses: state is null ? null : state.RemainingUses,
             TokenExpiresAt: state?.ExpiresAt,
@@ -367,6 +399,11 @@ public static class LauncherEndpoints
         DateTimeOffset ExpiresAt,
         DateTimeOffset CreatedAt,
         string CreatedBy,
+        // The cutting operator's handle, resolved at read time -- the member
+        // role cannot walk the operator roster to map the id client-side, so
+        // the read names the actor itself. The bare id stands in when the
+        // account no longer resolves.
+        string CreatedByHandle,
         DateTimeOffset? RevokedAt,
         int? TokenRemainingUses,
         DateTimeOffset? TokenExpiresAt,

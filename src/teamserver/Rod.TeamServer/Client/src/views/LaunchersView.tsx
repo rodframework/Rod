@@ -680,7 +680,7 @@ export function LaunchersView({
                           </button>
                         )}
                       </td>
-                      <td title={`Cut by ${row.createdBy}`}>
+                      <td title={`Cut by ${row.createdByHandle}`}>
                         {new Date(row.createdAt).toLocaleString()}
                       </td>
                       <td>

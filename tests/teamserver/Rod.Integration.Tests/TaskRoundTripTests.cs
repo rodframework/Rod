@@ -8,6 +8,7 @@ using Rod.CoreState;
 using Rod.CoreState.Engagements;
 using Rod.CoreState.Implants;
 using Rod.Transport;
+using Rod.Transport.Endpoints;
 using Rod.V1;
 using static Rod.Integration.Tests.TestSupport;
 
@@ -96,6 +97,71 @@ public class TaskRoundTripTests
         // The task arc is attributed to the authenticated operator, not any
         // client-supplied identity.
         Assert.Contains(trail, e => e.Kind == AuditEventKind.TaskIssued && e.OperatorId == env.OperatorId.Value);
+    }
+
+    [Fact]
+    public async Task TaskReads_NameTheIssuingOperatorByHandle()
+    {
+        await using var env = await TestEnv.StartAsync();
+        var implant = await EngagementSetup.EnrollOwnedImplantAsync(env.Host);
+
+        // A queued task is enough -- the reads under test are the listings
+        // and the detail, not the completion arc.
+        await AuthenticatedHost.LoginAsync(env.Http);
+        var issued = await env.Http.PostAsJsonAsync(
+            $"/engagements/{implant.EngagementId}/tasks",
+            new { ImplantId = implant.Id.ToString(), Verb = "shell.exec", Arguments = "whoami" });
+        issued.EnsureSuccessStatusCode();
+        var issuedBody = await issued.Content.ReadFromJsonAsync<TaskIssuedBody>();
+        Assert.NotNull(issuedBody);
+
+        // The engagement-wide listing, the per-implant listing, and the
+        // detail agree: the row names the issuing operator by handle,
+        // resolved on the read -- the member role cannot walk the operator
+        // roster to do it client-side.
+        var engagementPage = await env.Http.GetFromJsonAsync<TaskEndpoints.TaskListResponse>(
+            $"/engagements/{implant.EngagementId}/tasks");
+        var engagementRow = Assert.Single(engagementPage!.Items, t => t.TaskId == issuedBody!.TaskId);
+        Assert.Equal(AuthenticatedHost.Handle, engagementRow.IssuedByHandle);
+
+        var implantPage = await env.Http.GetFromJsonAsync<TaskEndpoints.TaskListResponse>(
+            $"/engagements/{implant.EngagementId}/implants/{implant.Id}/tasks");
+        var implantRow = Assert.Single(implantPage!.Items, t => t.TaskId == issuedBody.TaskId);
+        Assert.Equal(AuthenticatedHost.Handle, implantRow.IssuedByHandle);
+
+        var detail = await env.Http.GetFromJsonAsync<TaskEndpoints.TaskResponse>(
+            $"/engagements/{implant.EngagementId}/tasks/{issuedBody.TaskId}");
+        Assert.Equal(AuthenticatedHost.Handle, detail!.IssuedByHandle);
+
+        // A member beside the engagement's lead: the reads must name whoever
+        // actually issued the task, not the session that opened the
+        // engagement, and the member's own session resolves the same way.
+        await AuthenticatedHost.RegisterOperatorAsync(env.Host, "runner", "runner-p@ss!");
+        var added = await env.Http.PostAsJsonAsync(
+            $"/engagements/{implant.EngagementId}/members", new { handle = "runner", role = "writer" });
+        added.EnsureSuccessStatusCode();
+
+        // A real-socket client for the member's own session, the same shape
+        // the env's lead client takes.
+        var member = new HttpClient(new CookieHandler(new HttpClientHandler()))
+        {
+            BaseAddress = new Uri($"http://127.0.0.1:{env.HttpPort}"),
+        };
+        using (member)
+        {
+            await AuthenticatedHost.LoginAsync(member, "runner", "runner-p@ss!");
+            var memberIssued = await member.PostAsJsonAsync(
+                $"/engagements/{implant.EngagementId}/tasks",
+                new { ImplantId = implant.Id.ToString(), Verb = "shell.exec", Arguments = "id" });
+            memberIssued.EnsureSuccessStatusCode();
+            var memberBody = await memberIssued.Content.ReadFromJsonAsync<TaskIssuedBody>();
+            Assert.NotNull(memberBody);
+
+            var memberPage = await member.GetFromJsonAsync<TaskEndpoints.TaskListResponse>(
+                $"/engagements/{implant.EngagementId}/tasks");
+            Assert.Equal("runner",
+                Assert.Single(memberPage!.Items, t => t.TaskId == memberBody!.TaskId).IssuedByHandle);
+        }
     }
 
     [Fact]

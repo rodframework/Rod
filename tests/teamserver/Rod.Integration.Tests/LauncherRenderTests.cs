@@ -180,6 +180,11 @@ public class LauncherRenderTests
         Assert.Equal("sha256:test", kept.PayloadFingerprint);
         Assert.Contains(kept.Launchers, l => l.Command.Contains(kept.TokenSecret));
 
+        // Provenance names the cutting operator by handle, resolved on the
+        // read -- the member role cannot walk the operator roster to do it.
+        Assert.Equal(AuthenticatedHost.Handle, row.CreatedByHandle);
+        Assert.Equal(AuthenticatedHost.Handle, kept.CreatedByHandle);
+
         // A deleted payload drops the join: the row still names the id it
         // delivered, and the fingerprint reads null.
         Assert.True(await payloads.RemoveAsync(payloadId, engagement.Value));
@@ -442,6 +447,7 @@ public class LauncherRenderTests
         DateTimeOffset ExpiresAt,
         DateTimeOffset CreatedAt,
         string CreatedBy,
+        string CreatedByHandle,
         DateTimeOffset? RevokedAt,
         int? TokenRemainingUses,
         DateTimeOffset? TokenExpiresAt,

@@ -281,6 +281,7 @@ public static class TaskEndpoints
         int? limit,
         string? cursor,
         ITaskRepository tasks,
+        IOperatorRepository operators,
         CancellationToken cancellationToken)
     {
         if (!Guid.TryParse(engagementId, out var engagementValue))
@@ -303,18 +304,33 @@ public static class TaskEndpoints
             boundLimit,
             boundCursor,
             cancellationToken);
+
+        // Resolve the page's issuing operators to handles once per request,
+        // the tolerance the audit read applies (the bare id when the account
+        // no longer resolves): the member role cannot walk the operator
+        // roster to do it client-side, so the read names the actor itself.
+        var handles = new Dictionary<Guid, string>();
+        foreach (var id in page.Items.Select(t => t.IssuedBy.Value).Where(id => id != Guid.Empty).Distinct())
+        {
+            var op = await operators.FindAsync(new OperatorId(id), cancellationToken);
+            handles[id] = op?.Handle ?? id.ToString();
+        }
+
         var body = new TaskListResponse(
-            page.Items.Select(ToResponse).ToArray(),
+            page.Items
+                .Select(t => ToResponse(t, handles.GetValueOrDefault(t.IssuedBy.Value, t.IssuedBy.Value.ToString())))
+                .ToArray(),
             page.NextCursor);
 
         return TypedResults.Ok(body);
     }
 
-    private static ImplantEndpoints.ImplantTaskResponse ToResponse(Task t)
+    private static ImplantEndpoints.ImplantTaskResponse ToResponse(Task t, string issuedByHandle)
         => new(
             t.Id.ToString(),
             t.ImplantId.ToString(),
             t.IssuedBy.ToString(),
+            issuedByHandle,
             t.Verb,
             t.Arguments,
             t.Status.ToString(),
@@ -328,6 +344,7 @@ public static class TaskEndpoints
         string taskId,
         TaskService service,
         ITaskRepository tasks,
+        IOperatorRepository operators,
         IAuditStore audit,
         CancellationToken cancellationToken)
     {
@@ -342,7 +359,11 @@ public static class TaskEndpoints
 
         var events = await audit.ForTaskAsync(task.Id.Value, cancellationToken);
 
-        return TypedResults.Ok(TaskResponse.Of(task, events));
+        // The issuer's handle, resolved with the same tolerance the listing
+        // applies.
+        var issuer = await operators.FindAsync(task.IssuedBy, cancellationToken);
+
+        return TypedResults.Ok(TaskResponse.Of(task, events, issuer?.Handle ?? task.IssuedBy.ToString()));
     }
 
     // Retract a queued task before the implant wakes (architecture.md Sec
@@ -837,6 +858,11 @@ public static class TaskEndpoints
         string EngagementId,
         string ImplantId,
         string IssuedBy,
+        // The issuing operator's handle, resolved at read time -- the member
+        // role cannot walk the operator roster to map the id client-side, so
+        // the read names the actor itself. The bare id stands in when the
+        // account no longer resolves.
+        string IssuedByHandle,
         string Verb,
         string Arguments,
         string Status,
@@ -848,12 +874,13 @@ public static class TaskEndpoints
         DateTimeOffset? CancelledAt,
         AuditEventResponse[] Audit)
     {
-        public static TaskResponse Of(Task task, IReadOnlyList<AuditEvent> events)
+        public static TaskResponse Of(Task task, IReadOnlyList<AuditEvent> events, string issuedByHandle)
             => new(
                 task.Id.ToString(),
                 task.EngagementId.ToString(),
                 task.ImplantId.ToString(),
                 task.IssuedBy.ToString(),
+                issuedByHandle,
                 task.Verb,
                 task.Arguments,
                 task.Status.ToString(),

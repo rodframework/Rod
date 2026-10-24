@@ -926,7 +926,9 @@ export function HomeView() {
                       <span className="recent-engagement" title={engagement.engagementId}>
                         {engagement.name}
                       </span>
-                      <span className="muted">{task.issuedBy}</span>
+                      <span className="muted" title={task.issuedBy}>
+                        {task.issuedByHandle}
+                      </span>
                     </a>
                   ))}
                 </div>

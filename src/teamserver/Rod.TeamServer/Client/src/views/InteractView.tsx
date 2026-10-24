@@ -551,7 +551,9 @@ function ConsoleBlock({
         </span>
         <code className="v">{task.verb}</code>
         <span className="args">{task.arguments.length > 0 ? ellipsize(task.arguments) : ''}</span>
-        <span className="by">{task.issuedBy === operatorId ? 'you' : task.issuedBy.slice(0, 8)}</span>
+        <span className="by" title={task.issuedBy}>
+          {task.issuedBy === operatorId ? 'you' : task.issuedByHandle}
+        </span>
         <span className="acts" onClick={(e) => e.stopPropagation()}>
           {task.status === 'Queued' && (
             <button className="danger sm" onClick={onCancel}>

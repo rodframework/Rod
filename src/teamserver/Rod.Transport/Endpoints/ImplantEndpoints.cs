@@ -231,6 +231,7 @@ public static class ImplantEndpoints
         string? cursor,
         IImplantRepository implants,
         ITaskRepository tasks,
+        IOperatorRepository operators,
         CancellationToken cancellationToken)
     {
         if (!Guid.TryParse(engagementId, out var engagementValue))
@@ -253,12 +254,25 @@ public static class ImplantEndpoints
         // envelope as the engagement-wide listing.
         var page = await tasks.ListByImplantPageAsync(
             new ImplantId(implantValue), boundLimit, boundCursor, cancellationToken);
+
+        // Resolve the page's issuing operators to handles once per request,
+        // the tolerance the audit read applies (the bare id when the account
+        // no longer resolves) -- the same resolution the engagement-wide
+        // listing performs, so the two task-list shapes agree.
+        var handles = new Dictionary<Guid, string>();
+        foreach (var id in page.Items.Select(t => t.IssuedBy.Value).Where(id => id != Guid.Empty).Distinct())
+        {
+            var op = await operators.FindAsync(new OperatorId(id), cancellationToken);
+            handles[id] = op?.Handle ?? id.ToString();
+        }
+
         var body = new TaskEndpoints.TaskListResponse(
             page.Items
                 .Select(t => new ImplantTaskResponse(
                     t.Id.ToString(),
                     t.ImplantId.ToString(),
                     t.IssuedBy.ToString(),
+                    handles.GetValueOrDefault(t.IssuedBy.Value, t.IssuedBy.Value.ToString()),
                     t.Verb,
                     t.Arguments,
                     t.Status.ToString(),
@@ -719,6 +733,11 @@ public static class ImplantEndpoints
         string TaskId,
         string ImplantId,
         string IssuedBy,
+        // The issuing operator's handle, resolved at read time -- the member
+        // role cannot walk the operator roster to map the id client-side, so
+        // the read names the actor itself. The bare id stands in when the
+        // account no longer resolves.
+        string IssuedByHandle,
         string Verb,
         string Arguments,
         string Status,

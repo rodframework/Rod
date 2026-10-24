@@ -1075,6 +1075,10 @@ export interface EngagementTask {
   taskId: string
   implantId: string
   issuedBy: string
+  // The issuing operator's handle, resolved by the read -- the member role
+  // cannot walk the operator roster to map the id client-side. The bare id
+  // stands in when the account no longer resolves.
+  issuedByHandle: string
   verb: string
   arguments: string
   status: string
@@ -2383,6 +2387,10 @@ export interface LauncherRow {
   expiresAt: string
   createdAt: string
   createdBy: string
+  // The cutting operator's handle, resolved by the read -- the member role
+  // cannot walk the operator roster to map the id client-side. The bare id
+  // stands in when the account no longer resolves.
+  createdByHandle: string
   revokedAt: string | null
   // The live credential state, joined from the token store; null when the
   // token is no longer stored (revoked, or spent to zero).

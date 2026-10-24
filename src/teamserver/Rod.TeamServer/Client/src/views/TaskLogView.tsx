@@ -136,8 +136,14 @@ export function TaskLogView({
   // things that actually happened, not a catalog of things that could.
   const verbs = useMemo(() => [...new Set(tasks.map((t) => t.verb))].sort(), [tasks])
   const statuses = useMemo(() => [...new Set(tasks.map((t) => t.status))].sort(), [tasks])
+  // The operator filter matches by id exactly; the options label with the
+  // resolved handle the rows carry, so the dropdown reads like the log.
   const operators = useMemo(
     () => [...new Set(tasks.map((t) => t.issuedBy))].sort(),
+    [tasks],
+  )
+  const handleByOperator = useMemo(
+    () => new Map(tasks.map((t) => [t.issuedBy, t.issuedByHandle])),
     [tasks],
   )
 
@@ -227,7 +233,7 @@ export function TaskLogView({
             <option value="">Any operator</option>
             {operators.map((o) => (
               <option key={o} value={o}>
-                {o.slice(0, 8)}
+                {handleByOperator.get(o) ?? o.slice(0, 8)}
               </option>
             ))}
           </select>
@@ -374,7 +380,7 @@ function LogRow({
           {task.outcome === 'Failed' && <span className="error"> failed</span>}
         </td>
         <td>
-          <code title={task.issuedBy}>{task.issuedBy.slice(0, 8)}</code>
+          <code title={task.issuedBy}>{task.issuedByHandle}</code>
         </td>
         <td>
           {task.completedAt
@@ -415,7 +421,7 @@ function LogRow({
               <div className="task-detail-line muted">
                 created {new Date(task.createdAt).toLocaleString()}
                 {task.completedAt && <> · completed {new Date(task.completedAt).toLocaleString()}</>}
-                {' '}· by <code title={task.issuedBy}>{task.issuedBy.slice(0, 8)}</code>
+                {' '}· by <code title={task.issuedBy}>{task.issuedByHandle}</code>
               </div>
               <TaskArtifacts engagementId={engagementId} taskId={task.taskId} />
               <CommentsPanel
