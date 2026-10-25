@@ -3252,6 +3252,37 @@ Where the program touches the existing layers:
   ceiling -- the spoofing decision the item carried (a task id rides the
   DNS query name in the clear, and a plaintext MB-scale upload would forge
   evidence onto real tasks).
+- **Range mode** (ADR-016; shipped). The action domain's simulated
+  provider: scripted fake implants that run the **real wire protocol end
+  to end** against the teamserver's own listeners -- the enroll web
+  route, the envelope POST cycle, canonical RSASSA-PSS tasking
+  verification with the replay-nonce floor, results riding the next
+  cycle's body -- driven by a canned script instead of a target. Every
+  beacon-produced fact (roster row, session, task arc, audit event)
+  comes from the real ingress paths; only the payload behind each verb
+  is simulated, and every answer says so. The evidence rule comes
+  first: an engagement marked `range` at creation (immutable) carries
+  the mark in its genesis audit link, its roster reads, and its report
+  (banner plus content-hash seal), so simulated evidence can never read
+  as a real operation's. Default-off (`Range:Enabled`, the WireGuard
+  pattern): the engine does not register and the routes do not mount
+  unless the deployment names it. A spawn is one operator action and
+  one multi-use deploy token (every simulated enrollment resolves back
+  to the spawning operator's `range-spawn` fact); beacons enroll in
+  bounded waves, answer `shell.exec`, `fs.list`, `proc.list`,
+  `recon.hostenum`, and `beacon.sleep` (a real retune) in the
+  structured grammar the generic panels parse, refuse anything else
+  with the real implant's refusal grammar, and a `GoDarkCount` subset
+  drops once and returns as the same identities -- the
+  beacon-lost-then-returning leg. The fleet contacts under the http
+  family's cleartext lab posture (plaintext framed bodies, identity by
+  enrollment) and dials the listener's bind: the redirector hop is the
+  one leg a range cannot exercise from inside the process. The
+  acceptance holds both legs in `Rod.Integration.Tests` -- a small
+  fleet churning, tasking, and refusing through the real protocol, and
+  a 500-beacon fleet enrolling through the real ingress and sustaining
+  contact load against one teamserver. Runbook:
+  [operations/range.md](operations/range.md).
 
 ### 15.4 Product disciplines (ADR-011 through ADR-015)
 
@@ -3359,3 +3390,4 @@ Where the program touches the existing layers:
 | 013 | UI: lifecycle navigation, timeline main screen, contract-driven rendering | Sec 15.4 |
 | 014 | Domain open/close discipline: three granularities, four tests | Sec 15.4 |
 | 015 | Closed documentation set, one topic per document | Sec 15.4 |
+| 016 | Range mode: scripted beacons over the real protocol, default off | Sec 15.3 |

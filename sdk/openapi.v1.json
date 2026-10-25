@@ -5559,6 +5559,10 @@
               "null",
               "string"
             ]
+          },
+          "range": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -5794,6 +5798,10 @@
                 "$ref": "#/components/schemas/EngagementFleetSummaryResponse"
               }
             ]
+          },
+          "range": {
+            "type": "boolean",
+            "default": false
           }
         }
       },

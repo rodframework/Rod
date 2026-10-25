@@ -37,6 +37,7 @@ nav:
       - LLM triage: operations/llm.md
       - MCP: operations/mcp.md
       - Android carrier: operations/android.md
+      - Range mode: operations/range.md
       - Rehearsal: operations/rehearsal.md
   - Benchmarks:
       - Overview: benchmarks/README.md
