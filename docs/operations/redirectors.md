@@ -4,7 +4,7 @@ Operational runbook for the in-tree reference redirector, the **opaque L4 TCP
 forwarder** that fronts a teamserver listener ([architecture.md](../architecture.md)
 Sec 7 and Sec 8). The
 forwarder source is at
-[../../src/redirector/dotnet/](../../src/redirector/dotnet/).
+[the redirector source](https://github.com/rodframework/Rod/tree/main/src/redirector/dotnet).
 
 The reference redirector does one thing: accept a TCP connection on its public
 endpoint and splice the byte stream to the listener's bind address, in both
@@ -412,5 +412,5 @@ the one-listener model makes the constraint worth spelling out:
   decision (L4 opaque forwarder, Native AOT, alternatives considered).
 - [architecture.md](../architecture.md) Sec 7 and Sec 8 -- transports,
   listeners, and the redirector abstraction.
-- [../../src/redirector/dotnet/README.md](../../src/redirector/dotnet/README.md)
+- [The redirector's own README](https://github.com/rodframework/Rod/blob/main/src/redirector/dotnet/README.md)
   -- flags, env, and build for the forwarder binary.

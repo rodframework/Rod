@@ -1,0 +1,47 @@
+# The public docs site (the org's GitHub Pages face, ADR-011): the closed
+# documentation set rendered as static pages, published from the same files
+# the repository carries -- no content lives only on the site, and one fact
+# stays in one file. todo.md is excluded deliberately: it is the working
+# queue, whose record is the commit history (the file's own header).
+#
+# The build is strict: a warning (a broken link, a missing page) fails it,
+# which is the site's standing doc-health gate.
+site_name: Rod
+site_description: The Rod engagement platform -- design, runbooks, and extension seams.
+repo_url: https://github.com/rodframework/Rod
+edit_uri: edit/main/docs/
+docs_dir: docs
+site_dir: site
+strict: true
+# The working queue is repository state, not product documentation: its
+# record is the commit history (the file's own header), so the site does
+# not render it.
+exclude_docs: |
+  todo.md
+theme:
+  name: readthedocs
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Glossary: glossary.md
+  - Extending:
+      - Implants: extending/implants.md
+      - Modules: extending/modules.md
+      - Transports: extending/transports.md
+  - Operations:
+      - Teamserver: operations/teamserver.md
+      - Operator console: operations/operator-ui.md
+      - Redirectors: operations/redirectors.md
+      - Recon workbench: operations/recon.md
+      - Delivery campaigns: operations/campaigns.md
+      - LLM triage: operations/llm.md
+      - MCP: operations/mcp.md
+      - Android carrier: operations/android.md
+      - Rehearsal: operations/rehearsal.md
+  - Benchmarks:
+      - Overview: benchmarks/README.md
+      - C2 tasking: benchmarks/c2.md
+      - Module ecosystem: benchmarks/module-ecosystem.md
+      - Recon: benchmarks/recon.md
+      - Phishing: benchmarks/phishing.md
+      - Browser hook: benchmarks/browser-hook.md

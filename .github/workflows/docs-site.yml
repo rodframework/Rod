@@ -1,0 +1,81 @@
+name: docs-site
+
+# The public documentation site: the closed doc set rendered to static
+# pages and published on GitHub Pages. Nothing of ours stands anywhere --
+# Pages serves the built artifact, the same posture the registry's optional
+# Pages mirror takes. Content never lives only on the site: the build
+# renders the repository's own files, and the strict pass (a warning fails
+# it) doubles as the standing doc-health gate for links and nav.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - 'mkdocs.yml'
+      - '.github/workflows/docs-site.yml'
+  workflow_dispatch:
+
+# Pages deployment needs the environment's write grants; contents stay
+# read-only.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment in flight at a time; a newer push supersedes it.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          # Pinned like every toolchain in these workflows.
+          python-version: '3.13'
+      - name: Install mkdocs
+        # Pinned to the version the local builds were verified on; the
+        # readthedocs theme ships with mkdocs core, so this is the site's
+        # entire dependency set.
+        run: pip install --disable-pip-version-check mkdocs==1.6.1
+      - name: Derive the home page from README.md
+        # README.md is the one-page overview and becomes the site's front
+        # door; the copy is a build artifact, never committed, so the
+        # overview stays defined in exactly one file. The rewrites keep its
+        # repo-shaped links site-shaped: docs/x.md becomes x.md (the copy
+        # lives inside docs/), and the root-file links (LICENSE, SECURITY)
+        # and the working-queue link (todo.md, excluded from the site)
+        # point at their repository homes.
+        run: |
+          sed -e 's|(docs/|(|g' \
+              -e 's|(LICENSE)|(https://github.com/rodframework/Rod/blob/main/LICENSE)|g' \
+              -e 's|(SECURITY.md)|(https://github.com/rodframework/Rod/blob/main/SECURITY.md)|g' \
+              -e 's|(todo.md)|(https://github.com/rodframework/Rod/blob/main/docs/todo.md)|g' \
+              README.md > docs/index.md
+      - name: Build (strict)
+        run: mkdocs build --strict
+      - name: Upload the pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Deploy to Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

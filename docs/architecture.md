@@ -3,7 +3,7 @@
 > **Status:** Living document. This is the agreed architecture for Rod as an
 > authorized-use red-team operations platform. The repository
 > holds the teamserver (the .NET control plane) and the Rust reference implant, with a Postgres persistence
-> layer; [todo.md](todo.md) tracks open work. Sections marked _(future)_ are
+> layer; [todo.md](https://github.com/rodframework/Rod/blob/main/docs/todo.md) tracks open work. Sections marked _(future)_ are
 > designed for but not yet implemented; Sec 15 records the program
 > decisions (ADR-001 through ADR-015) that the todo queue serves.
 
@@ -2861,7 +2861,8 @@ read-and-steer six (Sec 10.1), while input capture in a hooked page
 capability modules, never core verbs -- the boundary Sec 5.2
 carries in the class set itself.
 
-- All use assumes an authorized context; see [SECURITY.md](../SECURITY.md).
+- All use assumes an authorized context; see
+  [SECURITY.md](https://github.com/rodframework/Rod/blob/main/SECURITY.md).
 
 ## 14. Capability bar (design aspiration)
 
@@ -2911,7 +2912,7 @@ outright, whatever it adds (see [extending/implants.md](extending/implants.md)).
 
 ## 15. Open capabilities and the module ecosystem
 
-> **Status:** Decided direction; [todo.md](todo.md) holds the queue. This
+> **Status:** Decided direction; [todo.md](https://github.com/rodframework/Rod/blob/main/docs/todo.md) holds the queue. This
 > section records the program decisions (ADR-001 through ADR-015), absorbed
 > from the retired plan that first carried them. Unshipped pieces read as
 > _(future)_.

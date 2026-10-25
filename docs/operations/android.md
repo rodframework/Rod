@@ -2,7 +2,7 @@
 
 Operational runbook for the Rust implant's Android carrier leg
 ([architecture.md](../architecture.md) Sec 6, Sec 12.2). The carrier source
-is at [../../src/implant/rust/carrier/](../../src/implant/rust/carrier/) --
+is at [the carrier source](https://github.com/rodframework/Rod/tree/main/src/implant/rust/carrier) --
 a cdylib the package's `android.app.NativeActivity` loads, running the
 implant core's library target in-process. No Java anywhere: the manifest
 (`hasCode=false`) is the app's whole face, and the build unit packages it

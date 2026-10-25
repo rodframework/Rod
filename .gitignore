@@ -58,3 +58,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Docs site build output (mkdocs, docs-site.yml): the site renders the
+# tracked files, and the derived home page (docs/index.md, from README.md)
+# is a build artifact, never committed.
+site/
+docs/index.md

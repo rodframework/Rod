@@ -875,7 +875,7 @@ Adopt per deployment need; absence degrades the feature, not interop:
   `module.unload` family (architecture.md Sec 5.4): staged task content
   carrying a module's bytes, the loader registering its verbs for later
   dispatch. The wire shape and the loader's rules live in
-  [tradecraft.md](tradecraft.md); an implant without the family reports
+  [modules.md](modules.md); an implant without the family reports
   the verbs unknown and nothing else changes.
 
 ## Evolution rules
