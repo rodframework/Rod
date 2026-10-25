@@ -425,19 +425,110 @@ note): the engagement report never lies about what a transform produced.
 Remember the implant side is still yours -- nothing in-tree unwraps your
 bytes, so your decode stub travels with whatever artifact you ship.
 
-## Distributing and installing
+## Shipping a module: init through publish
 
-Both halves travel as one module through the ecosystem's file contracts
-([architecture.md Sec 15.2](../architecture.md)): `rod mod init`
-scaffolds the repository and generates the publisher's Ed25519 keypair,
-`rod mod publish` packages, signs, and writes the index entry for a pull
-request against `rod-registry`, and an operator `rod mod search`es the
-registry, `rod mod install`s with the signature, compatibility, and
-per-verb floors verified, and pins the result in `rod.modules.lock.json`
--- usage detail lives in `rod mod help <verb>`. The in-tree
-`modules/hostenum` carries the same `rod-module.toml` an external module
-carries (verb row included) and rides the same
-chain; being in-tree changes nothing about the path here either.
+The whole lifecycle runs on the `rod` CLI over the file contracts --
+no account, no portal, no standing service anywhere. The walk below ships
+a first module end to end; this page plus `rod mod help <verb>` is the
+entire documentation the path needs.
+
+### 1. Scaffold the repository
+
+```
+rod mod init my-sweep --entry server --license Apache-2.0
+```
+
+The scaffold is the contribution threshold: one directory carrying a
+`rod-module.toml` with honest defaults (version 0.1.0, a `my-sweep.run`
+verb row, the compatibility floor set to this CLI's platform generation),
+template source for the entry kind (`server`, `implant`, `build-unit`, or
+`assets`), a README, a `.gitignore`, and the publisher keypair
+(`rod-module.key` / `rod-module.pub`, raw Ed25519). **Keep the secret
+key**: it is your publisher identity, and a fresh key is a new identity
+that every install pinning the old one will refuse. The key never ships
+-- publish rejects any packaging rule that would include it.
+
+### 2. Author the manifest
+
+The manifest is the whole contract; every field rides the signed
+canonical form, so a tampered anything breaks verification at install and
+at `rod mod verify`. The annotated reference is
+`modules/hostenum/rod-module.toml` in the tree -- the same file shape an
+external module carries. What each part decides:
+
+| Part | Decides | Enforced at |
+|------|---------|-------------|
+| `[module]` | name (kebab-case), version, entry kind, license, description | publish refuses `UNLICENSED`; the name is what a lock pins a key to |
+| `[compatibility] teamserver` | the minimum platform generation the module runs on | install, per version |
+| `[[compatibility.targets]]` | implant-class / platform / arch rows the module claims | surfaced at search and install |
+| `[[verbs]]` | each verb's module-scoped version, optional per-verb teamserver floor, and its ATT&CK techniques | floors at install; techniques feed every coverage face |
+| `[opsec]` | `lands-on-disk` and the free-text note | shown at search and install -- an operator screens the target impact before fetching |
+| `[attack]` | the module-level technique roll-up | must be exactly the union of the verb rows' techniques (or omitted) |
+| `[package]` | which files ship (default: everything except bin/obj/dist and keys) | publish |
+
+The verb row's `techniques` is the **coverage declaration** (ADR-007):
+`T####` or `T####.###` ids, the authoritative claim of what the verb
+covers. It replaces the kernel's mapping for that verb at registration,
+mirrors into the registry index, and renders in the coverage matrix --
+a technique the kernel's catalog carries no metadata for is fine; it
+appears by id alone. Check what your declaration produces before the
+pull request:
+
+```
+rod mod coverage --path my-sweep
+```
+
+### 3. Develop against a live teamserver
+
+Both halves load beside the binary exactly as the sections above
+describe: the server-side assembly (or asset tree) dropped and listed
+under `Capabilities:Modules` / `Capabilities:AssetModules`, the
+implant-side half loaded over the channel with `module.load`. Your tests
+travel with the module (`modules/<name>/tests/`), pin its content, and
+run in the module CI lane.
+
+### 4. Publish
+
+```
+rod mod publish --path my-sweep --registry ~/checkouts/rod-registry
+```
+
+Publish packs per `[package]`, signs the canonical form with the secret
+key, and writes `dist/my-sweep-<version>.zip` plus the version's index
+entry. With `--registry` pointing at a local rod-registry checkout the
+entry lands under `modules/my-sweep.json`; **publication is the pull
+request, never a push the tool makes** -- `git add modules/ commit` and
+open the PR against the tap. The registry is a git repository in the
+Homebrew-tap shape under the Rod organization with merge rights held by
+review; third-party taps work by construction (`--registry` takes any
+git URL or local checkout).
+
+Publish refuses two drifts on purpose: republishing an indexed version
+with different content (bump `module.version`), and a package whose
+selection would include key material.
+
+### 5. What the reviewer and the operator see
+
+The review is the trust model, not a formality: publishers sign, the
+registry vouches for nothing. The reviewer compares the entry's key
+fingerprint with the publisher's out-of-band channel, then the operator
+side is three commands -- `rod mod search` (by name, verb, technique, or
+description), `rod mod info my-sweep` (every version with digest,
+fingerprint, floors, and technique rows), and `rod mod install
+my-sweep@1.0.0`, which verifies the package digest, re-derives the
+canonical form from the extracted files, checks the signature, enforces
+the compatibility and per-verb floors, and pins the key in
+`rod.modules.lock.json` -- trust on first use. `rod mod verify` re-proves
+the installed tree offline afterwards. A later version under a different
+key fails the install loudly; that is the pin doing its job.
+
+### Version discipline
+
+The module version and the verb versions iterate independently: a verb
+row's `version` is the verb's own line (bump it when the verb's behavior
+or schema changes), the module version is the package's. The registry
+indexes every published version; operators install exact versions and
+upgrade by naming them.
 
 ## What the core ships, and where your module sits
 
