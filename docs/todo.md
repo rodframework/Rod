@@ -28,41 +28,30 @@ engagement names the need.
 
 ## Active
 
-Nothing queued. Phase P1 -- long-board parity (architecture.md Sec 15)
-shipped with the UI information-architecture rework (ADR-013; the
-record is the commit history), which also cleared P2's parking
-condition: the items below left the hold and enter Active one at a
-time, when an engagement names the need -- Active is advisory order,
-not a queue, and an empty queue is the honest state between needs.
+Nothing queued. The P2 ecosystem wave shipped (the record is the commit
+history): the public docs site, the module lifecycle guide, the
+on-demand module CI lane, the ATT&CK coverage advancement mechanism, and
+range mode. What remains parked waits on facts only a real engagement or
+new hardware can name -- Active is advisory order, not a queue, and an
+empty queue is the honest state between needs.
 
 ## On hold
 
-Phase P2 -- ecosystem and trust (architecture.md Sec 15). Unparked:
-the parking condition was P1 shipped, and it did; each item below now
-waits only for an engagement to name it.
-
-- **Public docs site + runbooks.** _AC:_ architecture.md published as the
-  site.
-- **Module development end-to-end docs** (init through publish). _AC:_ an
-  outside contributor ships a first module following the docs alone.
-- **On-demand module build/test paths.** _AC:_ main-repository CI time
-  does not grow linearly with the module set.
 - **Live-engagement feedback loop.** _AC:_ at least one real-engagement
-  gap list lands in this file.
-- **ATT&CK coverage advancement mechanism** (Sec 15.3, ADR-007). _AC:_
-  module PRs declare technique coverage; the matrix and the release notes
-  update from it automatically.
-- **Range mode** -- scripted fake implants as the action domain's
-  provider. _AC:_ fake implants run the real protocol end to end; 500+
-  concurrent beacons simulate under load.
+  gap list lands in this file. Parked on the engagement itself: the
+  loop's only input is one. Range mode stands in for rehearsal pressure
+  until then ([operations/range.md](operations/range.md)).
 
 - **iOS shell for the Rust implant** (serves architecture.md Sec 12.2).
-  Parked on a macOS build host: the Apple link needs Xcode's SDK, which
-  the Linux host cannot carry. Shape: the same library-plus-shell pattern
-  as the Android item against aarch64-apple-ios; delivery is inherently
-  sideloading territory (a signed carrier app or a jailbroken device), an
-  operational constraint the runbook documents rather than something the
-  build can remove.
+  Parked on a real device to run the enrollment leg: the implant e2e
+  matrix already carries macOS build hosts with Xcode's SDK (the old
+  blocker, cleared), but the acceptance needs a carrier app linking the
+  static library on a device or simulator, and none is at hand. Shape
+  unchanged: the same library-plus-shell pattern as the Android item
+  against aarch64-apple-ios; delivery is inherently sideloading
+  territory (a signed carrier app or a jailbroken device), an
+  operational constraint the runbook documents rather than something
+  the build can remove.
   _AC:_ cross-compiling from a macOS host produces a static library a
   carrier app links, and the enrollment leg runs.
 
@@ -77,8 +66,10 @@ Second wave -- take up once real users exist:
 
 - **Purple-team mode** -- verb to technique to expected-detection mapping;
   the report gains a blue-team checklist (reporting domain).
+
 - **Rule-based alerting** -- an SSE rule engine: new credential seen,
   beacon lost then returning, lure link clicked (management domain).
+
 - **Shift-handoff briefing** -- one-click digest since the operator's last
   handoff, widening the shipped digest (Sec 11.1; collaboration layer).
 
@@ -87,10 +78,13 @@ names the need:
 
 - **Engagement-as-code** -- a declarative engagement manifest, git
   reviewed, one-click infrastructure rebuild (management domain).
+
 - **Replay room** -- an audit-chain timeline replay view for client
   debriefs (reporting domain).
+
 - **Credential lifecycle** -- use success and failure records drive
   "likely rotated" marks that prevent lockouts (assets domain).
+
 - **LLM copilot** -- next-step suggestions from entity state and the
   coverage matrix; suggests only, never executes (MCP/LLM layer).
 
