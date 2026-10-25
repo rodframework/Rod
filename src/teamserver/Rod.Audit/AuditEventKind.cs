@@ -710,4 +710,23 @@ public enum AuditEventKind
     /// the value; the outcome is the asset id.
     /// </summary>
     ReconAssetDeleted,
+
+    /// <summary>
+    /// An operator spawned a range engagement's simulated fleet
+    /// (architecture.md Sec 15.3): the beacons are the teamserver's own
+    /// scripted clients, enrolling and tasking through the real ingress
+    /// paths. The payload names the listener, size, cadence, and simulated
+    /// host shape; the outcome is the shared enrollment token's id -- the
+    /// mint every simulated enrollment's own ImplantEnrolled fact resolves
+    /// back to, binding the whole fleet to this spawn's operator.
+    /// </summary>
+    RangeFleetSpawned,
+
+    /// <summary>
+    /// An operator stopped a range engagement's simulated fleet. The payload
+    /// carries the fleet's final posture (beacons, contacts, results); the
+    /// beacons' own trails stay as they ran -- stopping a fleet retires no
+    /// evidence.
+    /// </summary>
+    RangeFleetStopped,
 }

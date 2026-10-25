@@ -430,6 +430,15 @@ public static class TransportHost
         services.AddSingleton(Listeners.WireGuard.WireGuardOptions.FromConfiguration(configuration));
         RegisterOptionalProviders(configuration);
 
+        // Range mode (architecture.md Sec 15.3): default-off like every
+        // widening surface -- the engine registers only when the deployment
+        // names it, and the endpoints below mount on the same switch, so an
+        // ordinary deployment never carries the surface at all.
+        var range = Range.RangeOptions.FromConfiguration(configuration);
+        services.AddSingleton(range);
+        if (range.Enabled)
+            services.AddSingleton<Range.RangeFleet>();
+
         // Session staleness sweep (architecture.md Sec 10.3): the live values
         // are always registered -- the settings endpoints read them and the
         // composition root seeds them from the Sessions:Staleness section
@@ -755,6 +764,10 @@ public static class TransportHost
         endpoints.MapEngagementMemberEndpoints();
         endpoints.MapEnrollmentEndpoints();
         endpoints.MapImplantEndpoints();
+        // Range mode's surface mounts only under its deployment switch: a
+        // disabled deployment carries no range routes to refuse on.
+        if (endpoints.ServiceProvider.GetRequiredService<Range.RangeOptions>().Enabled)
+            endpoints.MapRangeEndpoints();
         // The host picture of the intel layer (architecture.md Sec 11.2): the
         // enrollment-hostname grouping read-side, with attributed notes and
         // labels riding the trail like their implant-side twins.
