@@ -22,6 +22,16 @@ public sealed class Engagement
     public DateTimeOffset CreatedAt { get; }
 
     /// <summary>
+    /// True when this engagement is a <b>range</b>: a simulated engagement whose
+    /// implant fleet is the teamserver's own scripted beacons speaking the real
+    /// wire protocol (range mode, architecture.md Sec 15.3) -- training and
+    /// load-shaping, never a real operation. Set at creation and immutable: the
+    /// mark rides the engagement everywhere its identity travels (roster,
+    /// report), so simulated evidence can never read as a real engagement's.
+    /// </summary>
+    public bool Range { get; }
+
+    /// <summary>
     /// The engagement's rules-of-engagement scope (architecture.md Sec 9).
     /// Unrestricted until an operator applies a profile; see
     /// <see cref="ApplyRoe"/>.
@@ -58,9 +68,10 @@ public sealed class Engagement
     private Engagement(
         EngagementId id,
         string name,
-        string? description,
         OperatorId ownerId,
         DateTimeOffset createdAt,
+        bool range = false,
+        string? description = null,
         RoeProfile? roe = null,
         DateTimeOffset? frozenAt = null,
         DateTimeOffset? retiredAt = null)
@@ -70,6 +81,7 @@ public sealed class Engagement
         Description = description;
         OwnerId = ownerId;
         CreatedAt = createdAt;
+        Range = range;
         Roe = roe ?? RoeProfile.Unrestricted;
         FrozenAt = frozenAt;
         RetiredAt = retiredAt;
@@ -85,13 +97,14 @@ public sealed class Engagement
         string name,
         OperatorId ownerId,
         DateTimeOffset createdAt,
-        string? description = null)
+        string? description = null,
+        bool range = false)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Engagement name is required.", nameof(name));
 
         var trimmedDescription = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
-        return new Engagement(id, name.Trim(), trimmedDescription, ownerId, createdAt);
+        return new Engagement(id, name.Trim(), ownerId, createdAt, range, trimmedDescription);
     }
 
     /// <summary>

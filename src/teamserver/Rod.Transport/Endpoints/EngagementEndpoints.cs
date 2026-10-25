@@ -112,7 +112,8 @@ public static class EngagementEndpoints
                 e.RetiredAt,
                 Summary: new EngagementFleetSummaryResponse(
                     active.Count,
-                    active.Count(i => onlineIds.Contains(i.Id)))));
+                    active.Count(i => onlineIds.Contains(i.Id))),
+                Range: e.Range));
         }
 
         return TypedResults.Ok(body);
@@ -135,7 +136,7 @@ public static class EngagementEndpoints
             return TypedResults.BadRequest(new Problem("Engagement name is required."));
 
         var created = await service.CreateEngagementAsync(
-            new CreateEngagementCommand(ownerId.Value, body.Name, body.Description),
+            new CreateEngagementCommand(ownerId.Value, body.Name, body.Description, body.Range),
             cancellationToken);
 
         var response = new EngagementResponse(
@@ -148,12 +149,15 @@ public static class EngagementEndpoints
             created.CreatedAt,
             RoeProfileResponse.From(RoeProfile.Unrestricted),
             FrozenAt: null,
-            RetiredAt: null);
+            RetiredAt: null,
+            Range: created.Range);
 
         // The engagement's own creation is the trail's genesis link (architecture.md
         // Sec 11): attributed to the creating owner, carrying the
         // name in its payload and the new engagement id as its outcome. It is the
         // first event in this engagement's chain, so it follows the genesis hash.
+        // A range engagement's genesis carries the mark: simulated evidence must
+        // never read as a real engagement's, chain included.
         await audit.AppendAsync(
             AuditEvent.Fact(
                 eventId: Guid.NewGuid(),
@@ -163,7 +167,7 @@ public static class EngagementEndpoints
                 taskId: Guid.Empty,
                 verb: "create-engagement",
                 kind: AuditEventKind.EngagementCreated,
-                payload: created.Name,
+                payload: created.Range ? $"{created.Name} [range]" : created.Name,
                 output: null,
                 outcome: created.EngagementId.ToString(),
                 at: created.CreatedAt),
@@ -238,7 +242,8 @@ public static class EngagementEndpoints
             edited.Engagement.CreatedAt,
             RoeProfileResponse.From(edited.Engagement.Roe),
             edited.Engagement.FrozenAt,
-            edited.Engagement.RetiredAt));
+            edited.Engagement.RetiredAt,
+            Range: edited.Engagement.Range));
     }
 
     private static async Task<IResult> MintDeployTokenAsync(
@@ -457,8 +462,10 @@ public static class EngagementEndpoints
     // --- DTOs. camelCase JSON is the framework default; records stay clean. ---
 
     // The owner is the authenticated operator; only the engagement name is
-    // supplied by the caller.
-    public sealed record CreateEngagementRequest(string Name, string? Description = null);
+    // supplied by the caller. Range marks the engagement a simulated one
+    // (range mode, architecture.md Sec 15.3): its fleet is the teamserver's
+    // scripted beacons, and the mark rides the engagement's identity forever.
+    public sealed record CreateEngagementRequest(string Name, string? Description = null, bool Range = false);
 
     // The edit replaces the working record whole: name and description. A null
     // description clears it; an empty name is rejected before the service is
@@ -476,7 +483,8 @@ public static class EngagementEndpoints
         RoeProfileResponse Roe,
         DateTimeOffset? FrozenAt = null,
         DateTimeOffset? RetiredAt = null,
-        EngagementFleetSummaryResponse? Summary = null);
+        EngagementFleetSummaryResponse? Summary = null,
+        bool Range = false);
 
     /// <summary>
     /// The landing roster's fleet posture: active (non-retired) implants and

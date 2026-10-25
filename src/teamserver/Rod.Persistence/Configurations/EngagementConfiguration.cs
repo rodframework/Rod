@@ -23,6 +23,10 @@ internal sealed class EngagementConfiguration : IEntityTypeConfiguration<Engagem
 
         builder.Property(e => e.Name).HasColumnName("name").HasMaxLength(512).IsRequired();
         builder.Property(e => e.Description).HasColumnName("description");
+        // The range mark (architecture.md Sec 15.3): a simulated engagement,
+        // set at creation and immutable. Non-nullable with a false default, so
+        // rows that predate the flag read as real engagements.
+        builder.Property(e => e.Range).HasColumnName("range").IsRequired().HasDefaultValue(false);
         builder.Property(e => e.OwnerId)
             .HasConversion(IdConverters.OperatorId)
             .HasColumnName("owner_id");

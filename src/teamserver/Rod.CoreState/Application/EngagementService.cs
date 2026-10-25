@@ -47,7 +47,7 @@ public sealed class EngagementService
         var owner = await _operators.GetOrThrowAsync(command.OwnerId, cancellationToken);
 
         var engagement = Engagement.Create(
-            EngagementId.New(), command.Name, owner.Id, now, command.Description);
+            EngagementId.New(), command.Name, owner.Id, now, command.Description, command.Range);
         await _engagements.SaveAsync(engagement, cancellationToken);
 
         return new EngagementCreated(
@@ -56,7 +56,8 @@ public sealed class EngagementService
             engagement.Description,
             owner.Id,
             owner.Handle,
-            engagement.CreatedAt);
+            engagement.CreatedAt,
+            engagement.Range);
     }
 
     /// <summary>
@@ -198,7 +199,11 @@ public sealed class EngagementService
 /// Request to create an engagement. The owner is the authenticated operator;
 /// only the name is supplied by the caller.
 /// </summary>
-public sealed record CreateEngagementCommand(OperatorId OwnerId, string Name, string? Description = null);
+public sealed record CreateEngagementCommand(
+    OperatorId OwnerId,
+    string Name,
+    string? Description = null,
+    bool Range = false);
 
 /// <summary>Result of creating an engagement.</summary>
 public sealed record EngagementCreated(
@@ -207,7 +212,8 @@ public sealed record EngagementCreated(
     string? Description,
     OperatorId OwnerId,
     string OwnerHandle,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    bool Range = false);
 
 /// <summary>
 /// Request to mint a deploy token for an engagement's owner. The optional scope
