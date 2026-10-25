@@ -147,14 +147,18 @@ public static class CoverageMatrixBuilder
         var all = new List<CoverageRow>();
         foreach (var (id, carriers) in byTechnique)
         {
+            // A module declaration may name a technique the kernel's catalog
+            // carries no metadata for -- the catalog is display data for what
+            // the kernel's own verbs map to, never a taxonomy of what may
+            // exist (the advancement rule: coverage extends without a kernel
+            // edit). The row renders with the id alone; suppressing it would
+            // make the module's declared coverage invisible.
             var technique = AttackTechniqueCatalog.Find(id);
-            if (technique is null)
-                continue; // unreachable: the resolver only answers catalog ids or module declarations
 
             all.Add(new CoverageRow(
-                technique.Id,
-                technique.Name,
-                technique.Tactics,
+                technique?.Id ?? id,
+                technique?.Name ?? "",
+                technique?.Tactics ?? [],
                 carriers.OrderBy(c => c.Verb, StringComparer.Ordinal).ToArray(),
                 carriers.SelectMany(PlatformsOf).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(p => p, StringComparer.Ordinal).ToArray()));
         }

@@ -172,4 +172,28 @@ public class CoverageMatrixTests
         Assert.Empty(matrix.Rows);
         Assert.NotEmpty(matrix.Tactics); // the facets survive the filter
     }
+
+    [Fact]
+    public async Task Rows_AModuleDeclaredTechniqueTheCatalogLacks_RendersByIdAlone()
+    {
+        // Coverage advances without a kernel edit: a module's declaration is
+        // the whole entry for its verb, and it may name a technique the
+        // kernel's data file carries no display metadata for. The row must
+        // appear -- the id is the identity -- not vanish because the catalog
+        // has nothing to say about it.
+        var registry = await RodCapabilitiesHost.BuildDefaultRegistryAsync();
+        await registry.RegisterAsync(new Stub(
+            CapabilityDescriptor.Of("sweep.discover", CapabilityCategory.Recon, "1.0",
+                techniques: ["T1615"]),
+            name: "sweep"));
+
+        var matrix = await BuildAsync(registry);
+
+        var row = Assert.Single(matrix.Rows, r => r.TechniqueId == "T1615");
+        Assert.Equal("", row.Name);
+        Assert.Empty(row.Tactics);
+        var carrier = Assert.Single(row.Carriers);
+        Assert.Equal(CoverageStatus.Module, carrier.Status);
+        Assert.Equal("sweep", carrier.Module);
+    }
 }
