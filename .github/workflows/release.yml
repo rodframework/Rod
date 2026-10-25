@@ -83,6 +83,28 @@ jobs:
           tar -czf dist/rod-src.tar.gz \
             --exclude 'target' \
             src/implant/rust src/implant/go src/teamserver/Rod.Protocol/protos
+      - name: Build the operator CLI
+        # rod mod coverage (below) renders the release's ATT&CK section from
+        # the module manifests and the kernel catalog -- the advancement
+        # mechanism's promise: the notes' coverage claims are generated from
+        # the declarations, never hand-written.
+        run: dotnet publish src/cli/dotnet/Rod.Cli.csproj -c Release -o dist/cli
+      - name: Compose the release notes
+        # GitHub's generated changelog, then the coverage matrix appended as
+        # its own section -- the generated markdown's heading is the section
+        # heading. gh api fills {owner}/{repo} from the checkout's origin.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/{owner}/{repo}/releases/generate-notes \
+            -f tag_name="$GITHUB_REF_NAME" \
+            -f target_commitish="$GITHUB_SHA" \
+            -q .body > dist/release-notes.md
+          printf '\n' >> dist/release-notes.md
+          dist/cli/rod mod coverage \
+            --path modules \
+            --catalog src/teamserver/Rod.CoreState/Implants/attack-coverage.json \
+            >> dist/release-notes.md
       - name: Create the release
         # gh is first-party and preinstalled on the runner; the token is the
         # job's own, scoped by the permissions block above. A suffixed
@@ -96,5 +118,6 @@ jobs:
           case "$version" in *-*) flags+=(--prerelease) ;; esac
           gh release create "$GITHUB_REF_NAME" \
             --title "Rod ${GITHUB_REF_NAME#v}" \
-            --generate-notes "${flags[@]}" \
+            --notes-file dist/release-notes.md \
+            "${flags[@]}" \
             dist/rod-teamserver-linux-x64.tar.gz dist/rod-src.tar.gz scripts/install.sh

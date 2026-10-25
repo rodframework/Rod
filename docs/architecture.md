@@ -3214,9 +3214,18 @@ Where the program touches the existing layers:
   Coverage surface) -- with known gaps reading as the work queue. Two
   faces, one source: report exports carry the ATT&CK Navigator layer
   proving *what was done* (the engagement's dispatched tasks through the
-  same resolver), and the matrix shows operators *what can be done*.
-  Coverage advances module by module, ordered by real engagement need --
-  the matrix is a dashboard, not a completion deadline.
+  same resolver), and the matrix shows operators *what can be done*. The
+  **advancement mechanism** rides the same declaration end to end: the
+  registry index mirrors each verb row's techniques beside the version
+  matrix, `rod mod coverage` renders the matrix a module tree's
+  declarations produce (the kernel's own mapping folded in through the
+  same `attack-coverage.json` read as a file contract), the in-tree
+  sweep is a CI test, and the release notes carry the generated matrix
+  -- a technique the kernel catalog carries no metadata for renders by
+  id alone on every face, so a declaration never needs a kernel edit to
+  be visible. Coverage advances module by module, ordered by real
+  engagement need -- the matrix is a dashboard, not a completion
+  deadline.
 - **Built-in observability** (ADR-008; shipped). No Prometheus. A diagnostics
   endpoint and a UI stats page over PG and in-process counters: beacon
   latency distribution, task queue depth, SSE connection count, build
