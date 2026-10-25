@@ -1,0 +1,116 @@
+name: implant-matrix
+
+# The 3 OS x 2 arch implant e2e matrix (docs/todo.md's item, architecture.md
+# Sec 12.2's end-to-end legs): one runner per cell, each building and running
+# BOTH in-tree implants on its own OS and arch through the real contracts --
+# the pipeline bakes the artifact for the cell's target, the artifact enrolls
+# against a live teamserver, and a dispatched task completes. The harness is
+# host-aware (TestCell), so the same five legs prove every cell.
+#
+# Nightly, not per push: the mac and windows cells bill at 10x/2x and their
+# cold cargo builds run long, the same environment-sensitive family the
+# ci.yml implant-toolchain lane already treats as a scheduled verdict. The
+# badge in the README carries this workflow's standing status.
+
+on:
+  schedule:
+    # After ci.yml's 03:00 full-lane pass, so the two nightly verdicts land
+    # in order: the push lanes first, then the matrix.
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    # One shell everywhere: the windows cells carry Git-bash, and every step
+    # below is plain POSIX otherwise.
+    shell: bash
+
+jobs:
+  e2e-matrix:
+    name: e2e (${{ matrix.cell }})
+    strategy:
+      # Every cell reports independently; one hung runner must not cancel
+      # the other five verdicts.
+      fail-fast: false
+      matrix:
+        include:
+          # Labels pinned like every toolchain here (an unpinned -latest
+          # lets a runner image change the OS under an unchanged tree).
+          # macos-15-intel is the final x86_64 mac image (retires 2027-08);
+          # when it goes, the amd64 mac cell retires with it.
+          - { cell: linux-amd64, runs-on: ubuntu-24.04 }
+          - { cell: linux-arm64, runs-on: ubuntu-24.04-arm }
+          - { cell: windows-amd64, runs-on: windows-2025 }
+          - { cell: windows-arm64, runs-on: windows-11-arm }
+          - { cell: macos-arm64, runs-on: macos-26 }
+          - { cell: macos-amd64, runs-on: macos-15-intel }
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 90
+    env:
+      # The five round-trip legs: each unit's dev shape plus its
+      # pipeline-baked artifact on both contact modes (poll and stream).
+      # The deep channel legs -- tunnels, dns, exfil, the linux-only
+      # wireguard carriage -- stay on ci.yml's ubuntu lanes, where their
+      # seams live.
+      MATRIX_FILTER: >-
+        FullyQualifiedName~Rod.Integration.Tests.RustImplantEndToEndTests.RustImplant_Enrols_GoesOnline_AndRunsTasking
+        |FullyQualifiedName~Rod.Integration.Tests.RustImplantEndToEndTests.RustImplant_BuildsThroughThePipeline_AndRunsFromTheBake
+        |FullyQualifiedName~Rod.Integration.Tests.RustImplantEndToEndTests.RustImplant_StreamsOverTheWebSocketBeacon_FromTheBake
+        |FullyQualifiedName~Rod.Integration.Tests.GoImplantEndToEndTests.GoImplant_EnrollsRunsTasking_AndExfilsPastTheContactBudget
+        |FullyQualifiedName~Rod.Integration.Tests.GoImplantEndToEndTests.GoImplant_BuildsThroughThePipeline_AndRunsFromTheBake
+      # One shared cargo target dir per cell: the first pipeline build pays
+      # the cold compile, every later leg only rebuilds the implant crate
+      # (the same discipline ci.yml's warm-up step holds).
+      ROD_RUST_TARGET_DIR: ${{ runner.temp }}/rod-rust-target
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        # Version comes from global.json (pinned to 10.0.110).
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+      - name: Install the cell's native toolchain pieces
+        # The runner images carry cargo with their own host std and the .NET
+        # and Go toolchains above; what a cell adds is protoc (prost-build)
+        # and, on the linux cells, the musl pair for the static crosses
+        # (musl-tools serves the host arch; the arm64 cell builds its own
+        # aarch64 musl natively).
+        run: |
+          case "$RUNNER_OS" in
+            Linux)
+              sudo apt-get update && sudo apt-get install -y protobuf-compiler musl-tools
+              case "$(uname -m)" in
+                x86_64)  rustup target add x86_64-unknown-linux-musl ;;
+                aarch64) rustup target add aarch64-unknown-linux-musl ;;
+              esac
+              ;;
+            macOS)
+              brew install protobuf
+              ;;
+            Windows)
+              choco install protobuf -y
+              ;;
+          esac
+      - name: Build
+        run: dotnet build Rod.slnx --configuration Release
+      - name: Run the cell's e2e legs
+        # Blame-hang at 20m: a cell's first pipeline build is a cold cargo
+        # compile inside the test, minutes-long on the windows and mac cells,
+        # and a real hang still dumps with the test name it stopped in.
+        run: >-
+          dotnet test Rod.slnx --configuration Release --no-build --settings ci.runsettings
+          --filter "$MATRIX_FILTER"
+          --blame-hang --blame-hang-timeout 20m --blame-hang-dump-type full
+          --logger trx
+      - name: Upload test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: matrix-diagnostics-${{ matrix.cell }}
+          path: '**/TestResults/**'
+          if-no-files-found: ignore

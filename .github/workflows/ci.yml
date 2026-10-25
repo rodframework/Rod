@@ -319,11 +319,12 @@ jobs:
         # The community unit's shipped shapes (architecture.md Sec 12.2):
         # one static binary per target, cgo off, the vendored dependency
         # set answering every import so the build never touches the
-        # network. Building all four keeps the crosses from rotting behind
-        # host-only builds.
+        # network. Building all six -- the e2e matrix's desktop grid,
+        # darwin included now that the target map carries Apple -- keeps
+        # the crosses from rotting behind host-only builds.
         working-directory: src/implant/go
         run: |
-          for target in linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+          for target in linux/amd64 linux/arm64 windows/amd64 windows/arm64 darwin/amd64 darwin/arm64; do
             CGO_ENABLED=0 GOOS=${target%/*} GOARCH=${target#*/} \
               go build -trimpath -ldflags '-s -w' -o /dev/null .
           done
