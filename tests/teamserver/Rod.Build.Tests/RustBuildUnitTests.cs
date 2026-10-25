@@ -48,6 +48,48 @@ public class RustBuildUnitTests
         Assert.True(artifact.Size > 0);
     }
 
+    // The matrix cells the native families serve: Apple and ARM Windows
+    // link against the SDK their own host carries, so they resolve there
+    // and the refusal names that host everywhere else. Windows amd64 is
+    // the dual-host cell: MSVC native on Windows, the GNU cross
+    // everywhere else (the linux deployment shape).
+    [Theory]
+    [InlineData("macos", "amd64", "x86_64-apple-darwin")]
+    [InlineData("darwin", "arm64", "aarch64-apple-darwin")]
+    public void AppleTargetsMapOnAMacHostAndNameItElsewhere(string os, string arch, string triple)
+    {
+        if (OperatingSystem.IsMacOS())
+            Assert.Equal(triple, RustBuildUnit.MapTriple(new TargetProfile(os, arch)));
+        else
+        {
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => RustBuildUnit.MapTriple(new TargetProfile(os, arch)));
+            Assert.Contains("build it on a macOS host", ex.Message);
+        }
+    }
+
+    [Fact]
+    public void ArmWindowsMapsOnAWindowsHostAndNamesItElsewhere()
+    {
+        if (OperatingSystem.IsWindows())
+            Assert.Equal(
+                "aarch64-pc-windows-msvc", RustBuildUnit.MapTriple(new TargetProfile("windows", "arm64")));
+        else
+        {
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => RustBuildUnit.MapTriple(new TargetProfile("windows", "arm64")));
+            Assert.Contains("build it on a Windows host", ex.Message);
+        }
+    }
+
+    [Fact]
+    public void WindowsAmd64TakesTheMsvcAbiOnWindowsAndTheGnuCrossElsewhere()
+    {
+        Assert.Equal(
+            OperatingSystem.IsWindows() ? "x86_64-pc-windows-msvc" : "x86_64-pc-windows-gnu",
+            RustBuildUnit.MapTriple(new TargetProfile("windows", "amd64")));
+    }
+
     // The aarch64 loader link: the host driver rejects the cortex fixup
     // flag rustc passes for that target, so the unit routes the pure-Rust
     // link through rust-lld from the toolchain itself. This drives the

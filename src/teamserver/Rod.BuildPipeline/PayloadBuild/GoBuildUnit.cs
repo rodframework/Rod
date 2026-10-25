@@ -187,7 +187,8 @@ public sealed class GoBuildUnit : IBuildUnit, IBuildUnitEnvironment
     // toolchain crosses everything it maps natively (no sysroot, no cross
     // linker -- cgo is off), so the set is the toolchain's own breadth
     // minus the legs this unit does not carry: android belongs to the
-    // Rust carrier and Apple stays out until an engagement names it.
+    // Rust carrier. Apple joined when the e2e matrix named it: darwin
+    // crosses from any host like every other GOOS.
     public static (string Goos, string Goarch) MapTarget(TargetProfile target)
     {
         var os = target.OperatingSystem.Trim().ToLowerInvariant();
@@ -204,13 +205,14 @@ public sealed class GoBuildUnit : IBuildUnit, IBuildUnitEnvironment
         {
             ("linux", "amd64" or "arm64" or "arm" or "386") => ("linux", goarch),
             ("windows" or "win", "amd64" or "arm64" or "386") => ("windows", goarch),
+            ("osx" or "darwin" or "macos", "amd64" or "arm64") => ("darwin", goarch),
             ("osx" or "darwin" or "macos", _) => throw new InvalidOperationException(
-                "The Go build unit does not cross Apple targets; build on a macOS host."),
+                "The Go build unit carries Apple at amd64/arm64 only."),
             ("android", _) => throw new InvalidOperationException(
                 "The android carrier is the Rust unit's leg; build android through it."),
             _ => throw new InvalidOperationException(
                 $"Unsupported target '{target.OperatingSystem}/{target.Architecture}' for the Go build unit "
-                + "(supported: linux amd64/arm64/arm/x86, windows amd64/arm64/x86)."),
+                + "(supported: linux amd64/arm64/arm/x86, windows amd64/arm64/x86, macos amd64/arm64)."),
         };
     }
 

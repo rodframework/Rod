@@ -32,6 +32,9 @@ public class GoBuildUnitTests
     [InlineData("windows", "amd64", "windows", "amd64")]
     [InlineData("win", "x64", "windows", "amd64")]
     [InlineData("windows", "arm64", "windows", "arm64")]
+    [InlineData("osx", "amd64", "darwin", "amd64")]
+    [InlineData("macos", "arm64", "darwin", "arm64")]
+    [InlineData("darwin", "aarch64", "darwin", "arm64")]
     public void TheTargetMapCoversTheGoToolchainSet(string os, string arch, string goos, string goarch)
     {
         var (mappedOs, mappedArch) = GoBuildUnit.MapTarget(new TargetProfile(os, arch));
@@ -39,7 +42,7 @@ public class GoBuildUnitTests
     }
 
     [Theory]
-    [InlineData("osx", "amd64", "macOS host")]
+    [InlineData("osx", "386", "amd64/arm64 only")]
     [InlineData("android", "arm64", "the Rust unit's leg")]
     [InlineData("linux", "riscv64", "supported")]
     [InlineData("plan9", "amd64", "supported")]

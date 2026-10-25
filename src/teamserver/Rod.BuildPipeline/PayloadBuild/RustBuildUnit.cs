@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Rod.CoreState.Implants;
 
 namespace Rod.BuildPipeline.PayloadBuild;
@@ -43,11 +44,13 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
     // platform pieces need on the build host: the musl triples get the
     // cross names the build itself sets as CC_*/AR_* (ring's primitives),
     // the Windows GNU pair the mingw-w64 drivers cargo invokes by default,
-    // and the android pair the NDK clang wrapper named per triple -- which
-    // never sits on PATH, so its readiness resolves through the NDK
-    // (LocateNdk) instead of the PATH scan. A target without its row here
-    // still builds; the table exists so the environment report can name
-    // what is missing per target.
+    // the Windows MSVC pair Visual Studio's linker (resolved through
+    // vswhere, never on a plain PATH), the Apple pair the toolchain's own
+    // cc under the Xcode command line tools, and the android pair the NDK
+    // clang wrapper named per triple -- which never sits on PATH, so its
+    // readiness resolves through the NDK (LocateNdk) instead of the PATH
+    // scan. A target without its row here still builds; the table exists
+    // so the environment report can name what is missing per target.
     private static readonly (string Triple, string Os, string Arch, string Linker)[] CrossTargets =
     [
         ("x86_64-unknown-linux-musl", "linux", "amd64", "musl-gcc"),
@@ -55,7 +58,11 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
         ("armv7-unknown-linux-musleabihf", "linux", "arm", "armv7-linux-musleabihf-gcc"),
         ("i686-unknown-linux-musl", "linux", "x86", "musl-gcc"),
         ("x86_64-pc-windows-gnu", "windows", "amd64", "x86_64-w64-mingw32-gcc"),
+        ("x86_64-pc-windows-msvc", "windows", "amd64", "link.exe"),
         ("i686-pc-windows-gnu", "windows", "x86", "i686-w64-mingw32-gcc"),
+        ("aarch64-pc-windows-msvc", "windows", "arm64", "link.exe"),
+        ("aarch64-apple-darwin", "macos", "arm64", "cc"),
+        ("x86_64-apple-darwin", "macos", "amd64", "cc"),
         ("aarch64-linux-android", "android", "arm64", "aarch64-linux-android24-clang"),
         ("x86_64-linux-android", "android", "amd64", "x86_64-linux-android24-clang"),
     ];
@@ -164,10 +171,15 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
             var std = installed.Contains(triple);
             // The android linker lives inside the NDK, never on PATH -- the
             // row's linker name is the wrapper file name, resolved through
-            // the NDK location chain.
+            // the NDK location chain. The MSVC linker lives inside Visual
+            // Studio, equally never on a plain PATH -- vswhere is the
+            // fixed-location probe every VS-bearing host carries. Both are
+            // presence-level, the same bar the PATH scan holds.
             var hasLinker = triple.EndsWith("-android", StringComparison.Ordinal)
                 ? ResolveNdkClang(triple) is not null
-                : FindOnPath(linker);
+                : triple.EndsWith("-msvc", StringComparison.Ordinal)
+                    ? LocateVsWhere() is not null
+                    : FindOnPath(linker);
             if (!std || !hasLinker)
                 anyTargetMissing = true;
             targets.Add(new BuildTargetReadiness(triple, $"{os}/{arch}", std, hasLinker, linker));
@@ -243,6 +255,20 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
             }
         }
         return false;
+    }
+
+    // vswhere sits at one fixed path on every host Visual Studio (or its
+    // Build Tools) installed -- the presence-level probe the MSVC rows'
+    // readiness reads, since link.exe never joins a plain PATH outside a
+    // developer shell. Non-Windows hosts answer null by construction.
+    private static string? LocateVsWhere()
+    {
+        if (!OperatingSystem.IsWindows())
+            return null;
+        var candidate = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            "Microsoft Visual Studio", "Installer", "vswhere.exe");
+        return File.Exists(candidate) ? candidate : null;
     }
 
     // A bounded one-shot process run for version/sysroot queries: found
@@ -395,24 +421,37 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
             cargo.Environment["CARGO_TARGET_DIR"] = targetDir;
             cargo.Environment["CARGO_NET_GIT_FETCH_WITH_CLI"] = "true";
             // The static (musl) triples: rust ships their std, and the C
-            // bits -- ring's primitives -- need a musl cross compiler the
-            // build host names per target. A host without the cross fails
-            // inside cargo with the toolchain's own error, loudly. The
-            // cc-cased stem keeps the triple's own case (the cc crate
-            // reads CC_x86_64_unknown_linux_musl), and the archiver stays
-            // unset on purpose: the common musl cross shapes ship a gcc
-            // wrapper without a prefixed ar, and the cc crate's own
-            // fallback (plain ar) archives the freestanding objects fine.
+            // bits -- ring's primitives -- need a musl compiler the build
+            // host names per target. musl-tools serves the host's own arch
+            // under the plain `musl-gcc` name; any other arch needs the
+            // prefixed cross shape (musl.cc and friends), so the pick is
+            // host-arch-aware -- an arm64 Linux host builds aarch64 musl
+            // natively the way an amd64 host always built x86_64. A host
+            // without the compiler it names fails inside cargo with the
+            // toolchain's own error, loudly. The cc-cased stem keeps the
+            // triple's own case (the cc crate reads
+            // CC_x86_64_unknown_linux_musl), and the archiver stays unset
+            // on purpose: the common musl cross shapes ship a gcc wrapper
+            // without a prefixed ar, and the cc crate's own fallback (plain
+            // ar) archives the freestanding objects fine.
             if (triple.EndsWith("-musl", StringComparison.Ordinal))
             {
                 var ccStem = triple.Replace('-', '_');
-                var prefix = triple.Split('-')[0] switch
+                var hostArch = RuntimeInformation.ProcessArchitecture switch
                 {
-                    "x86_64" => "musl-gcc",
-                    "aarch64" => "aarch64-linux-musl-gcc",
-                    "armv7" => "armv7-linux-musleabihf-gcc",
-                    _ => "musl-gcc",
+                    Architecture.X64 => "x86_64",
+                    Architecture.Arm64 => "aarch64",
+                    _ => "",
                 };
+                var prefix = triple.Split('-')[0] == hostArch
+                    ? "musl-gcc"
+                    : triple.Split('-')[0] switch
+                    {
+                        "x86_64" => "x86_64-linux-musl-gcc",
+                        "aarch64" => "aarch64-linux-musl-gcc",
+                        "armv7" => "armv7-linux-musleabihf-gcc",
+                        _ => "musl-gcc",
+                    };
                 cargo.Environment[$"CC_{ccStem}"] = prefix;
             }
             var result = await RunAsync(cargo, cancellationToken);
@@ -425,10 +464,10 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
                     $"cargo build failed (exit {result.ExitCode}):\n{diag}");
             }
 
-            // The Windows triples (x86_64-pc-windows-gnu, i686-pc-windows-gnu)
-            // begin with the arch, not the OS -- a StartsWith("windows") check
-            // names the wrong file and a successful build reads as a missing
-            // artifact.
+            // The Windows triples (the GNU pair and the MSVC pair) begin
+            // with the arch, not the OS -- a StartsWith("windows") check
+            // names the wrong file and a successful build reads as a
+            // missing artifact.
             var binaryName = triple.Contains("-windows-", StringComparison.Ordinal)
                 ? "rod-implant.exe"
                 : "rod-implant";
@@ -1072,23 +1111,42 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
     {
         var os = target.OperatingSystem.Trim().ToLowerInvariant();
         var arch = target.Architecture.Trim().ToLowerInvariant();
+        // Native-host resolution for the two SDK-linked families: the Apple
+        // pair needs the Apple SDK and ARM Windows deploys through the MSVC
+        // ABI, so the contract maps them on their own hosts (a mac host
+        // builds darwin, a Windows host takes the MSVC spellings) and
+        // refuses elsewhere with the host the request wants -- the same
+        // answer shape the android NDK leg always had. The Windows amd64
+        // cell is the one with two hosts: MSVC native on Windows, the GNU
+        // cross everywhere else (the linux deployment shape).
+        var onWindows = OperatingSystem.IsWindows();
+        var onMacOs = OperatingSystem.IsMacOS();
+        string RefuseAppleOffHost() =>
+            "The Apple link needs the Apple SDK; build it on a macOS host.";
         return (os, arch) switch
         {
             ("linux", "amd64" or "x64" or "x86_64") => "x86_64-unknown-linux-musl",
             ("linux", "arm64" or "aarch64") => "aarch64-unknown-linux-musl",
             ("linux", "arm" or "armv7") => "armv7-unknown-linux-musleabihf",
             ("linux", "x86" or "386") => "i686-unknown-linux-musl",
-            ("windows" or "win", "amd64" or "x64" or "x86_64") => "x86_64-pc-windows-gnu",
+            ("windows" or "win", "amd64" or "x64" or "x86_64") =>
+                onWindows ? "x86_64-pc-windows-msvc" : "x86_64-pc-windows-gnu",
             ("windows" or "win", "x86" or "386") => "i686-pc-windows-gnu",
+            ("windows" or "win", "arm64" or "aarch64") => onWindows
+                ? "aarch64-pc-windows-msvc"
+                : throw new InvalidOperationException(
+                    "ARM Windows deploys through the MSVC ABI; build it on a Windows host."),
+            ("osx" or "darwin" or "macos", "amd64" or "x64" or "x86_64") => onMacOs
+                ? "x86_64-apple-darwin"
+                : throw new InvalidOperationException(RefuseAppleOffHost()),
+            ("osx" or "darwin" or "macos", "arm64" or "aarch64") => onMacOs
+                ? "aarch64-apple-darwin"
+                : throw new InvalidOperationException(RefuseAppleOffHost()),
             ("android", "arm64" or "aarch64") => "aarch64-linux-android",
             ("android", "amd64" or "x64" or "x86_64") => "x86_64-linux-android",
-            ("osx" or "darwin" or "macos", _) => throw new InvalidOperationException(
-                "The Rust build unit does not cross Apple targets (the link needs the Apple SDK); build on a macOS host."),
-            ("windows" or "win", "arm64" or "aarch64") => throw new InvalidOperationException(
-                "The Rust build unit has no GNU target for ARM Windows."),
             _ => throw new InvalidOperationException(
                 $"Unsupported target '{target.OperatingSystem}/{target.Architecture}' for the Rust build unit " +
-                "(supported: linux amd64/arm64/arm/x86, windows amd64/x86, android arm64/amd64)."),
+                "(supported: linux amd64/arm64/arm/x86, windows amd64/x86/arm64, macos amd64/arm64, android arm64/amd64)."),
         };
     }
 
