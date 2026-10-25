@@ -47,9 +47,16 @@ public sealed record RegistryVersion(
     public sealed record TargetInfo(string ImplantClass, string Platform, string Arch);
 
     /// <summary>One verb row of the version matrix (architecture.md Sec 15.2's
-    /// third contract): the verb, its module-scoped version, and its optional
-    /// per-verb teamserver floor.</summary>
-    public sealed record VerbInfo(string Name, string Version, string? Teamserver);
+    /// third contract): the verb, its module-scoped version, its optional
+    /// per-verb teamserver floor, and the row's ATT&CK techniques -- the same
+    /// ids the signed canonical form carries, mirrored so the index answers
+    /// coverage questions (search, the release matrix) without unpacking the
+    /// package.</summary>
+    public sealed record VerbInfo(
+        string Name,
+        string Version,
+        string? Teamserver,
+        IReadOnlyList<string>? Techniques = null);
 }
 
 public static class RegistryJson

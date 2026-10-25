@@ -89,7 +89,11 @@ public static class PublishCommand
                     .Select(t => new RegistryVersion.TargetInfo(t.ImplantClass, t.Platform, t.Arch))
                     .ToList()),
             Verbs: manifest.Verbs
-                .Select(v => new RegistryVersion.VerbInfo(v.Name, v.Version.ToString(), v.TeamserverMin?.ToString()))
+                .Select(v => new RegistryVersion.VerbInfo(
+                    v.Name,
+                    v.Version.ToString(),
+                    v.TeamserverMin?.ToString(),
+                    Techniques: v.Techniques is { Count: > 0 } ? v.Techniques.ToList() : null))
                 .ToList(),
             Assets: manifest.Assets.Count == 0
                 ? null

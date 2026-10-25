@@ -62,7 +62,8 @@ public static class SearchCommand
         var fields = new List<string> { entry.Name }
             .Concat(new[] { entry.Description ?? "", entry.License })
             .Concat(entry.Attack)
-            .Concat(entry.Versions.SelectMany(v => v.Verbs ?? []).Select(v => v.Name));
+            .Concat(entry.Versions.SelectMany(v => v.Verbs ?? []).Select(v => v.Name))
+            .Concat(entry.Versions.SelectMany(v => v.Verbs ?? []).SelectMany(v => v.Techniques ?? []));
         return fields.Any(field => field.Contains(term, StringComparison.OrdinalIgnoreCase));
     }
 }
@@ -120,9 +121,14 @@ public static class InfoCommand
         {
             output.WriteLine("  verbs:");
             foreach (var verb in version.Verbs!)
-                output.WriteLine(verb.Teamserver is null
+            {
+                var floor = verb.Teamserver is null
                     ? $"    {verb.Name}@{verb.Version}"
-                    : $"    {verb.Name}@{verb.Version} (teamserver >= {verb.Teamserver})");
+                    : $"    {verb.Name}@{verb.Version} (teamserver >= {verb.Teamserver})";
+                output.WriteLine(verb.Techniques is { Count: > 0 }
+                    ? $"{floor} [{string.Join(" ", verb.Techniques)}]"
+                    : floor);
+            }
         }
         if ((version.Assets?.Count ?? 0) > 0)
             output.WriteLine($"  assets: {string.Join(", ", version.Assets!)}");

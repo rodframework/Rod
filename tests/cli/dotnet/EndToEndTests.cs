@@ -312,6 +312,44 @@ public class EndToEndTests
         Assert.Contains("FAIL demo-sweep@1.0.0", tampered.Output);
     }
 
+    [Fact]
+    public void VerbTechniques_RideTheRegistryMirror_AndSearchFindsThem()
+    {
+        // ADR-007's advancement mechanism: the verb row's technique declaration
+        // is the authoritative coverage claim, and the registry index mirrors
+        // it beside the version matrix -- so coverage questions (search, the
+        // release matrix) never unpack a package to answer.
+        using var root = new TempRoot();
+        var module = root["demo-sweep"];
+        var registry = root["registry"];
+        CliRun.Run("mod", "init", "demo-sweep", "--path", module);
+        Author(module, "1.0.0", "payload-v1");
+        var toml = File.ReadAllText(Path.Combine(module, "rod-module.toml"))
+            .Replace("techniques = []", "techniques = [\"T1615\"]") + """
+            [[verbs]]
+            name = "demo-sweep.deep"
+            version = "0.2.0"
+            techniques = ["T1615"]
+            """;
+        File.WriteAllText(Path.Combine(module, "rod-module.toml"), toml);
+
+        var publish = CliRun.Run("mod", "publish", "--path", module, "--registry", registry);
+        Assert.True(publish.Code == 0, publish.Error);
+
+        // The index entry carries the row's techniques beside the version matrix.
+        var entry = Rod.Cli.Registry.RegistryJson.LoadEntry(
+            Path.Combine(registry, "modules", "demo-sweep.json"));
+        var row = Assert.Single(
+            entry!.Versions.Single(v => v.Version == "1.0.0").Verbs!,
+            v => v.Name == "demo-sweep.deep");
+        Assert.Equal(new[] { "T1615" }, row.Techniques);
+
+        // Search answers a technique query, and info shows the ids on the row.
+        Assert.Contains("demo-sweep", CliRun.Run("mod", "search", "T1615", "--registry", registry).Output);
+        var info = CliRun.Run("mod", "info", "demo-sweep", "--registry", registry);
+        Assert.Contains("demo-sweep.deep@0.2.0 [T1615]", info.Output);
+    }
+
     private static void Author(string module, string version, string? payload, string teamserver = "1.0.0", string? description = null)
     {
         // Regex edits rather than Replace(): the scaffold fills version and
