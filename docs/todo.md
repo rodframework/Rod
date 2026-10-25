@@ -41,8 +41,6 @@ Phase P2 -- ecosystem and trust (architecture.md Sec 15). Unparked:
 the parking condition was P1 shipped, and it did; each item below now
 waits only for an engagement to name it.
 
-- **3 OS x 2 arch implant e2e matrix.** _AC:_ CI green across the matrix;
-  the matrix badge lands in the README.
 - **Public docs site + runbooks.** _AC:_ architecture.md published as the
   site.
 - **Module development end-to-end docs** (init through publish). _AC:_ an

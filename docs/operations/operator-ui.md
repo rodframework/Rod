@@ -875,8 +875,10 @@ enrolled.
 
 The engagement's build home:
 The main path is the mainstream shape: pick the **Listener (enroll +
-contact)** and the **target** (OS/arch -- the Rust build unit's supported
-set: Linux amd64/arm64/arm/x86, Windows amd64/x86),
+contact)** and the **target** (OS/arch -- the cross set the Linux
+deployment builds: Linux amd64/arm64/arm/x86, Windows amd64/x86; the
+Apple and ARM Windows cells resolve on their native build hosts, the
+CI matrix's nightly lane),
 leave the rest at the defaults, and build. The artifact is a
 self-contained native executable with its enrollment credential
 baked in -- drop it on the target and run, zero arguments. A summary

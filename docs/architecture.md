@@ -2766,7 +2766,9 @@ live on the stream carriage, the degraded park-and-drain discipline over
 the poll cycle), the one-shot core verbs, the module family of the plugin
 seam (Sec 5.4, compiled on every platform; Linux loads modules by
 exec'ing them out of a memfd, so the static musl artifact loads them like
-any other), and the Windows sensitive set
+any other -- macOS keeps the family dormant the way the android leg does,
+its kernel carrying no anonymous-fd exec at all), and the Windows
+sensitive set
 (inject.shellcode, collect.minidump, collect.keylog) that self-gate on
 `cfg(windows)` so a Linux build compiles none of them. The mobile leg is
 the same machine in a library: the crate's core is a lib target, and the
@@ -2786,18 +2788,25 @@ reference candidate) and the end-to-end legs (dev-shape and
 pipeline-built, both contact modes; the android carrier rides the
 emulator's amd64 leg through the same round trip, the aarch64 cross for
 devices building on the Linux host unchanged --
-[operations/android.md](operations/android.md)). The `Language` enum
+[operations/android.md](operations/android.md)). The legs run as a
+nightly six-cell matrix over the desktop grid -- linux, windows, and
+macOS at amd64/arm64, one runner per cell building through the pipeline
+and running the artifacts on its own OS and arch: the Apple pair and
+ARM Windows's MSVC shape resolve natively on their own build hosts,
+while Windows amd64 keeps its GNU cross for the Linux deployment shape. The `Language` enum
 (Go/DotNet/Rust/C/Nim) and build contract stay, so a community implant in
 any language registers a build unit and compiles against the same
 contract. The Go slot carries its in-tree reference (the first community
 slot, `src/implant/go/`, built by `GoBuildUnit`): a Tier 0 wire client --
 enroll, the envelope POST cycle, tasking -- plus the ADR-010 exfil upload
 arm with byte-offset resume, over the web family only, one static binary
-per GOOS/GOARCH with the dependency set vendored. It couples to the
-platform through nothing but rod.proto and the baked profile, and its
+per GOOS/GOARCH with the dependency set vendored (darwin included -- it
+crosses from any host like every other GOOS under cgo-off, so it needs no
+build host of its own). It couples to the platform through nothing but
+rod.proto and the baked profile, and its
 acceptance is the end-to-end arc -- enroll, task, and exfil against a
 live teamserver, in both the dev shape and the pipeline-baked artifact
-with sealed contacts.
+with sealed contacts -- on every cell the matrix stands.
 
 The .NET implant and the .NET stager that preceded this shape are deleted:
 their history is the commit record, and their delivery answers -- the
