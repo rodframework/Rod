@@ -14,7 +14,9 @@
 //! 5.4): Linux stages the bytes in a memfd and execs the module through
 //! `/proc/self/fd` -- the loader tier's own mechanism -- one process per
 //! verb dispatch over a stdio protocol, uniform across static musl and
-//! dynamic builds alike; Windows maps the PE by hand. The registry itself
+//! dynamic builds alike; Windows maps the PE by hand. macOS and the
+//! android leg keep the family compiled but dormant: neither floor
+//! carries the anonymous-fd exec the memfd shape is. The registry itself
 //! is platform-blind behind the Library trait.
 
 use std::collections::HashMap;
@@ -71,9 +73,9 @@ impl AbiStr {
 /// One run's outcome as the shim reports it: success or failure with the
 /// module's output string, or a shim error (an unknown index, a fenced
 /// panic) carrying the cause. Only the platform loaders construct these;
-/// the android leg's dormant seam never does (the cfg_attr silences the
+/// the dormant seams' refusals never do (the cfg_attr silences the
 /// dead-code lint there alone).
-#[cfg_attr(target_os = "android", allow(dead_code))]
+#[cfg_attr(any(target_os = "android", target_os = "macos"), allow(dead_code))]
 enum RunStatus {
     Succeeded(String),
     Failed(String),
@@ -405,20 +407,28 @@ fn verify_sha256(bytes: &[u8], expected: &str) -> Result<(), String> {
 
 // --- The platform loaders ---------------------------------------------------
 
-#[cfg(all(unix, not(target_os = "android")))]
+#[cfg(all(unix, not(target_os = "android"), not(target_os = "macos")))]
 fn load_library(bytes: &[u8]) -> Result<Box<dyn Library>, String> {
     executed::ExecLibrary::load(bytes)
 }
 
-// Android: the module family stays compiled-but-dormant (architecture.md
-// Sec 12.2, the mobile leg). Two constraints close the memfd-exec shape
-// there: bionic below API 30 carries no memfd_create symbol to link
-// against, and the untrusted_app SELinux domain denies exec of anonymous
-// fds. The seam refuses with the fact rather than failing at load or
-// linking an artifact that cannot open on the floor the leg targets.
-#[cfg(target_os = "android")]
+// Two floors keep the module family compiled-but-dormant (architecture.md
+// Sec 12.2): the android leg -- bionic below API 30 carries no
+// memfd_create symbol to link against, and the untrusted_app SELinux
+// domain denies exec of anonymous fds -- and macOS, whose kernel carries
+// neither memfd_create nor an exec-from-fd path to stage bytes on. The
+// seam refuses with the fact rather than failing at load or linking an
+// artifact that cannot open on the floor the leg targets.
+#[cfg(any(target_os = "android", target_os = "macos"))]
 fn load_library(_bytes: &[u8]) -> Result<Box<dyn Library>, String> {
-    Err("module.load: the module family is dormant on the Android leg (no anonymous-fd exec under the app domain)".into())
+    #[cfg(target_os = "android")]
+    const FLOOR: &str = "the Android leg (no anonymous-fd exec under the app domain)";
+    #[cfg(target_os = "macos")]
+    const FLOOR: &str = "the macOS leg (no anonymous-fd exec on the kernel)";
+
+    Err(format!(
+        "module.load: the module family is dormant on {FLOOR}"
+    ))
 }
 
 #[cfg(windows)]
@@ -428,7 +438,7 @@ fn load_library(bytes: &[u8]) -> Result<Box<dyn Library>, String> {
 
 // --- Linux: the memfd + exec loader -------------------------------------------
 
-#[cfg(all(unix, not(target_os = "android")))]
+#[cfg(all(unix, not(target_os = "android"), not(target_os = "macos")))]
 mod executed {
     //! The Linux module shape (architecture.md Sec 5.4): the bytes stage in
     //! a memfd and the loader execs them through the anonymous fd --
@@ -1646,7 +1656,7 @@ mod tests {
         assert!(verify_sha256(b"bytes", &good.to_uppercase()).is_ok());
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "android"), not(target_os = "macos")))]
     #[test]
     fn garbage_bytes_refuse_as_a_module() {
         let plugins = Plugins::new();
