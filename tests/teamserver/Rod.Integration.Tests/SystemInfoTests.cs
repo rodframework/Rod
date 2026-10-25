@@ -47,7 +47,10 @@ public class SystemInfoTests
         Assert.Contains(rust.Status, new[] { "ready", "partial", "unavailable" });
         Assert.Contains(rust.Findings, f => f.Area == "source tree");
         Assert.Contains(rust.Findings, f => f.Area == "cargo");
-        Assert.Equal(8, rust.Targets.Count);
+        // The readiness table's row count: four linux musl crosses, the
+        // windows GNU pair, the windows MSVC pair, the two apple natives,
+        // and the two android crosses.
+        Assert.Equal(12, rust.Targets.Count);
         Assert.All(rust.Targets, t =>
         {
             Assert.False(string.IsNullOrWhiteSpace(t.Triple));
@@ -55,6 +58,7 @@ public class SystemInfoTests
         });
         Assert.Contains(rust.Targets, t => t.Triple == "x86_64-unknown-linux-musl");
         Assert.Contains(rust.Targets, t => t.Triple == "x86_64-pc-windows-gnu");
+        Assert.Contains(rust.Targets, t => t.Triple == "aarch64-apple-darwin");
         Assert.Contains(rust.Targets, t => t.Triple == "aarch64-linux-android");
     }
 
