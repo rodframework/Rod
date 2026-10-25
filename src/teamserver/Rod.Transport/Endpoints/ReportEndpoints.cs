@@ -360,7 +360,8 @@ internal static class ReportBuilder
             .Append(report.Engagement.Name).Append(sep)
             .Append(report.Engagement.OwnerId).Append(sep)
             .Append(report.Engagement.OwnerHandle).Append(sep)
-            .Append(report.Engagement.CreatedAt.ToUnixTimeMilliseconds()).Append(rec);
+            .Append(report.Engagement.CreatedAt.ToUnixTimeMilliseconds()).Append(sep)
+            .Append(report.Engagement.Range).Append(rec);
 
         foreach (var op in report.Operators)
             sb.Append(op.OperatorId).Append(sep)
@@ -553,7 +554,8 @@ internal sealed record ReportBuilderContext(
                 Name: engagement.Name,
                 OwnerId: engagement.OwnerId.Value,
                 OwnerHandle: OperatorHandle(engagement.OwnerId.Value),
-                CreatedAt: engagement.CreatedAt),
+                CreatedAt: engagement.CreatedAt,
+                Range: engagement.Range),
             GeneratedAt: DateTimeOffset.UtcNow,
             ContentHash: string.Empty,
             ChainVerified: ChainBreak is null,
@@ -705,6 +707,12 @@ internal static class ReportMarkdown
         var sb = new StringBuilder();
         sb.Append("# Engagement report: ").Append(report.Engagement.Name).Append('\n');
         sb.Append('\n');
+        // The range banner (architecture.md Sec 15.3): a simulated
+        // engagement's report says so in its first breath -- the evidence
+        // discipline a range exists under.
+        if (report.Engagement.Range)
+            sb.Append("**This is a range engagement: the fleet is simulated (scripted beacons); ")
+                .Append("nothing here ran on a real target.**\n\n");
         sb.Append("- Engagement: `").Append(report.Engagement.EngagementId.ToString("N")).Append("`\n");
         sb.Append("- Owner: `").Append(report.Engagement.OwnerHandle).Append("` (`")
             .Append(report.Engagement.OwnerId.ToString("N")).Append("`)\n");
@@ -892,7 +900,12 @@ public sealed record ReportEngagement(
     string Name,
     Guid OwnerId,
     string OwnerHandle,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    // The range mark (architecture.md Sec 15.3): a simulated engagement's
+    // report must never read as a real operation's. Rendered as the header
+    // banner below and sealed into the report's content hash like every
+    // other engagement fact.
+    bool Range = false);
 
 /// <summary>
 /// One crew row of the report: an operator who holds standing on the
