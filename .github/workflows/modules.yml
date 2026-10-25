@@ -1,0 +1,75 @@
+name: modules
+
+# The module lane, on demand: module tests travel with the module
+# (architecture.md Sec 15.1 -- under modules/<name>/tests/), so their cost
+# belongs to the trees that carry them, not to every push. The main lanes
+# keep BUILDING the modules -- the teamserver's own build restores and
+# deploys every modules/**/*.csproj beside its binary (Rod.TeamServer.csproj),
+# so the build path stays central by deployment design -- but the module
+# TEST projects run only here, when a module tree or the shared build
+# settings it compiles under change. The nightly schedule keeps a standing
+# verdict, the same discipline ci.yml's extended lane and the implant matrix
+# carry; ci.yml's core lane excludes the Rod.Modules.* tests to match.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'modules/**'
+      - 'Directory.Build.props'
+      - 'Directory.Packages.props'
+      - '.github/workflows/modules.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'modules/**'
+      - 'Directory.Build.props'
+      - 'Directory.Packages.props'
+      - '.github/workflows/modules.yml'
+  schedule:
+    # Between ci.yml's 03:00 full-lane pass and the 05:00 implant matrix, so
+    # the three scheduled verdicts land in order.
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  module-tests:
+    name: Build and test the modules
+    # Pinned like every runner here (ci.yml's rationale): an unpinned label
+    # lets a runner image change the toolchain under an unchanged tree.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        # Version comes from global.json (pinned to 10.0.110).
+      - name: Build the module assemblies
+        # The server-side module csproj trees, standalone -- a module pull
+        # request gets its own build verdict without the kernel lanes. Asset
+        # modules carry no build (pure file trees); a glob that matches
+        # nothing skips the dotnet call rather than failing it.
+        run: |
+          shopt -s nullglob
+          projects=(modules/*/*.csproj)
+          if [ ${#projects[@]} -gt 0 ]; then
+            dotnet build "${projects[@]}" --configuration Release
+          else
+            echo "no module assemblies to build"
+          fi
+      - name: Run the module test projects
+        # Discovery by shape, not by list: a new module's tests join the lane
+        # by existing under modules/<name>/tests/, no workflow edit -- the
+        # same zero-touch rule the kernel suites hold.
+        run: |
+          shopt -s nullglob
+          projects=(modules/*/tests/*.csproj)
+          if [ ${#projects[@]} -eq 0 ]; then
+            echo "no module test projects"
+            exit 0
+          fi
+          for project in "${projects[@]}"; do
+            dotnet test "$project" --configuration Release
+          done
