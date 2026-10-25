@@ -58,7 +58,8 @@ public class GoImplantEndToEndTests
         var goDir = FindGoTree()
             ?? throw new InvalidOperationException("the Go implant tree was not found from the test assembly");
         // The dev-shape binary: a plain go build of the checked-in tree.
-        var binary = Path.Combine(Path.GetTempPath(), "rod-go-e2e-" + Guid.NewGuid().ToString("N"));
+        var binary = Path.Combine(
+            Path.GetTempPath(), "rod-go-e2e-" + Guid.NewGuid().ToString("N") + TestCell.ExeSuffix);
         var build = Process.Start(new ProcessStartInfo
         {
             FileName = "go",
@@ -172,8 +173,8 @@ public class GoImplantEndToEndTests
             new PayloadEndpoints.BuildPayloadRequest(
                 Language: "go",
                 Class: "Implant",
-                TargetOs: "linux",
-                TargetArch: "amd64",
+                TargetOs: TestCell.Os,
+                TargetArch: TestCell.Arch,
                 ListenerId: front,
                 UriPath: null,
                 SleepSeconds: 1.0,
@@ -186,7 +187,7 @@ public class GoImplantEndToEndTests
 
         var outDir = Path.Combine(Path.GetTempPath(), "rod-e2e-go-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(outDir);
-        var binaryPath = Path.Combine(outDir, "rod-implant");
+        var binaryPath = Path.Combine(outDir, "rod-implant" + TestCell.ExeSuffix);
         Process? process = null;
         var stderr = new StringBuilder();
         try

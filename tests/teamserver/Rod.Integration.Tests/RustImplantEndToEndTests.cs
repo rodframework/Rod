@@ -14,9 +14,10 @@ namespace Rod.Integration.Tests;
 
 /// <summary>
 /// A fact that runs only when a Rust toolchain (cargo) is on PATH: the
-/// pipeline-build tests and the reference implant's legs need it.
+/// pipeline-build tests and the reference implant's legs need it. Open
+/// for the cells that gate further (the Linux-only wireguard leg).
 /// </summary>
-public sealed class RustFactAttribute : FactAttribute
+public class RustFactAttribute : FactAttribute
 {
     public RustFactAttribute()
     {
@@ -38,6 +39,20 @@ public sealed class RustFactAttribute : FactAttribute
         {
             Skip = "cargo is not on PATH";
         }
+    }
+}
+
+/// <summary>
+/// A Rust fact for the Linux cells only: the native WireGuard router
+/// ships as a Linux cdylib the .NET side P/Invokes, so the wireguard leg
+/// stands where that seam stands.
+/// </summary>
+public sealed class RustLinuxFactAttribute : RustFactAttribute
+{
+    public RustLinuxFactAttribute()
+    {
+        if (!OperatingSystem.IsLinux())
+            Skip = "the native WireGuard router is a Linux cdylib";
     }
 }
 
@@ -72,7 +87,7 @@ public class RustImplantEndToEndTests
             + await build.StandardError.ReadToEndAsync();
         build.WaitForExit(300_000);
         Assert.True(build.ExitCode == 0, $"cargo build failed:\n{buildOutput}");
-        var binary = Path.Combine(rustDir, "target", "release", "rod-implant");
+        var binary = Path.Combine(rustDir, "target", "release", "rod-implant" + TestCell.ExeSuffix);
         Assert.True(File.Exists(binary), $"cargo reported success but {binary} is missing");
 
         await using var env = await TestEnv.StartAsync();
@@ -179,7 +194,7 @@ public class RustImplantEndToEndTests
             + await build.StandardError.ReadToEndAsync();
         build.WaitForExit(300_000);
         Assert.True(build.ExitCode == 0, $"cargo build failed:\n{buildOutput}");
-        var binary = Path.Combine(rustDir, "target", "release", "rod-implant");
+        var binary = Path.Combine(rustDir, "target", "release", "rod-implant" + TestCell.ExeSuffix);
 
         await using var env = await TestEnv.StartAsync();
         await env.CreateEngagementAsync();
@@ -273,8 +288,8 @@ public class RustImplantEndToEndTests
             new PayloadEndpoints.BuildPayloadRequest(
                 Language: "rust",
                 Class: "Implant",
-                TargetOs: "linux",
-                TargetArch: "amd64",
+                TargetOs: TestCell.Os,
+                TargetArch: TestCell.Arch,
                 ListenerId: front,
                 UriPath: null,
                 SleepSeconds: 1.0,
@@ -287,7 +302,7 @@ public class RustImplantEndToEndTests
 
         var outDir = Path.Combine(Path.GetTempPath(), "rod-e2e-rust-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(outDir);
-        var binaryPath = Path.Combine(outDir, "rod-implant");
+        var binaryPath = Path.Combine(outDir, "rod-implant" + TestCell.ExeSuffix);
         Process? process = null;
         try
         {
@@ -519,7 +534,7 @@ public class RustImplantEndToEndTests
         Assert.Contains(marker, done.Output);
     }
 
-    [RustFact]
+    [RustLinuxFact]
     public async Task RustImplant_EnrollsAndContactsOverWireGuard()
     {
         // The optional transport end to end (architecture.md Sec 8, Sec 15.3
@@ -567,8 +582,8 @@ public class RustImplantEndToEndTests
             new PayloadEndpoints.BuildPayloadRequest(
                 Language: "rust",
                 Class: "Implant",
-                TargetOs: "linux",
-                TargetArch: "amd64",
+                TargetOs: TestCell.Os,
+                TargetArch: TestCell.Arch,
                 ListenerId: primary,
                 UriPath: null,
                 SleepSeconds: 1.0,
@@ -582,7 +597,7 @@ public class RustImplantEndToEndTests
 
         var outDir = Path.Combine(Path.GetTempPath(), "rod-e2e-rust-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(outDir);
-        var binaryPath = Path.Combine(outDir, "rod-implant");
+        var binaryPath = Path.Combine(outDir, "rod-implant" + TestCell.ExeSuffix);
         Process? process = null;
         try
         {
@@ -851,8 +866,8 @@ public class RustImplantEndToEndTests
                 new PayloadEndpoints.BuildPayloadRequest(
                     Language: "rust",
                     Class: "Implant",
-                    TargetOs: "linux",
-                    TargetArch: "amd64",
+                    TargetOs: TestCell.Os,
+                    TargetArch: TestCell.Arch,
                     ListenerId: front,
                     UriPath: null,
                     SleepSeconds: 1.0,
@@ -865,7 +880,7 @@ public class RustImplantEndToEndTests
 
             var outDir = Path.Combine(Path.GetTempPath(), "rod-e2e-rust-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(outDir);
-            var binaryPath = Path.Combine(outDir, "rod-implant");
+            var binaryPath = Path.Combine(outDir, "rod-implant" + TestCell.ExeSuffix);
             using (var download = await env.Http.GetAsync(
                 $"/engagements/{artifact!.EngagementId}/payloads/{artifact.ArtifactId}"))
             {
