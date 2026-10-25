@@ -65,6 +65,7 @@ public static class RodCli
               install <name>[@ver] download, verify, and install a module
               verify               re-verify every installed module against the lock file
               publish              package and sign the module in the current directory
+              coverage             render the ATT&CK coverage matrix a module tree declares
 
             common options:
               --registry <dir|url>   the registry to use (default: the lock file's)

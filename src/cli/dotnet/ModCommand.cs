@@ -19,6 +19,7 @@ public static class ModCommand
             ["install"] = (args, output, error) => InstallCommand.Run(args, output, error),
             ["verify"] = (args, output, _) => Task.FromResult(VerifyCommand.Run(args, output)),
             ["publish"] = (args, output, _) => PublishCommand.Run(args, output),
+            ["coverage"] = (args, output, _) => Task.FromResult(CoverageCommand.Run(args, output)),
         };
 
     public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
@@ -55,6 +56,7 @@ public static class ModCommand
         ["install"] = "fetch, verify, and install name@version; pin it in the lock file",
         ["verify"] = "re-verify every installed module against the lock file",
         ["publish"] = "package and sign the module; write a registry entry for a pull request",
+        ["coverage"] = "render the ATT&CK coverage matrix a module tree's declarations produce",
         ["help:init"] = """
             rod mod init <name> [--path <dir>] [--entry server|implant|build-unit]
                          [--license <spdx>] [--teamserver <version>]
@@ -103,6 +105,18 @@ public static class ModCommand
             JSON, and --registry writes it into a local rod-registry checkout
             (commit and open the pull request yourself). Publish refuses
             UNLICENSED and any version already indexed with a different digest.
+            """,
+        ["help:coverage"] = """
+            rod mod coverage [--path <dir>] [--catalog <attack-coverage.json>] [--json]
+
+            Sweeps a tree for module manifests, validates every one, and
+            renders the ATT&CK coverage matrix their verb declarations
+            produce (markdown by default, --json machine-readable). With
+            --catalog the kernel's own verb mapping folds in, names and
+            tactics come from the catalog, and the output stamps the ATT&CK
+            version; a technique the catalog lacks renders by id alone --
+            coverage advances without a kernel edit. An invalid manifest
+            fails the sweep.
             """,
     };
 }
