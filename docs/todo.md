@@ -43,22 +43,11 @@ through sixth pairs carry the persist long tail: the registry run-key
 seat as runkeys, the service seat as services, the WMI subscription
 seat as wmi, and the DLL search-order seat as hijack):
 
-- **DPAPI unsealing** (serves Sec 15.2, Sec 5.4; the credential
-  collection family's second module): `collect.dpapi`, one discrete
-  collection primitive -- the task's base64 DPAPI blob unsealed under
-  the target user's own masterkeys, with the masterkey directory's
-  readiness read as the bare task's default, Windows-gated, nothing
-  landing on disk. The unseal half is the decryption primitive every
-  browser-store module that follows composes against.
-  _AC:_ the standing module contract, the credential-honest OPSEC
-  attributes, and the plugin rides the per-engagement module load,
-  never a default profile.
-
 - **Credential collection family** (serves Sec 15.2, Sec 5.4; the
   collect long tail -- the account hive dump shipped as hives and the
-  unsealing primitive is the entry above): browser credential stores,
-  DPAPI unsealing, further dump paths -- Windows-gated, opsec notes
-  naming the on-target footprint.
+  unsealing primitive as dpapi, the family's first two entries):
+  browser credential stores, further dump paths -- Windows-gated,
+  opsec notes naming the on-target footprint.
   _AC:_ the standing module contract (manifest, paired halves, coverage
   declaration, CI lane), plus sensitive rows ship disabled and enable
   per build profile (Sec 7).
