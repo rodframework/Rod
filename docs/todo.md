@@ -40,14 +40,6 @@ First batch, the Windows long tail (the domain-discovery family shipped
 the credential-free sweep in v1.0, the authenticated directory read in
 v1.1):
 
-- **Registry run keys** (serves Sec 15.2, Sec 5.4; the persistence
-  family's first module): `persist.runkeys`, one discrete seat -- the
-  Run key under HKCU or HKLM, installed, removed, and listed from the
-  same verb, Windows-gated with the on-target footprint named.
-  _AC:_ the standing module contract, plus the install action carries
-  its removal in the same verb, both riding the task audit every
-  dispatched action already enters.
-
 - **Credential collection family** (serves Sec 15.2, Sec 5.4; the
   collect long tail): browser credential stores, DPAPI unsealing, dump
   paths beyond minidump -- Windows-gated, opsec notes naming the
@@ -57,9 +49,10 @@ v1.1):
   per build profile (Sec 7).
 
 - **Persistence variant family** (serves Sec 15.2; the persist long
-  tail, its first module the entry above): the persist.install long
-  tail as discrete installable and removable techniques -- registry run
-  keys, WMI event subscriptions, services, DLL hijack seats.
+  tail -- the registry run-key seat shipped as runkeys, the module
+  line's third worked pair): the persist.install long tail as discrete
+  installable and removable techniques -- WMI event subscriptions,
+  services, DLL hijack seats.
   _AC:_ the standing module contract, plus every install verb carries
   its removal in the same module, both audited.
 
