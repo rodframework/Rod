@@ -40,15 +40,6 @@ First batch, the Windows long tail (the domain-discovery family shipped
 the credential-free sweep in v1.0, the authenticated directory read in
 v1.1):
 
-- **Windows service seats** (serves Sec 15.2, Sec 5.4; the persistence
-  family's second module): `persist.services`, one discrete seat -- a
-  service record in the SCM database with its binary path, installed,
-  removed, and listed from the same verb, Windows-gated and
-  elevation-honest (every write names the administrator access it
-  needs). _AC:_ the standing module contract, plus the install action
-  carries its removal in the same verb, both riding the task audit every
-  dispatched action already enters.
-
 - **Credential collection family** (serves Sec 15.2, Sec 5.4; the
   collect long tail): browser credential stores, DPAPI unsealing, dump
   paths beyond minidump -- Windows-gated, opsec notes naming the
@@ -58,9 +49,9 @@ v1.1):
   per build profile (Sec 7).
 
 - **Persistence variant family** (serves Sec 15.2; the persist long
-  tail -- the registry run-key seat shipped as runkeys, the module
-  line's third worked pair; the service seat is the entry above): the
-  persist.install long tail as discrete installable and removable
+  tail -- the registry run-key seat shipped as runkeys and the service
+  seat as services, the module line's third and fourth worked pairs):
+  the persist.install long tail as discrete installable and removable
   techniques -- WMI event subscriptions, DLL hijack seats.
   _AC:_ the standing module contract, plus every install verb carries
   its removal in the same module, both audited.
