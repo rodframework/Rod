@@ -8,6 +8,9 @@
 # which is the site's standing doc-health gate.
 site_name: Rod
 site_description: The Rod engagement platform -- design, runbooks, and extension seams.
+# Project pages serve under the repository's subpath; naming it here lets the
+# theme compute asset and canonical URLs correctly for that shape.
+site_url: https://rodframework.github.io/Rod/
 repo_url: https://github.com/rodframework/Rod
 edit_uri: edit/main/docs/
 docs_dir: docs
