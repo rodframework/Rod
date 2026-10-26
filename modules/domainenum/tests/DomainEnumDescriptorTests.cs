@@ -17,10 +17,11 @@ public class DomainEnumDescriptorTests
     private static CapabilityDescriptor Descriptor => new DomainEnumCapabilityModule().Descriptor;
 
     [Fact]
-    public void TheDeclaresItsVerbInTheReconNamespace()
+    public void TheModuleDeclaresItsVerbInTheReconNamespace()
     {
         Assert.Equal("recon.domainenum", Descriptor.Verb);
         Assert.Equal(CapabilityCategory.Recon, Descriptor.Category);
+        Assert.Equal("1.1", Descriptor.Version);
         Assert.Equal("domainenum", new DomainEnumCapabilityModule().Name);
     }
 
@@ -29,24 +30,41 @@ public class DomainEnumDescriptorTests
     {
         // The loader's own schema gate passes clean; the choices are the
         // scopes the implant-side plugin's parser answers (all, info,
-        // trusts, spns) -- the two halves drift together or fail here.
+        // trusts, spns, plus the authenticated users/groups/acls), and
+        // the credential pair is the grammar's positional tail: values
+        // space-joined with the pass as the trailing remainder, where a
+        // $cred-<id> placeholder resolves at dispatch -- the two halves
+        // drift together or fail here.
         Assert.Empty(Descriptor.ValidateParameters());
-        var scope = Assert.Single(Descriptor.Parameters!);
+        Assert.Equal(3, Descriptor.Parameters!.Count);
+
+        var scope = Descriptor.Parameters[0];
         Assert.Equal("scope", scope.Name);
         Assert.Equal(VerbParameterKind.Enum, scope.Kind);
         Assert.False(scope.Required);
-        Assert.Equal(new[] { "all", "info", "trusts", "spns" }, scope.Choices);
+        Assert.Equal(new[] { "all", "info", "trusts", "spns", "users", "groups", "acls" }, scope.Choices);
+
+        var user = Descriptor.Parameters[1];
+        Assert.Equal("user", user.Name);
+        Assert.Equal(VerbParameterKind.String, user.Kind);
+        Assert.False(user.Required);
+
+        var pass = Descriptor.Parameters[2];
+        Assert.Equal("pass", pass.Name);
+        Assert.Equal(VerbParameterKind.String, pass.Kind);
+        Assert.True(pass.Trailing);
     }
 
     [Fact]
-    public void TheTechniqueDeclarationValidatesAndNamesTheCredentialFreeHalf()
+    public void TheTechniqueDeclarationValidatesAndNamesBothHalves()
     {
         // T1018 (Remote System Discovery) and T1482 (Domain Trust
-        // Discovery) are exactly what the anonymous sweep covers; the
-        // authenticated half (users, groups, ACLs) widens this list when
-        // it ships, and the coverage matrix follows the declaration.
+        // Discovery) are the credential-free sweep; T1087.002 (Domain
+        // Account Discovery) and T1069.002 (Domain Groups Discovery)
+        // are the authenticated directory read. The coverage matrix
+        // follows the declaration, not any kernel file.
         Assert.Empty(Descriptor.ValidateTechniques());
-        Assert.Equal(new[] { "T1018", "T1482" }, Descriptor.Techniques);
+        Assert.Equal(new[] { "T1018", "T1482", "T1087.002", "T1069.002" }, Descriptor.Techniques);
     }
 
     [Fact]
@@ -54,7 +72,8 @@ public class DomainEnumDescriptorTests
     {
         // The plugin prints the recon JSON-lines grammar; the
         // Enumeration kind is what routes its rows into the topology
-        // view -- the DC rows carry host, port, and service.
+        // view -- the DC rows carry host, port, and service, and the
+        // directory rows key on the DC that served them.
         Assert.NotNull(Descriptor.Output);
         Assert.Equal(VerbOutputKind.Enumeration, Descriptor.Output!.Kind);
     }
@@ -62,10 +81,12 @@ public class DomainEnumDescriptorTests
     [Fact]
     public void TheOpsecAttributesCarryTheHonestFlags()
     {
-        // The sweep sends DNS and LDAP packets by design and writes
-        // nothing to the target's disk -- the flags the operator UI
-        // renders as risk badges (architecture.md Sec 7).
+        // The sweep sends DNS and LDAP packets by design, writes
+        // nothing to the target's disk, and the authenticated scopes
+        // consume a credential the task carries -- the flags the
+        // operator UI renders as risk badges (architecture.md Sec 7).
         Assert.Equal("true", Descriptor.Attributes["touches-network"]);
         Assert.Equal("false", Descriptor.Attributes["writes-to-disk"]);
+        Assert.Equal("true", Descriptor.Attributes["uses-credential"]);
     }
 }

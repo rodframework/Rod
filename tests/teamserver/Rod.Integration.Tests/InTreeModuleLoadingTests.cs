@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Rod.Capabilities;
+using Rod.Capabilities.Coverage;
 using Rod.Capabilities.Registry;
+using Rod.CoreState.Implants;
 using Rod.Modules.Domainenum;
 using Rod.Modules.Hostenum;
 
@@ -51,7 +53,9 @@ public class InTreeModuleLoadingTests
         // The second in-tree module rides the identical acceptance: the
         // config entry the shipped appsettings.json carries, the loader it
         // names, and a verb no placeholder serves -- a new verb registered
-        // through the module seam, not a replacement of one.
+        // through the module seam, not a replacement of one. v1.1 widened
+        // the declaration to the authenticated half's account and group
+        // discovery techniques, so the pin covers both halves.
         var (client, host, _) = AuthenticatedHost.Create(
             extendConfig: settings => settings["Capabilities:Modules:1"] =
                 "Rod.Modules.Domainenum.DomainEnumCapabilityModule, Rod.Modules.Domainenum",
@@ -68,7 +72,25 @@ public class InTreeModuleLoadingTests
             Assert.Equal("recon.domainenum", found!.Descriptor.Verb);
             // The techniques the coverage matrix reads come from the
             // module's declaration, not any kernel file.
-            Assert.Equal(new[] { "T1018", "T1482" }, found.Descriptor.Techniques);
+            Assert.Equal(
+                new[] { "T1018", "T1482", "T1087.002", "T1069.002" },
+                found.Descriptor.Techniques);
+
+            // The widened declaration renders in the coverage matrix
+            // (ADR-007): the authenticated half's techniques appear as
+            // rows carried by this module's verb, not gaps -- the
+            // registry-backed resolver is the same one the /capabilities
+            // endpoint serves, so this is the shipped view.
+            var techniques = host.Services.GetRequiredService<IVerbTechniqueResolver>();
+            var matrix = await CoverageMatrixBuilder.BuildAsync(registry, techniques);
+            foreach (var id in new[] { "T1087.002", "T1069.002" })
+            {
+                var row = Assert.Single(matrix.Rows, r => r.TechniqueId == id);
+                var carrier = Assert.Single(row.Carriers);
+                Assert.Equal("recon.domainenum", carrier.Verb);
+                Assert.Equal(CoverageStatus.Module, carrier.Status);
+                Assert.Equal("domainenum", carrier.Module);
+            }
         }
     }
 }

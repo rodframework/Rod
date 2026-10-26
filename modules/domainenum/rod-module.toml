@@ -6,10 +6,10 @@
 
 [module]
 name = "domainenum"
-version = "1.0.0"
+version = "1.1.0"
 entry = "server"
 license = "Apache-2.0"
-description = "Credential-free domain discovery: local domain posture, DC location (logon server / DNS SRV), and the anonymous LDAP root DSE -- recon.domainenum's execution half lives at src/implant/rust/modules/domainenum."
+description = "Domain discovery, both halves: local domain posture, DC location (logon server / DNS SRV), and the anonymous LDAP root DSE; and over an authenticated LDAP bind, domain users, groups, ACLs, SPN objects, and trusts -- recon.domainenum's execution half lives at src/implant/rust/modules/domainenum."
 
 [compatibility]
 teamserver = "1.0.0"
@@ -19,11 +19,12 @@ teamserver = "1.0.0"
 # version. The row's techniques are the authoritative per-verb ATT&CK
 # declaration (ADR-007) -- the same ids the server-side descriptor
 # registers -- with the module-level [attack] list as their validated
-# roll-up.
+# roll-up. v1.1 widened the row from the credential-free pair to carry
+# the authenticated half's account and group discovery techniques.
 [[verbs]]
 name = "recon.domainenum"
-version = "1.0.0"
-techniques = ["T1018", "T1482"]
+version = "1.1.0"
+techniques = ["T1018", "T1482", "T1087.002", "T1069.002"]
 
 # Both delivery shapes run everywhere the seam compiles: the Linux
 # executable reads krb5/sssd/resolv and answers over DNS/LDAP, the
@@ -50,10 +51,10 @@ arch = "arm64"
 
 [opsec]
 lands-on-disk = true
-notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content: through a memfd on Linux (nothing on disk), mapped in memory on Windows. The sweep sends DNS and LDAP packets to the domain's own servers -- network-visible to the DC."
+notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content: through a memfd on Linux (nothing on disk), mapped in memory on Windows. The sweep sends DNS and LDAP packets to the domain's own servers -- network-visible to the DC. The authenticated scopes bind with the task's credential over simple bind on the cleartext port: the secret crosses the implant-to-DC path in the open unless the site seals it, and a wrong password counts toward the account's lockout."
 
 [attack]
-techniques = ["T1018", "T1482"]
+techniques = ["T1018", "T1482", "T1087.002", "T1069.002"]
 
 [package]
 include = ["rod-module.toml", "*.cs", "*.csproj"]
