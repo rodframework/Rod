@@ -1,0 +1,54 @@
+# The dpapi module manifest (architecture.md Sec 15.2): the
+# credential collection family's second entry rides the same package
+# format, canonical form, and signature chain the seven modules before
+# it ride, exercised by the CLI's end-to-end tests exactly like a
+# template-repository module.
+
+[module]
+name = "dpapi"
+version = "1.0.0"
+entry = "server"
+license = "Apache-2.0"
+description = "DPAPI unsealing: unseal the task's base64 blob under the target user's own masterkeys and report the masterkey readiness facts -- collect.dpapi's execution half lives at src/implant/rust/modules/dpapi."
+
+[compatibility]
+teamserver = "1.0.0"
+
+# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# under its own module-scoped version, independently of the package
+# version. The row's techniques are the authoritative per-verb ATT&CK
+# declaration (ADR-007) -- the same ids the server-side descriptor
+# registers -- with the module-level [attack] list as their validated
+# roll-up. T1555 (Credentials from Password Stores) is the family the
+# unsealing primitive serves -- its sub-techniques (the browser stores,
+# the credential manager) arrive as their own modules that compose
+# against this one's decryption half; the kernel catalog carries the
+# T1555 parent under collect.cred and the matrix renders this row
+# beside it, the same way the hostenum row renders.
+[[verbs]]
+name = "collect.dpapi"
+version = "1.0.0"
+techniques = ["T1555"]
+
+# The technique exists only on Windows: the manifest claims the two
+# Windows targets and no others, so the module loads nowhere the
+# primitive has nothing to open.
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "windows"
+arch = "amd64"
+
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "windows"
+arch = "arm64"
+
+[opsec]
+lands-on-disk = false
+notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content and nothing it does lands on disk: the blob arrives as task text, the plaintext rides back the task's channel into the audit chain. The unseal runs under the masterkeys of the user the implant runs as -- a blob sealed by another user or another machine refuses, and DPAPI itself keeps no operation log. The verb rides the per-engagement module load -- never a default profile."
+
+[attack]
+techniques = ["T1555"]
+
+[package]
+include = ["rod-module.toml", "*.cs", "*.csproj"]

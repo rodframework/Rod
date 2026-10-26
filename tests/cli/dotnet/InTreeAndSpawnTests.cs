@@ -28,6 +28,7 @@ public class InTreeModuleTests
         { "wmi", "persist.wmi" },
         { "hijack", "persist.hijack" },
         { "hives", "collect.hives" },
+        { "dpapi", "collect.dpapi" },
     };
 
     private static string RepoRoot()
