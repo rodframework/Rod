@@ -35,21 +35,13 @@ The module layer's standing line: capability modules advancing the
 ATT&CK coverage matrix (architecture.md Sec 15.1, Sec 5.4), in family
 batches ordered by matrix gap.
 
-First batch, the Windows long tail (the domain-discovery family shipped
--- the module line's second worked pair, both halves of domain recon:
-the credential-free sweep in v1.0, the authenticated directory read in
-v1.1):
-
-- **DLL hijack seats** (serves Sec 15.2, Sec 5.4; the persistence
-  family's last module): `persist.hijack`, one discrete seat -- a DLL
-  planted beside a host binary the loader reads before System32,
-  installed from an already-pushed file after the module validates the
-  slot (the binary imports it, it sits outside KnownDLLs, the seat is
-  vacant), removed by deleting it, and listed as the host binary's
-  open slots -- the family's first on-disk seat, Windows-gated with
-  the file footprint named. _AC:_ the standing module contract, plus
-  the install action carries its removal in the same verb, both riding
-  the task audit every dispatched action already enters.
+First batch, the Windows long tail (the domain-discovery family and
+the persistence family both shipped -- the module line's second worked
+pair covers both halves of domain recon, the credential-free sweep in
+v1.0 and the authenticated directory read in v1.1, and the third
+through sixth pairs carry the persist long tail: the registry run-key
+seat as runkeys, the service seat as services, the WMI subscription
+seat as wmi, and the DLL search-order seat as hijack):
 
 - **Credential collection family** (serves Sec 15.2, Sec 5.4; the
   collect long tail): browser credential stores, DPAPI unsealing, dump
@@ -58,15 +50,6 @@ v1.1):
   _AC:_ the standing module contract (manifest, paired halves, coverage
   declaration, CI lane), plus sensitive rows ship disabled and enable
   per build profile (Sec 7).
-
-- **Persistence variant family** (serves Sec 15.2; the persist long
-  tail -- the registry run-key seat shipped as runkeys, the service
-  seat as services, and the WMI subscription seat as wmi, the module
-  line's third through fifth worked pairs; the DLL hijack seat is the
-  entry above): the persist.install long tail as discrete installable
-  and removable techniques.
-  _AC:_ the standing module contract, plus every install verb carries
-  its removal in the same module, both audited.
 
 - **Defense-evasion family** (serves Sec 15.2; the evasion long tail):
   AMSI and ETW handling, unhooking -- the module-layer implementations
