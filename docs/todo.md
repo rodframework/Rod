@@ -10,30 +10,64 @@ Each item names the architecture section it serves and carries a one-line
 acceptance criterion (_AC:_), so "done" stays testable. Follow the
 [repository conventions](../AGENTS.md).
 
-Lean is the standing default: an addition must say what an engagement
-cannot do without it; refactors, deletions, and answering with docs
-instead of code are first-class items here, equal to features. The program
-queue below (architecture.md Sec 15) is the standing source of new work;
-new work outside that queue still starts from a gap an actual engagement
-surfaces.
+Lean is the standing default for the kernel: an addition there must say
+what an engagement cannot do without it. The module layer carries the
+breadth mandate ([architecture.md Sec 15.1](architecture.md)): it
+advances on a standing cadence, ordered by the coverage matrix's gaps,
+and a real engagement's needs reorder that queue rather than gate it.
+Refactors, deletions, and answering with docs instead of code stay
+first-class items here, equal to features.
 
-Active is advisory order, not a queue: the phases order themselves (P0,
-the replacement threshold, ahead of P1 and P2), and inside a phase the
-right item to take is still the one an engagement actually needs. On
-hold is parking, not rejection: each item there names the fact or decision
-that reopens it, and a cleared condition prompts the move back into
-Active -- it does not make the move on its own. Backlog is the candidate
-pool: nothing there is scheduled, and a candidate starts only when an
-engagement names the need.
+Active is advisory order, not a queue: the batches order themselves
+(low-risk ground first, the sensitive families behind their default-off
+gates), and inside a batch the right module to take is still the one an
+engagement or the matrix names. On hold is parking, not rejection: each
+item there names the fact or decision that reopens it, and a cleared
+condition prompts the move back into Active -- it does not make the move
+on its own. Backlog is the candidate pool: platform and product
+candidates wait there for a real user to name the need; capability-module
+candidates are this line's future batches, and an engagement naming one
+promotes it ahead of the standing order.
 
 ## Active
 
-Nothing queued. The P2 ecosystem wave shipped (the record is the commit
-history): the public docs site, the module lifecycle guide, the
-on-demand module CI lane, the ATT&CK coverage advancement mechanism, and
-range mode. What remains parked waits on facts only a real engagement or
-new hardware can name -- Active is advisory order, not a queue, and an
-empty queue is the honest state between needs.
+The module layer's standing line: capability modules advancing the
+ATT&CK coverage matrix (architecture.md Sec 15.1, Sec 5.4), in family
+batches ordered by matrix gap.
+
+First batch, low-risk ground first -- the domain-discovery family runs
+the full module contract end to end a second time (`hostenum` was the
+first), then the Windows long tail follows:
+
+- **Domain discovery module** (serves Sec 15.2, Sec 5.4; the recon long
+  tail): SPN and service discovery, domain trust enumeration, domain
+  user and group enumeration, ACL discovery -- a paired server-side
+  module under `modules/` and implant-side plugin under
+  `src/implant/rust/modules/`, riding the package format, verb
+  versioning, and signature chain `hostenum` rides.
+  _AC:_ `rod mod install` loads the pair, the `[[verbs]]` rows declare
+  their techniques, `rod mod coverage` renders the widened matrix, and
+  the module's tests run in the on-demand CI lane.
+
+- **Credential collection family** (serves Sec 15.2, Sec 5.4; the
+  collect long tail): browser credential stores, DPAPI unsealing, dump
+  paths beyond minidump -- Windows-gated, opsec notes naming the
+  on-target footprint.
+  _AC:_ the domain-discovery contract, plus sensitive rows ship disabled
+  and enable per build profile (Sec 7).
+
+- **Persistence variant family** (serves Sec 15.2; the persist long
+  tail): the persist.install long tail as discrete installable and
+  removable techniques -- registry run keys, WMI event subscriptions,
+  services, DLL hijack seats.
+  _AC:_ the domain-discovery contract, plus every install verb carries
+  its removal in the same module, both audited.
+
+- **Defense-evasion family** (serves Sec 15.2; the evasion long tail):
+  AMSI and ETW handling, unhooking -- the module-layer implementations
+  behind the evasion verbs.
+  _AC:_ the domain-discovery contract, plus ships disabled, enabled per
+  build profile (Sec 7).
 
 ## On hold
 
@@ -73,8 +107,8 @@ Second wave -- take up once real users exist:
 - **Shift-handoff briefing** -- one-click digest since the operator's last
   handoff, widening the shipped digest (Sec 11.1; collaboration layer).
 
-Engagement-driven candidates -- a candidate starts only when an engagement
-names the need:
+Platform and product candidates -- a candidate starts when a real user or
+engagement names the need:
 
 - **Engagement-as-code** -- a declarative engagement manifest, git
   reviewed, one-click infrastructure rebuild (management domain).

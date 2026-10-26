@@ -3224,9 +3224,10 @@ Where the program touches the existing layers:
   sweep is a CI test, and the release notes carry the generated matrix
   -- a technique the kernel catalog carries no metadata for renders by
   id alone on every face, so a declaration never needs a kernel edit to
-  be visible. Coverage advances module by module, ordered by real
-  engagement need -- the matrix is a dashboard, not a completion
-  deadline.
+  be visible. Coverage advances module by module on a standing cadence:
+  the matrix's gaps order the batches by default, a real engagement's
+  needs promote ahead of them, and the matrix is the dashboard of that
+  advance -- never a completion deadline.
 - **Built-in observability** (ADR-008; shipped). No Prometheus. A diagnostics
   endpoint and a UI stats page over PG and in-process counters: beacon
   latency distribution, task queue depth, SSE connection count, build
