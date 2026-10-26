@@ -36,17 +36,9 @@ ATT&CK coverage matrix (architecture.md Sec 15.1, Sec 5.4), in family
 batches ordered by matrix gap.
 
 First batch, the Windows long tail (the domain-discovery family shipped
--- the module line's second worked pair, the credential-free half of
-domain recon; its authenticated half is the entry below):
-
-- **Domain discovery, the authenticated half** (serves Sec 15.2,
-  Sec 5.4; domainenum v1.1): domain users, groups, ACLs, and SPN objects
-  over authenticated LDAP, the credential riding the task's argument
-  grammar (the placeholder resolution Sec 10.2 already carries) -- the
-  module's verb row widens its declaration to the account and group
-  discovery techniques.
-  _AC:_ the standing module contract, plus the widened `[[verbs]]` row
-  (T1087.002, T1069.002) renders in the coverage matrix.
+-- the module line's second worked pair, both halves of domain recon:
+the credential-free sweep in v1.0, the authenticated directory read in
+v1.1):
 
 - **Credential collection family** (serves Sec 15.2, Sec 5.4; the
   collect long tail): browser credential stores, DPAPI unsealing, dump
