@@ -1,0 +1,48 @@
+# The avoid module manifest (architecture.md Sec 15.2): the
+# defense-evasion family's first entry rides the same package format,
+# canonical form, and signature chain the eight modules before it ride,
+# exercised by the CLI's end-to-end tests exactly like a
+# template-repository module.
+
+[module]
+name = "avoid"
+version = "1.0.0"
+entry = "server"
+license = "Apache-2.0"
+description = "AMSI and ETW patching: replace the scan and telemetry entry points in this process's memory with failure and silence -- evasion.avoid's execution half lives at src/implant/rust/modules/avoid."
+
+[compatibility]
+teamserver = "1.0.0"
+
+# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# under its own module-scoped version, independently of the package
+# version. The row's techniques are the authoritative per-verb ATT&CK
+# declaration (ADR-007) -- the same ids the server-side descriptor
+# registers -- with the module-level [attack] list as their validated
+# roll-up. T1562.001 (Impair Defenses: Disable or Modify Tools) is the
+# patch itself; the kernel catalog already carries the id under
+# evasion.unload, so this row renders beside a kernel carrier and the
+# matrix folds both into the technique's carriers.
+[[verbs]]
+name = "evasion.avoid"
+version = "1.0.0"
+techniques = ["T1562.001"]
+
+# The patch stubs are x64 code in v1.0: the manifest claims the amd64
+# Windows target alone, and the arm64 encodings are the module's later
+# widening rather than a target declared on encodings it cannot stand
+# behind.
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "windows"
+arch = "amd64"
+
+[opsec]
+lands-on-disk = false
+notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content and the patch lands in the process's own memory -- nothing on disk. The scope is exactly that process: the effect dies with it, and a new process loads fresh libraries. AMSI failure telemetry and ETW inline-hook detection are live blue-team surfaces; the verb is sensitive (Evasion category, modifies-defenses attribute), held out of unattended firing by the registry-backed policy, and the plugin rides the per-engagement module load -- never a default profile."
+
+[attack]
+techniques = ["T1562.001"]
+
+[package]
+include = ["rod-module.toml", "*.cs", "*.csproj"]

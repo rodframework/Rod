@@ -29,6 +29,7 @@ public class InTreeModuleTests
         { "hijack", "persist.hijack" },
         { "hives", "collect.hives" },
         { "dpapi", "collect.dpapi" },
+        { "avoid", "evasion.avoid" },
     };
 
     private static string RepoRoot()
