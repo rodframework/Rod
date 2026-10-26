@@ -26,6 +26,7 @@ public class InTreeModuleTests
         { "runkeys", "persist.runkeys" },
         { "services", "persist.services" },
         { "wmi", "persist.wmi" },
+        { "hijack", "persist.hijack" },
     };
 
     private static string RepoRoot()
