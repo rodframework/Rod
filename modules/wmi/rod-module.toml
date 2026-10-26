@@ -1,0 +1,52 @@
+# The wmi module manifest (architecture.md Sec 15.2): the persistence
+# family's third entry rides the same package format, canonical form,
+# and signature chain hostenum, domainenum, runkeys, and services ride,
+# exercised by the CLI's end-to-end tests exactly like a
+# template-repository module.
+
+[module]
+name = "wmi"
+version = "1.0.0"
+entry = "server"
+license = "Apache-2.0"
+description = "WMI event subscription seats: install, remove, and list the bound triples (event filter, command-line consumer, binding) in the repository under ROOT\\SUBSCRIPTION -- persist.wmi's execution half lives at src/implant/rust/modules/wmi."
+
+[compatibility]
+teamserver = "1.0.0"
+
+# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# under its own module-scoped version, independently of the package
+# version. The row's techniques are the authoritative per-verb ATT&CK
+# declaration (ADR-007) -- the same ids the server-side descriptor
+# registers -- with the module-level [attack] list as their validated
+# roll-up. T1546.003 is the subscription seat itself; the kernel
+# catalog carries no T1546 parent (no compiled verb claims it), so the
+# matrix renders this row by id alone, the degradation path designed
+# for module-carried techniques the kernel never mapped.
+[[verbs]]
+name = "persist.wmi"
+version = "1.0.0"
+techniques = ["T1546.003"]
+
+# The seat exists only on Windows: the manifest claims the two Windows
+# targets and no others, so the module loads nowhere the technique has
+# nothing to address.
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "windows"
+arch = "amd64"
+
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "windows"
+arch = "arm64"
+
+[opsec]
+lands-on-disk = true
+notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content, mapped in memory on Windows -- the module itself drops no file. Every write needs an elevated implant: the repository's PutInstance and DeleteInstance under ROOT\\SUBSCRIPTION are the administrator's calls. The seat lives entirely in the on-disk WMI repository, its query and command line plain to any blue-team reader that enumerates __FilterToConsumerBinding, and it fires on its trigger across reboots while it sits."
+
+[attack]
+techniques = ["T1546.003"]
+
+[package]
+include = ["rod-module.toml", "*.cs", "*.csproj"]

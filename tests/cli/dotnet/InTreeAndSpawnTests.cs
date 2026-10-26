@@ -25,6 +25,7 @@ public class InTreeModuleTests
         { "domainenum", "recon.domainenum" },
         { "runkeys", "persist.runkeys" },
         { "services", "persist.services" },
+        { "wmi", "persist.wmi" },
     };
 
     private static string RepoRoot()
