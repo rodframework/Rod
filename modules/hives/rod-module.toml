@@ -1,0 +1,53 @@
+# The hives module manifest (architecture.md Sec 15.2): the
+# credential collection family's first entry rides the same package
+# format, canonical form, and signature chain hostenum, domainenum,
+# runkeys, services, wmi, and hijack ride, exercised by the CLI's
+# end-to-end tests exactly like a template-repository module.
+
+[module]
+name = "hives"
+version = "1.0.0"
+entry = "server"
+license = "Apache-2.0"
+description = "Account hive dumps: save the SAM, SYSTEM, and SECURITY hives under the backup privilege and report the readiness facts -- collect.hives's execution half lives at src/implant/rust/modules/hives."
+
+[compatibility]
+teamserver = "1.0.0"
+
+# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# under its own module-scoped version, independently of the package
+# version. The row's techniques are the authoritative per-verb ATT&CK
+# declaration (ADR-007) -- the same ids the server-side descriptor
+# registers -- with the module-level [attack] list as their validated
+# roll-up. T1003.002 is the SAM dump, T1003.005 the cached-domain
+# credential read the SECURITY hive carries (SYSTEM rides with both as
+# the boot key the offline cracking needs); the kernel catalog carries
+# the T1003 parent under collect.cred and the matrix renders both
+# sub-techniques by id beside it, the same way the run-keys row renders.
+[[verbs]]
+name = "collect.hives"
+version = "1.0.0"
+techniques = ["T1003.002", "T1003.005"]
+
+# The seat exists only on Windows: the manifest claims the two Windows
+# targets and no others, so the module loads nowhere the technique has
+# nothing to address.
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "windows"
+arch = "amd64"
+
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "windows"
+arch = "arm64"
+
+[opsec]
+lands-on-disk = true
+notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content -- the dumps themselves are the footprint: three on-disk files (sam.hiv, security.hiv, system.hiv) in the task-named directory, carrying account hashes and cached credentials in plain reach of any scanner until the operator pulls and deletes them. The save needs the backup privilege, which is the administrator's to hold; the refusal names elevation rather than pretending the save ran. The verb rides the per-engagement module load -- never a default profile."
+
+[attack]
+techniques = ["T1003.002", "T1003.005"]
+
+[package]
+include = ["rod-module.toml", "*.cs", "*.csproj"]
