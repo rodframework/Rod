@@ -1,0 +1,22 @@
+[package]
+name = "rod-module-domainenum"
+version = "1.0.0"
+edition = "2021"
+
+# The domain-discovery plugin module (architecture.md Sec 5.4): the
+# credential-free half of domain recon -- local domain context, DC
+# location through DNS SRV or the logon server, and the anonymous LDAP
+# root DSE -- against the SDK. Like every plugin it never rides an
+# artifact: the bytes arrive as a module.load task's content.
+
+[lib]
+# rlib beside cdylib so the bin target below links the same plugin code;
+# cargo emits the rlib for internal use only, the cdylib is the artifact.
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "rod-module-domainenum"
+path = "src/main.rs"
+
+[dependencies]
+rod-plugin-sdk = { path = "../../plugin-sdk" }
