@@ -24,6 +24,7 @@ public class InTreeModuleTests
         { "hostenum", "recon.hostenum" },
         { "domainenum", "recon.domainenum" },
         { "runkeys", "persist.runkeys" },
+        { "services", "persist.services" },
     };
 
     private static string RepoRoot()
