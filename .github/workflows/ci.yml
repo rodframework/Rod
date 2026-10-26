@@ -235,17 +235,23 @@ jobs:
           rustup component add clippy rustfmt
           rustup target add x86_64-unknown-linux-musl x86_64-pc-windows-gnu
       - name: Format check
+        # The plugin modules join by directory shape (every manifest under
+        # modules/), the same zero-touch rule the module lanes hold.
         run: |
           cargo fmt --manifest-path src/implant/rust/Cargo.toml -- --check
           cargo fmt --manifest-path src/implant/rust/plugin-sdk/Cargo.toml -- --check
-          cargo fmt --manifest-path src/implant/rust/modules/hostenum/Cargo.toml -- --check
+          for manifest in src/implant/rust/modules/*/Cargo.toml; do
+            cargo fmt --manifest-path "$manifest" -- --check
+          done
           cargo fmt --manifest-path src/native/wireguard/Cargo.toml -- --check
       - name: Lint
         run: |
           cargo clippy --manifest-path src/implant/rust/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path src/implant/rust/Cargo.toml --all-targets --features wireguard -- -D warnings
           cargo clippy --manifest-path src/implant/rust/plugin-sdk/Cargo.toml --all-targets -- -D warnings
-          cargo clippy --manifest-path src/implant/rust/modules/hostenum/Cargo.toml --all-targets -- -D warnings
+          for manifest in src/implant/rust/modules/*/Cargo.toml; do
+            cargo clippy --manifest-path "$manifest" --all-targets -- -D warnings
+          done
           cargo clippy --manifest-path src/native/wireguard/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path src/native/wireguard/Cargo.toml --all-targets --features test-client -- -D warnings
       - name: Unit tests
@@ -256,23 +262,28 @@ jobs:
         # contacts, and tasking against a real teamserver -- is the
         # implant-toolchain lane above. The native router's own suite runs
         # in both its shapes too (the release shape and the test-client
-        # export set the managed suites drive).
+        # export set the managed suites drive). The plugin modules' own
+        # suites run per manifest (modules/*/Cargo.toml).
         run: |
           cargo test --manifest-path src/implant/rust/Cargo.toml
           cargo test --manifest-path src/implant/rust/Cargo.toml --features wireguard
           cargo test --manifest-path src/implant/rust/plugin-sdk/Cargo.toml
-          cargo test --manifest-path src/implant/rust/modules/hostenum/Cargo.toml
+          for manifest in src/implant/rust/modules/*/Cargo.toml; do
+            cargo test --manifest-path "$manifest"
+          done
           cargo test --manifest-path src/native/wireguard/Cargo.toml
           cargo test --manifest-path src/native/wireguard/Cargo.toml --features test-client
       - name: Build the plugin seam's shipped shapes
-        # The SDK's reference module (architecture.md Sec 5.4) in every
-        # shape a target loads: the Linux executable the loader execs (the
+        # Every plugin module (architecture.md Sec 5.4) in every shape a
+        # target loads: the Linux executable the loader execs (the
         # musl-static build is the delivery shape -- no libc coupling), and
         # the Windows cdylib the manual PE map carries.
         run: |
-          cargo build --release --manifest-path src/implant/rust/modules/hostenum/Cargo.toml
-          cargo build --release --target x86_64-unknown-linux-musl --manifest-path src/implant/rust/modules/hostenum/Cargo.toml
-          cargo build --release --target x86_64-pc-windows-gnu --manifest-path src/implant/rust/modules/hostenum/Cargo.toml
+          for manifest in src/implant/rust/modules/*/Cargo.toml; do
+            cargo build --release --manifest-path "$manifest"
+            cargo build --release --target x86_64-unknown-linux-musl --manifest-path "$manifest"
+            cargo build --release --target x86_64-pc-windows-gnu --manifest-path "$manifest"
+          done
       - name: Build the reference crosses
         # The implant of record's shipped shapes (architecture.md Sec 12.2):
         # static musl on Linux, mingw on Windows. Building both on every

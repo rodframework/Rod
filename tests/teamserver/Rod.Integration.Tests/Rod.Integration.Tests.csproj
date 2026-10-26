@@ -52,6 +52,10 @@
          loader path exactly as production does; no test code touches its
          types beyond that assertion. -->
     <ProjectReference Include="..\..\..\modules\hostenum\Rod.Modules.Hostenum.csproj" />
+    <!-- The domain-discovery module (modules/domainenum) rides the same
+         stand-in: its assembly lands beside the test host's, and the
+         loading test exercises its config-listed entry the same way. -->
+    <ProjectReference Include="..\..\..\modules\domainenum\Rod.Modules.Domainenum.csproj" />
   </ItemGroup>
 
 </Project>

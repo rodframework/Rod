@@ -1,0 +1,59 @@
+# The domain-discovery module manifest (architecture.md Sec 15.2,
+# ADR-009): the module line's first tradecraft entry rides the same
+# package format, canonical form, and signature chain hostenum rides,
+# exercised by the CLI's end-to-end tests exactly like a
+# template-repository module.
+
+[module]
+name = "domainenum"
+version = "1.0.0"
+entry = "server"
+license = "Apache-2.0"
+description = "Credential-free domain discovery: local domain posture, DC location (logon server / DNS SRV), and the anonymous LDAP root DSE -- recon.domainenum's execution half lives at src/implant/rust/modules/domainenum."
+
+[compatibility]
+teamserver = "1.0.0"
+
+# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# under its own module-scoped version, independently of the package
+# version. The row's techniques are the authoritative per-verb ATT&CK
+# declaration (ADR-007) -- the same ids the server-side descriptor
+# registers -- with the module-level [attack] list as their validated
+# roll-up.
+[[verbs]]
+name = "recon.domainenum"
+version = "1.0.0"
+techniques = ["T1018", "T1482"]
+
+# Both delivery shapes run everywhere the seam compiles: the Linux
+# executable reads krb5/sssd/resolv and answers over DNS/LDAP, the
+# Windows cdylib reads the session environment for the same sweep.
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "linux"
+arch = "amd64"
+
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "linux"
+arch = "arm64"
+
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "windows"
+arch = "amd64"
+
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "windows"
+arch = "arm64"
+
+[opsec]
+lands-on-disk = true
+notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content: through a memfd on Linux (nothing on disk), mapped in memory on Windows. The sweep sends DNS and LDAP packets to the domain's own servers -- network-visible to the DC."
+
+[attack]
+techniques = ["T1018", "T1482"]
+
+[package]
+include = ["rod-module.toml", "*.cs", "*.csproj"]

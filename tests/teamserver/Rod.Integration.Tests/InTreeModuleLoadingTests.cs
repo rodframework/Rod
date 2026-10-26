@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Rod.Capabilities;
 using Rod.Capabilities.Registry;
+using Rod.Modules.Domainenum;
 using Rod.Modules.Hostenum;
 
 namespace Rod.Integration.Tests;
@@ -41,6 +42,33 @@ public class InTreeModuleLoadingTests
             Assert.NotNull(found);
             Assert.IsType<HostEnumCapabilityModule>(found);
             Assert.Equal("recon.hostenum", found!.Descriptor.Verb);
+        }
+    }
+
+    [Fact]
+    public async Task TheDomainDiscoveryModule_LoadsThroughTheConfigListedPath()
+    {
+        // The second in-tree module rides the identical acceptance: the
+        // config entry the shipped appsettings.json carries, the loader it
+        // names, and a verb no placeholder serves -- a new verb registered
+        // through the module seam, not a replacement of one.
+        var (client, host, _) = AuthenticatedHost.Create(
+            extendConfig: settings => settings["Capabilities:Modules:1"] =
+                "Rod.Modules.Domainenum.DomainEnumCapabilityModule, Rod.Modules.Domainenum",
+            configureServicesWithConfig: (services, config) => services.AddRodCapabilities(config));
+        using (client)
+        using (host)
+        {
+            var registry = host.Services.GetRequiredService<ICapabilityRegistry>();
+
+            var found = await registry.FindAsync("recon.domainenum");
+
+            Assert.NotNull(found);
+            Assert.IsType<DomainEnumCapabilityModule>(found);
+            Assert.Equal("recon.domainenum", found!.Descriptor.Verb);
+            // The techniques the coverage matrix reads come from the
+            // module's declaration, not any kernel file.
+            Assert.Equal(new[] { "T1018", "T1482" }, found.Descriptor.Techniques);
         }
     }
 }

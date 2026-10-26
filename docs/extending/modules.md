@@ -274,11 +274,11 @@ the operator's console reads a module verb exactly like a built-in one.
 `module.list` reports what is loaded, and `module.unload sweep` retracts
 it (best-effort: routes drop immediately, a running handler finishes).
 
-The reference pair in-tree is the worked example to copy: the server-side
-half at `modules/hostenum/` and the implant-side half at
-`src/implant/rust/modules/hostenum/` -- `recon.hostenum` against the SDK,
-benign and readable, one verb string declared on both sides and nothing
-shared between them.
+The reference pairs in-tree are the worked examples to copy: the
+server-side halves at `modules/hostenum/` and `modules/domainenum/`, the
+implant-side halves at `src/implant/rust/modules/hostenum/` and
+`src/implant/rust/modules/domainenum/` -- each one verb string declared
+on both sides and nothing shared between them.
 
 The rules the loader enforces, all reported on the load task itself:
 

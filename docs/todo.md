@@ -35,38 +35,29 @@ The module layer's standing line: capability modules advancing the
 ATT&CK coverage matrix (architecture.md Sec 15.1, Sec 5.4), in family
 batches ordered by matrix gap.
 
-First batch, low-risk ground first -- the domain-discovery family runs
-the full module contract end to end a second time (`hostenum` was the
-first), then the Windows long tail follows:
-
-- **Domain discovery module** (serves Sec 15.2, Sec 5.4; the recon long
-  tail): SPN and service discovery, domain trust enumeration, domain
-  user and group enumeration, ACL discovery -- a paired server-side
-  module under `modules/` and implant-side plugin under
-  `src/implant/rust/modules/`, riding the package format, verb
-  versioning, and signature chain `hostenum` rides.
-  _AC:_ `rod mod install` loads the pair, the `[[verbs]]` rows declare
-  their techniques, `rod mod coverage` renders the widened matrix, and
-  the module's tests run in the on-demand CI lane.
+First batch, the Windows long tail (the domain-discovery family shipped
+-- the module line's second worked pair, the credential-free half of
+domain recon):
 
 - **Credential collection family** (serves Sec 15.2, Sec 5.4; the
   collect long tail): browser credential stores, DPAPI unsealing, dump
   paths beyond minidump -- Windows-gated, opsec notes naming the
   on-target footprint.
-  _AC:_ the domain-discovery contract, plus sensitive rows ship disabled
-  and enable per build profile (Sec 7).
+  _AC:_ the standing module contract (manifest, paired halves, coverage
+  declaration, CI lane), plus sensitive rows ship disabled and enable
+  per build profile (Sec 7).
 
 - **Persistence variant family** (serves Sec 15.2; the persist long
   tail): the persist.install long tail as discrete installable and
   removable techniques -- registry run keys, WMI event subscriptions,
   services, DLL hijack seats.
-  _AC:_ the domain-discovery contract, plus every install verb carries
+  _AC:_ the standing module contract, plus every install verb carries
   its removal in the same module, both audited.
 
 - **Defense-evasion family** (serves Sec 15.2; the evasion long tail):
   AMSI and ETW handling, unhooking -- the module-layer implementations
   behind the evasion verbs.
-  _AC:_ the domain-discovery contract, plus ships disabled, enabled per
+  _AC:_ the standing module contract, plus ships disabled, enabled per
   build profile (Sec 7).
 
 ## On hold
