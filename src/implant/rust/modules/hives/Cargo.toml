@@ -1,0 +1,25 @@
+[package]
+name = "rod-module-hives"
+version = "1.0.0"
+edition = "2021"
+
+# The credential collection family's first module (architecture.md
+# Sec 5.4): collect.hives, the account hives -- SAM, SYSTEM, and
+# SECURITY -- saved to a task-named directory under the backup
+# privilege, with the readiness read (the privilege in hand, the
+# source hives in place) as the bare task's default. The Windows half
+# speaks advapi32's token and registry edges directly: a module owes
+# the loader no dependency for six functions. Built as a cdylib for
+# Windows targets and delivered as a module.load task's content.
+
+[lib]
+# rlib beside cdylib so the bin target below links the same plugin code;
+# cargo emits the rlib for internal use only, the cdylib is the artifact.
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "rod-module-hives"
+path = "src/main.rs"
+
+[dependencies]
+rod-plugin-sdk = { path = "../../plugin-sdk" }
