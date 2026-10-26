@@ -52,24 +52,11 @@ seat as wmi, and the DLL search-order seat as hijack):
   declaration, CI lane), plus sensitive rows ship disabled and enable
   per build profile (Sec 7).
 
-- **AMSI and ETW patching** (serves Sec 15.2; the defense-evasion
-  family's first module): `evasion.avoid`, the module-layer
-  implementation behind the placeholder verb -- the target's AMSI
-  scan and ETW write entry points patched in this process's memory to
-  return failure and silence, one verb naming its target (amsi, etw,
-  all), idempotent under a second run, x64-only in v1.0 with the arm64
-  stubs the later widening. The verb replaces the kernel's placeholder
-  descriptor, so the `modifies-defenses` attribute the sensitive-verb
-  policy reads rides the registration for the first time on an
-  in-tree module.
-  _AC:_ the standing module contract, plus the verb stays behind the
-  sensitive policy (unattended firing refuses) and the plugin rides
-  the per-engagement module load, never a default profile.
-
 - **Defense-evasion family** (serves Sec 15.2; the evasion long tail
-  -- the patch module is the entry above): AMSI and ETW handling,
-  unhooking -- the module-layer implementations behind the evasion
-  verbs.
+  -- the AMSI and ETW patch module shipped as avoid, replacing the
+  kernel's evasion.avoid placeholder as the module line's seventh
+  worked pair): unhooking -- the module-layer implementations behind
+  the evasion verbs.
   _AC:_ the standing module contract, plus ships disabled, enabled per
   build profile (Sec 7).
 
