@@ -43,10 +43,23 @@ through sixth pairs carry the persist long tail: the registry run-key
 seat as runkeys, the service seat as services, the WMI subscription
 seat as wmi, and the DLL search-order seat as hijack):
 
+- **Registry hive dumps** (serves Sec 15.2, Sec 5.4; the credential
+  collection family's first module): `collect.hives`, one discrete
+  collection technique -- the SAM, SYSTEM, and SECURITY hives saved to
+  a task-named directory under the backup privilege, listed as the
+  readiness read (the privilege in hand, the source hives in place),
+  Windows-gated and elevation-honest. The offline cracking the dumps
+  feed is the engagement's business, not the module's.
+  _AC:_ the standing module contract (manifest, paired halves,
+  coverage declaration, CI lane), the credential-honest OPSEC
+  attributes the sensitive-verb policy reads (`reads-credential`,
+  `writes-to-disk`), and the plugin rides the per-engagement module
+  load, never a default profile.
+
 - **Credential collection family** (serves Sec 15.2, Sec 5.4; the
-  collect long tail): browser credential stores, DPAPI unsealing, dump
-  paths beyond minidump -- Windows-gated, opsec notes naming the
-  on-target footprint.
+  collect long tail -- the hive dump is the entry above): browser
+  credential stores, DPAPI unsealing, dump paths beyond minidump --
+  Windows-gated, opsec notes naming the on-target footprint.
   _AC:_ the standing module contract (manifest, paired halves, coverage
   declaration, CI lane), plus sensitive rows ship disabled and enable
   per build profile (Sec 7).
