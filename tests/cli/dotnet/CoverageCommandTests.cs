@@ -32,7 +32,7 @@ public class CoverageCommandTests
         // Every manifest under modules/ rides the sweep, asset modules
         // included: the count is the swept tree, not the verb-carrying
         // subset.
-        Assert.Contains("4 modules swept", run.Output);
+        Assert.Contains("5 modules swept", run.Output);
 
         // The reference module's declaration rides beside the kernel's own
         // mapping of the same verb: one row, both carriers.
