@@ -43,11 +43,24 @@ through sixth pairs carry the persist long tail: the registry run-key
 seat as runkeys, the service seat as services, the WMI subscription
 seat as wmi, and the DLL search-order seat as hijack):
 
+- **Browser login stores** (serves Sec 15.2, Sec 5.4; the credential
+  collection family's third module): `collect.browser`, the Chromium
+  login stores -- Chrome's and Edge's Login Data read out of its own
+  bytes (the SQLite pages walked by hand, no store library on the
+  target), the logins listed as a read or exported with their
+  passwords unsealed (the profile's DPAPI-fetched key, AES-GCM through
+  CNG), Windows-gated, nothing landing on disk. The sweep is the
+  consumer half the dpapi entry named: the unsealing primitive
+  composed into a whole credential store.
+  _AC:_ the standing module contract, the credential-honest OPSEC
+  attributes, and the plugin rides the per-engagement module load,
+  never a default profile.
+
 - **Credential collection family** (serves Sec 15.2, Sec 5.4; the
-  collect long tail -- the account hive dump shipped as hives and the
-  unsealing primitive as dpapi, the family's first two entries):
-  browser credential stores, further dump paths -- Windows-gated,
-  opsec notes naming the on-target footprint.
+  collect long tail -- the account hive dump shipped as hives, the
+  unsealing primitive as dpapi, and the browser login stores are the
+  entry above): further dump paths -- Windows-gated, opsec notes
+  naming the on-target footprint.
   _AC:_ the standing module contract (manifest, paired halves, coverage
   declaration, CI lane), plus sensitive rows ship disabled and enable
   per build profile (Sec 7).
