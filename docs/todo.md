@@ -52,30 +52,13 @@ seat as wmi, and the DLL search-order seat as hijack):
   declaration, CI lane), plus sensitive rows ship disabled and enable
   per build profile (Sec 7).
 
-- **ntdll unhooking** (serves Sec 15.2; the defense-evasion family's
-  second module): `evasion.unload`, the module-layer implementation
-  behind the placeholder verb -- the mapped ntdll's `.text` compared
-  against the disk copy's own bytes (the portable-executable headers
-  and section table parsed by hand out of both images, a build
-  fingerprint refusing a disk copy the mapped image does not match),
-  the bare task the read (the differing-byte count) and `restore`
-  the write the operator names (page flipped writable, clean bytes
-  copied, protection restored, instruction cache flushed),
-  idempotent under a second run. v1.0 restores the whole `.text`
-  alone -- per-DLL, per-function, and KnownDlls section-object paths
-  are the later widening -- and both Windows architectures carry it:
-  the compare and the copy are byte arithmetic no architecture owns.
-  The registration rides the gate the family's first entry set: the
-  `modifies-defenses` attribute and the Evasion category hold the
-  verb behind the sensitive policy.
-  _AC:_ the standing module contract, plus the verb stays behind the
-  sensitive policy (unattended firing refuses) and the plugin rides
-  the per-engagement module load, never a default profile.
-
 - **Defense-evasion family** (serves Sec 15.2; the evasion long tail
-  -- the AMSI and ETW patch module shipped as avoid, and the
-  unhooking module is the entry above): the module-layer
-  implementations behind the evasion verbs.
+  -- the AMSI and ETW patch module shipped as avoid and the ntdll
+  unhooking module as unload, the family's first two entries): the
+  module-layer implementations behind the evasion verbs -- the
+  unhooking breadth (per-DLL, per-function, the KnownDlls
+  section-object path) and whatever verb the matrix and a real
+  engagement name next.
   _AC:_ the standing module contract, plus ships disabled, enabled per
   build profile (Sec 7).
 
