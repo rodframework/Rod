@@ -32,6 +32,7 @@ public class InTreeModuleTests
         { "avoid", "evasion.avoid" },
         { "browser", "collect.browser" },
         { "unload", "evasion.unload" },
+        { "lsasecrets", "collect.lsasecrets" },
     };
 
     private static string RepoRoot()
