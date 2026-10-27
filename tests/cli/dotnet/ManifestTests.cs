@@ -369,6 +369,127 @@ public class ManifestTests
     }
 
     [Fact]
+    public void CapabilityRequires_ParseFromTheClosedVocabulary()
+    {
+        // ADR-017: a plugin declares what the hosting implant must support,
+        // names drawn from the closed wire-capability vocabulary so a store
+        // filter compares like against like.
+        var toml = Valid.Replace("teamserver = \"1.0.0\"", "teamserver = \"1.0.0\"\nrequires = [\"plugin-loader\", \"exfil-chunks\"]");
+        var errors = ManifestToml.Load(toml, out var manifest);
+
+        Assert.Empty(errors);
+        Assert.NotNull(manifest);
+        Assert.Equal(["plugin-loader", "exfil-chunks"], manifest!.Requires);
+    }
+
+    [Fact]
+    public void CapabilityRequires_OutsideTheVocabulary_AreNamedWithIt()
+    {
+        // A typo'd or speculative capability is a refused manifest, never a
+        // silent mismatch the store would filter wrong.
+        var toml = Valid.Replace("teamserver = \"1.0.0\"", "teamserver = \"1.0.0\"\nrequires = [\"cha-cha-20\", \"plugin-loader\", \"plugin-loader\"]");
+        var errors = ManifestToml.Load(toml, out var manifest);
+
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("'cha-cha-20' is not a wire capability") && e.Contains("plugin-loader, exfil-chunks, staged-uploads"));
+        Assert.Contains(errors, e => e.Contains("'plugin-loader' is declared twice"));
+    }
+
+    [Fact]
+    public void CapabilityRequires_BelongToEntriesWithAnExecutionHalf()
+    {
+        // A build unit is the implant itself; an assets module runs nothing
+        // on a target -- a requirement there names nothing real.
+        var buildUnit = Valid.Replace("entry = \"server\"", "entry = \"build-unit\"")
+            .Replace("teamserver = \"1.0.0\"", "teamserver = \"1.0.0\"\nrequires = [\"plugin-loader\"]");
+        var errors = ManifestToml.Load(buildUnit, out var manifest);
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("requires constrains an implant hosting this module's execution half"));
+
+        var assets = Valid.Replace("entry = \"server\"", "entry = \"assets\"")
+            .Replace("teamserver = \"1.0.0\"", "teamserver = \"1.0.0\"\nrequires = [\"plugin-loader\"]") + """
+
+            [[assets]]
+            name = "hook"
+            path = "assets/hook.js"
+            """;
+        errors = ManifestToml.Load(assets, out manifest);
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("requires constrains an implant hosting this module's execution half"));
+    }
+
+    [Fact]
+    public void ConformanceReports_ParseOnBuildUnits()
+    {
+        // The build unit's half of the compatibility collapse: the tier its
+        // candidate proved, the harness generation, the date, the clauses.
+        var toml = Valid.Replace("entry = \"server\"", "entry = \"build-unit\"") + """
+
+            [conformance]
+            tier = 1
+            harness = "1.0.0"
+            date = "2026-01-15"
+            clauses = ["enroll.public-key-and-token", "task.round-trip", "signature.verification"]
+            """;
+        var errors = ManifestToml.Load(toml, out var manifest);
+
+        Assert.Empty(errors);
+        Assert.NotNull(manifest);
+        var report = manifest!.Conformance!;
+        Assert.Equal(1, report.Tier);
+        Assert.Equal(new SemVer(1, 0, 0, null), report.Harness);
+        Assert.Equal("2026-01-15", report.Date);
+        Assert.Equal(3, report.Clauses.Count);
+    }
+
+    [Fact]
+    public void ConformanceReports_AreBuildUnitOnlyAndWhole()
+    {
+        // On any other entry kind the report names nothing; and a partial
+        // section is a claim missing its proof shape, not a report.
+        var onServer = Valid + """
+
+            [conformance]
+            tier = 0
+            harness = "1.0.0"
+            date = "2026-01-15"
+            """;
+        var errors = ManifestToml.Load(onServer, out var manifest);
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("reports what a build unit's candidate proved"));
+
+        var partial = Valid.Replace("entry = \"server\"", "entry = \"build-unit\"") + """
+
+            [conformance]
+            tier = 2
+            """;
+        errors = ManifestToml.Load(partial, out manifest);
+        Assert.Null(manifest);
+        Assert.Contains(errors, e => e.Contains("conformance.harness is missing"));
+        Assert.Contains(errors, e => e.Contains("conformance.date is missing"));
+    }
+
+    [Fact]
+    public void ConformanceReports_ValidateTheirFieldShapes()
+    {
+        var toml = Valid.Replace("entry = \"server\"", "entry = \"build-unit\"") + """
+
+            [conformance]
+            tier = 3
+            harness = "1.0.0"
+            date = "15-Jan-2026"
+            clauses = ["task.round-trip", "task.round-trip", "not a token"]
+            """;
+        var errors = ManifestToml.Load(toml, out var manifest);
+
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("conformance.tier '3' must be 0, 1, or 2"));
+        Assert.Contains(errors, e => e.Contains("conformance.date '15-Jan-2026'"));
+        Assert.Contains(errors, e => e.Contains("'not a token' must be a single lowercase token"));
+        Assert.Contains(errors, e => e.Contains("'task.round-trip' is declared twice"));
+    }
+
+    [Fact]
     public void MissingRequiredFields_AreEachNamed()
     {
         var errors = ManifestToml.Load("[module]\nname = \"x\"\n", out var manifest);
@@ -476,6 +597,10 @@ public class CanonicalFormTests
             // The asset mapping is signed like a verb row: re-pointing a
             // known asset name at a different file breaks verification.
             Manifest() with { Assets = [new AssetDeclaration("hook", "assets/hook-v2.js")] },
+            // The compatibility rows (ADR-017): a tampered requirement or
+            // conformance claim breaks verification the same way.
+            Manifest() with { Requires = ["plugin-loader"] },
+            Manifest() with { Conformance = new ConformanceReport(0, new SemVer(1, 0, 0, null), "2026-01-15", []) },
         };
         foreach (var edited in edits)
             Assert.NotEqual(baseline, CanonicalForm.Build(edited, payload));
@@ -483,6 +608,30 @@ public class CanonicalFormTests
         // Each payload digest edit changes the signed bytes.
         Assert.NotEqual(baseline, CanonicalForm.Build(Manifest(), new Dictionary<string, string> { ["src/a.cs"] = "cc", ["src/b.cs"] = "bb" }));
         Assert.NotEqual(baseline, CanonicalForm.Build(Manifest(), new Dictionary<string, string> { ["src/a.cs"] = "aa" }));
+    }
+
+    [Fact]
+    public void CompatibilityRows_RideTheFormSorted_OrDashWhenAbsent()
+    {
+        var manifest = Manifest() with
+        {
+            Requires = ["staged-uploads", "plugin-loader", "plugin-loader"],
+            Conformance = new ConformanceReport(1, new SemVer(2, 0, 0, null), "2026-01-15",
+                ["task.round-trip", "enroll.public-key-and-token"]),
+        };
+        var canonical = CanonicalForm.Build(manifest, new Dictionary<string, string>());
+
+        // Names sort ordinally and duplicates drop, so the form is a function
+        // of the requirement set, not its declaration order.
+        Assert.Contains("requires=plugin-loader,staged-uploads\n", canonical);
+        Assert.Contains("conformance=1/2.0.0/2026-01-15\n", canonical);
+        Assert.Contains("conformance-clauses=enroll.public-key-and-token,task.round-trip\n", canonical);
+
+        // Absent rows read as dashes: the line set is stable across modules.
+        var bare = CanonicalForm.Build(Manifest(), new Dictionary<string, string>());
+        Assert.Contains("requires=-\n", bare);
+        Assert.Contains("conformance=-\n", bare);
+        Assert.Contains("conformance-clauses=-\n", bare);
     }
 
     [Fact]
@@ -523,7 +672,9 @@ public class CanonicalFormTests
     public void TheForm_CarriesItsVersionLineAndNoTrailingNewline()
     {
         var form = CanonicalForm.Build(Manifest(), new Dictionary<string, string>());
-        Assert.StartsWith("rod-module-manifest-v1\n", form);
+        // v2 names the form whose field set carries the compatibility rows
+        // (requires, conformance) -- the shape change is the bump.
+        Assert.StartsWith("rod-module-manifest-v2\n", form);
         Assert.False(form.EndsWith('\n'));
         Assert.StartsWith("name=demo-sweep\n", form[(CanonicalForm.VersionLine.Length + 1)..]);
     }

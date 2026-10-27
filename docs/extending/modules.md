@@ -105,6 +105,59 @@ The rows ride the signed canonical form (a tampered verb version breaks
 registry entry, where `rod mod search` finds a module by verb name and
 `rod mod info` lists the rows.
 
+## Capability requirements and the conformance report
+
+Compatibility is a property each artifact holds against the contract,
+never against each other (architecture.md Sec 15.2, ADR-017): a plugin
+declares what the hosting implant must support, an implant declares what
+it proved, and a store matches the two -- plugins-times-implants never
+multiplies into a test matrix.
+
+**The requirement rows.** `requires` under `[compatibility]`, names from
+a closed vocabulary -- the task-path wire capabilities a plugin's verbs
+can depend on:
+
+| Name | The hosting implant must |
+|------|--------------------------|
+| `plugin-loader` | carry the `module.load` family (the loader that hosts plugins) |
+| `exfil-chunks` | emit `ExfilChunk` frames (bulk output, implants.md Tier 2) |
+| `staged-uploads` | answer `StagedPull` with `StagedChunk` runs (bulk input, Tier 2) |
+
+```toml
+[compatibility]
+teamserver = "1.0.0"
+requires = ["plugin-loader", "exfil-chunks"]
+```
+
+Declare `requires` only on the entries that carry an execution half
+(server and implant modules): a build unit *is* the implant and an
+assets module runs nothing on a target, so a requirement there names
+nothing real and the manifest is refused. An unknown name is refused
+with the vocabulary named -- a typo never silently mismatches a store
+filter. The vocabulary grows additively with the wire tiers. The runtime
+truth is the implant's own handshake advertisement; the rows are the
+store's static filter and the operator's install-time screen.
+
+**The conformance report.** A build unit (a community implant
+distribution) carries `[conformance]` instead: what its candidate proved
+against the conformance harness
+([implants.md](implants.md), "Conformance harness") -- the tier
+achieved, the harness generation, the date, the clauses that passed:
+
+```toml
+[conformance]
+tier = 1
+harness = "1.0.0"
+date = "2026-01-15"
+clauses = ["enroll.public-key-and-token", "handshake.first-frame-ok", "task.round-trip", "signature.verification"]
+```
+
+The report is a publisher's self-claim, but a signature-bound one: it
+rides the canonical form, so a badge a registry index edits without the
+publisher's key breaks verification exactly like a tampered payload
+byte. Declare it honestly -- the operator comparing your implant's
+report against a plugin's requirements is the collapse doing its job.
+
 ## Server-side half: register a module
 
 Implement `ICapabilityModule` -- a registration-only contract carrying exactly
@@ -313,6 +366,147 @@ carrying a novel namespace pairs with a server-side descriptor module
 (the `ICapabilityModule` half above) that widens the issuance gate -- two
 halves, one verb string, nothing else shared.
 
+## A plugin in C (the any-toolchain proof)
+
+The seam's boundaries are ABI-stable, not compiler-stable (architecture.md
+Sec 5.4): the six exported symbols on Windows, the length-prefixed stdio
+frames on Linux. The Rust SDK is convenience, not requirement -- the same
+module in C is a page, which is the whole point. Both shapes below speak
+exactly what `rod-plugin-sdk` speaks (ABI and protocol version 1; the SDK
+crate is the authority if this page and the code ever drift).
+
+**The Linux shape** -- one `main`, a frame loop over stdin/stdout, a verb
+table. Build static (`cc -static -Os`) and the module runs from any
+artifact, the musl posture without the musl toolchain:
+
+```c
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+/* The stdio protocol, little-endian (plugin-sdk/src/protocol.rs):
+   request  [op:u8][arg:u32][len:u32][len bytes]
+   response [version:u8][status:u8][len:u32][len bytes] */
+enum { OP_PING = 0, OP_NAME = 1, OP_COUNT = 2, OP_VERB_NAME = 3, OP_RUN = 4 };
+enum { ST_OK = 0, ST_FAILED = 1, ST_BAD_REQUEST = 2 };
+
+/* The verbs this module registers, in table order. */
+static const char *const verbs[] = { "sweep.portscan" };
+#define VERB_COUNT (sizeof verbs / sizeof verbs[0])
+
+static int read_exact(unsigned char *buf, size_t len) {
+    return fread(buf, 1, len, stdin) == len ? 0 : -1;
+}
+
+static void respond(uint8_t status, const void *payload, uint32_t len) {
+    unsigned char head[6] = { 1 /* protocol version */, status };
+    memcpy(head + 2, &len, sizeof len);          /* little-endian host */
+    fwrite(head, 1, sizeof head, stdout);
+    fwrite(payload, 1, len, stdout);
+    fflush(stdout);
+}
+
+/* One verb's execution half: the opaque argument string in, the output
+   out. Print recon findings as JSON lines and the topology view parses
+   them (the grammar below on this page). */
+static int portscan(const char *args, char *out, size_t out_size) {
+    (void)args;
+    return snprintf(out, out_size,
+                    "{\"host\":\"127.0.0.1\",\"port\":443,\"state\":\"open\"}");
+}
+
+int main(void) {
+    for (;;) {
+        unsigned char head[9];
+        if (read_exact(head, sizeof head) != 0)
+            return 0;                              /* stdin ended: done */
+        uint8_t op = head[0];
+        uint32_t arg, len;
+        memcpy(&arg, head + 1, sizeof arg);
+        memcpy(&len, head + 5, sizeof len);
+        unsigned char payload[65536];
+        if (len > sizeof payload || read_exact(payload, len) != 0)
+            return 1;                              /* a broken frame ends us */
+        payload[len < sizeof payload ? len : 0] = 0; /* NUL for the handlers */
+
+        if (op == OP_PING) respond(ST_OK, "", 0);
+        else if (op == OP_NAME) respond(ST_OK, "sweep", 5);
+        else if (op == OP_COUNT) {
+            uint32_t count = (uint32_t)VERB_COUNT;
+            respond(ST_OK, &count, sizeof count);
+        } else if (op == OP_VERB_NAME && arg < VERB_COUNT) {
+            const char *name = verbs[arg];
+            respond(ST_OK, name, (uint32_t)strlen(name));
+        } else if (op == OP_RUN && arg < VERB_COUNT) {
+            char out[65536];
+            int n = portscan((const char *)payload, out, sizeof out);
+            if (n >= 0) respond(ST_OK, out, (uint32_t)n);
+            else respond(ST_FAILED, "portscan failed", 15);
+        } else respond(ST_BAD_REQUEST, "", 0);
+    }
+}
+```
+
+**The Windows shape** -- the six `extern "C"` exports the manual PE map
+resolves. Strings cross as `RodStr`, a `(ptr, len)` pair, never a
+NUL-terminated string; memory a module returns dies in the module's own
+`rod_plugin_free`:
+
+```c
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct { uint8_t *ptr; size_t len; } RodStr;
+
+static const char *const verbs[] = { "sweep.portscan" };
+#define VERB_COUNT (sizeof verbs / sizeof verbs[0])
+
+__declspec(dllexport) uint32_t rod_plugin_abi(void) { return 1; }
+
+__declspec(dllexport) RodStr rod_plugin_name(void) {
+    return (RodStr){ (uint8_t *)"sweep", 5 };
+}
+
+__declspec(dllexport) uint32_t rod_plugin_init(void) {
+    return (uint32_t)VERB_COUNT;               /* the verb count */
+}
+
+__declspec(dllexport) RodStr rod_plugin_verb_name(uint32_t index) {
+    if (index >= VERB_COUNT) return (RodStr){ NULL, 0 };
+    const char *name = verbs[index];
+    return (RodStr){ (uint8_t *)name, strlen(name) };
+}
+
+/* 0 success, 1 a handler failure (the output carries the cause),
+   negative a shim error -- the same return grammar the SDK's macro emits. */
+__declspec(dllexport) int32_t rod_plugin_run(
+    uint32_t index, RodStr arguments, RodStr *out) {
+    if (index >= VERB_COUNT) { *out = (RodStr){ NULL, 0 }; return -1; }
+    /* Your tradecraft: arguments is the opaque task string; build the
+       output in memory you allocate and hand it back through *out. */
+    const char *finding = "{\"host\":\"127.0.0.1\",\"port\":443,\"state\":\"open\"}";
+    size_t len = strlen(finding);
+    uint8_t *copy = malloc(len);
+    if (copy == NULL) { *out = (RodStr){ NULL, 0 }; return -3; }
+    memcpy(copy, finding, len);
+    *out = (RodStr){ copy, len };
+    return 0;
+}
+
+/* The host frees module memory through here, never itself. */
+__declspec(dllexport) void rod_plugin_free(uint8_t *ptr, size_t len) {
+    (void)len;
+    free(ptr);
+}
+```
+
+A C module pairs with a server half like any other: declare the verb row
+in a `rod-module.toml` (an `implant`-entry package), gate it with a
+descriptor or a standard namespace, and `module.load` delivers whichever
+artifact the platform built. The Rust SDK remains the comfortable path;
+this page is the proof the seam rents no toolchain.
+
 The dispatch grammar your code answers either way is the task contract's
 own: string arguments in, outcome plus output back, with exfil chunks for
 bulk -- the same shape the compiled handlers speak, so an operator's console
@@ -460,8 +654,10 @@ external module carries. What each part decides:
 |------|---------|-------------|
 | `[module]` | name (kebab-case), version, entry kind, license, description | publish refuses `UNLICENSED`; the name is what a lock pins a key to |
 | `[compatibility] teamserver` | the minimum platform generation the module runs on | install, per version |
+| `[compatibility] requires` | the wire capabilities the hosting implant must support (the closed vocabulary below) | surfaced at search and install; the implant's advertisement is the runtime truth |
 | `[[compatibility.targets]]` | implant-class / platform / arch rows the module claims | surfaced at search and install |
 | `[[verbs]]` | each verb's module-scoped version, optional per-verb teamserver floor, and its ATT&CK techniques | floors at install; techniques feed every coverage face |
+| `[conformance]` (build units) | what the candidate proved against the conformance harness -- tier, harness generation, date, clauses | surfaced at info and install; rides the signed form |
 | `[opsec]` | `lands-on-disk` and the free-text note | shown at search and install -- an operator screens the target impact before fetching |
 | `[attack]` | the module-level technique roll-up | must be exactly the union of the verb rows' techniques (or omitted) |
 | `[package]` | which files ship (default: everything except bin/obj/dist and keys) | publish |

@@ -51,8 +51,18 @@ public static class SearchCommand
             var opsec = entry.Opsec.LandsOnDisk ? "disk" : "mem-only";
             var description = (entry.Description ?? "").Trim();
             output.WriteLine($"{entry.Name,-24} {entry.Entry,-10} {latest?.Version ?? "-",10} {opsec,-9} {description}");
-            if (entry.Attack.Count > 0)
-                output.WriteLine($"{"",-24} {"",-10} {"",-10} {"",-9} {string.Join(" ", entry.Attack)}");
+            // The detail line carries the facets an operator filters on: the
+            // wire capabilities the module requires (ADR-017) and its
+            // ATT&CK roll-up.
+            var latestRequires = latest?.Compatibility.Requires;
+            if (entry.Attack.Count > 0 || (latestRequires?.Count ?? 0) > 0)
+            {
+                var facets = new List<string>();
+                if (latestRequires is { Count: > 0 })
+                    facets.Add($"requires:{string.Join(",", latestRequires)}");
+                facets.AddRange(entry.Attack);
+                output.WriteLine($"{"",-24} {"",-10} {"",-10} {"",-9} {string.Join(" ", facets)}");
+            }
         }
         return RodCli.ExitOk;
     }
@@ -62,6 +72,7 @@ public static class SearchCommand
         var fields = new List<string> { entry.Name }
             .Concat(new[] { entry.Description ?? "", entry.License })
             .Concat(entry.Attack)
+            .Concat(entry.Versions.SelectMany(v => v.Compatibility.Requires ?? []))
             .Concat(entry.Versions.SelectMany(v => v.Verbs ?? []).Select(v => v.Name))
             .Concat(entry.Versions.SelectMany(v => v.Verbs ?? []).SelectMany(v => v.Techniques ?? []));
         return fields.Any(field => field.Contains(term, StringComparison.OrdinalIgnoreCase));
@@ -117,6 +128,16 @@ public static class InfoCommand
         output.WriteLine($"  min teamserver: {version.Compatibility.Teamserver}");
         foreach (var target in version.Compatibility.Targets)
             output.WriteLine($"    {target.ImplantClass}/{target.Platform}/{target.Arch}");
+        // The compatibility rows (ADR-017): what the hosting implant must
+        // support, and -- for a build unit -- what its candidate proved.
+        if (version.Compatibility.Requires is { Count: > 0 } requires)
+            output.WriteLine($"  requires on the target: {string.Join(" ", requires)}");
+        if (version.Conformance is { } conformance)
+        {
+            output.WriteLine($"  conformance: Tier {conformance.Tier} (harness {conformance.Harness}, {conformance.Date})");
+            if (conformance.Clauses.Count > 0)
+                output.WriteLine($"    clauses: {string.Join(" ", conformance.Clauses)}");
+        }
         if ((version.Verbs?.Count ?? 0) > 0)
         {
             output.WriteLine("  verbs:");

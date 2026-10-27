@@ -87,7 +87,8 @@ public static class PublishCommand
                 manifest.TeamserverMin.ToString(),
                 manifest.Targets
                     .Select(t => new RegistryVersion.TargetInfo(t.ImplantClass, t.Platform, t.Arch))
-                    .ToList()),
+                    .ToList(),
+                Requires: manifest.Requires.Count == 0 ? null : manifest.Requires.ToList()),
             Verbs: manifest.Verbs
                 .Select(v => new RegistryVersion.VerbInfo(
                     v.Name,
@@ -97,7 +98,14 @@ public static class PublishCommand
                 .ToList(),
             Assets: manifest.Assets.Count == 0
                 ? null
-                : manifest.Assets.Select(a => a.Name).ToList());
+                : manifest.Assets.Select(a => a.Name).ToList(),
+            Conformance: manifest.Conformance is { } report
+                ? new RegistryVersion.ConformanceInfo(
+                    report.Tier,
+                    report.Harness.ToString(),
+                    report.Date,
+                    report.Clauses.ToList())
+                : null);
 
         var fragmentPath = Path.Combine(distDirectory, $"{manifest.Name}-{manifest.Version}.json");
         File.WriteAllText(fragmentPath, RegistryJson.SaveVersion(version));

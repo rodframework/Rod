@@ -16,7 +16,10 @@ namespace Rod.Cli.Manifest;
 /// </summary>
 public static class CanonicalForm
 {
-    public const string VersionLine = "rod-module-manifest-v1";
+    // v2 adds the compatibility rows (requires, the conformance report)
+    // to the signed field set -- the form's identity names its own shape,
+    // so a field-set change is a version bump, never a silent mismatch.
+    public const string VersionLine = "rod-module-manifest-v2";
 
     /// <summary>Builds the signed message: one line per field in fixed
     /// order, then one digest line per payload file sorted by path. Lines
@@ -45,6 +48,19 @@ public static class CanonicalForm
                 .Select(t => $"{t.ImplantClass}/{t.Platform}/{t.Arch}")
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(t => t, StringComparer.Ordinal)));
+
+        // The compatibility rows (ADR-017) ride the form like every other
+        // field: a tampered requirement or conformance claim breaks the
+        // signature exactly like a tampered OPSEC mark.
+        Line("requires", manifest.Requires.Count == 0
+            ? "-"
+            : string.Join(",", manifest.Requires.Distinct().OrderBy(r => r, StringComparer.Ordinal)));
+        Line("conformance", manifest.Conformance is { } report
+            ? $"{report.Tier}/{report.Harness}/{report.Date}"
+            : "-");
+        Line("conformance-clauses", manifest.Conformance is { } withClauses && withClauses.Clauses.Count > 0
+            ? string.Join(",", withClauses.Clauses.Distinct().OrderBy(c => c, StringComparer.Ordinal))
+            : "-");
 
         // The verb version matrix rides one line per verb, name-sorted, with
         // a per-verb floor and the row's ATT&CK techniques folded in -- so a

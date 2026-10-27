@@ -350,6 +350,89 @@ public class EndToEndTests
         Assert.Contains("demo-sweep.deep@0.2.0 [T1615]", info.Output);
     }
 
+    [Fact]
+    public void CapabilityRequirementsAndConformance_RideTheChain()
+    {
+        // ADR-017's compatibility collapse: a plugin's requires rows and a
+        // build unit's conformance report ride the scaffold, the signed
+        // canonical form, the registry mirror, info, and install -- and a
+        // tampered requirement in the installed tree reads as a trust
+        // failure exactly like a tampered payload byte.
+        using var root = new TempRoot();
+        var plugin = root["demo-sweep"];
+        var unit = root["demo-agent"];
+        var registry = root["registry"];
+        var install = root["install"];
+
+        // A paired module whose execution half is a plugin: it requires the
+        // loader plus the bulk-output tier its sweep returns.
+        CliRun.Run("mod", "init", "demo-sweep", "--path", plugin);
+        Author(plugin, "1.0.0", "payload-v1");
+        var pluginToml = File.ReadAllText(Path.Combine(plugin, "rod-module.toml"))
+            .Replace("# requires = [\"plugin-loader\"]", "requires = [\"plugin-loader\", \"exfil-chunks\"]");
+        File.WriteAllText(Path.Combine(plugin, "rod-module.toml"), pluginToml);
+        var publish = CliRun.Run("mod", "publish", "--path", plugin, "--registry", registry);
+        Assert.True(publish.Code == 0, publish.Error);
+
+        // The index mirrors the requirement set beside the target matrix.
+        var entry = Rod.Cli.Registry.RegistryJson.LoadEntry(
+            Path.Combine(registry, "modules", "demo-sweep.json"));
+        Assert.Equal(["plugin-loader", "exfil-chunks"],
+            entry!.Versions.Single(v => v.Version == "1.0.0").Compatibility.Requires);
+
+        // The catalog surfaces it, and install repeats it as the advisory it
+        // is (the target's handshake advertisement is the runtime truth).
+        var info = CliRun.Run("mod", "info", "demo-sweep", "--registry", registry);
+        Assert.Contains("requires on the target: plugin-loader exfil-chunks", info.Output);
+        Assert.Contains("plugin-loader", CliRun.Run("mod", "search", "exfil-chunks", "--registry", registry).Output);
+
+        var pluginInstall = CliRun.Run("mod", "install", "demo-sweep", "--registry", registry,
+            "--dir", install, "--teamserver", "1.0.0");
+        Assert.True(pluginInstall.Code == 0, pluginInstall.Error);
+        Assert.Contains("requires on the target implant: plugin-loader, exfil-chunks", pluginInstall.Output);
+
+        // A build unit carries the conformance report instead: what its
+        // candidate proved against the harness.
+        CliRun.Run("mod", "init", "demo-agent", "--path", unit, "--entry", "build-unit");
+        Author(unit, "0.1.0", "payload");
+        var unitToml = File.ReadAllText(Path.Combine(unit, "rod-module.toml")) + """
+
+            [conformance]
+            tier = 1
+            harness = "1.0.0"
+            date = "2026-01-15"
+            clauses = ["enroll.public-key-and-token", "handshake.first-frame-ok", "task.round-trip", "signature.verification"]
+            """;
+        File.WriteAllText(Path.Combine(unit, "rod-module.toml"), unitToml);
+        var unitPublish = CliRun.Run("mod", "publish", "--path", unit, "--registry", registry);
+        Assert.True(unitPublish.Code == 0, unitPublish.Error);
+
+        var unitEntry = Rod.Cli.Registry.RegistryJson.LoadEntry(
+            Path.Combine(registry, "modules", "demo-agent.json"));
+        var report = unitEntry!.Versions[0].Conformance;
+        Assert.NotNull(report);
+        Assert.Equal(1, report!.Tier);
+        Assert.Equal(4, report.Clauses.Count);
+
+        var unitInfo = CliRun.Run("mod", "info", "demo-agent", "--registry", registry);
+        Assert.Contains("conformance: Tier 1 (harness 1.0.0, 2026-01-15)", unitInfo.Output);
+        Assert.Contains("signature.verification", unitInfo.Output);
+
+        var unitInstall = CliRun.Run("mod", "install", "demo-agent", "--registry", registry,
+            "--dir", install, "--teamserver", "1.0.0");
+        Assert.True(unitInstall.Code == 0, unitInstall.Error);
+        Assert.Contains("conformance: Tier 1", unitInstall.Output);
+
+        // A tampered requirement breaks the canonical form and therefore the
+        // signature: exit 2, the trust failure.
+        var installedManifest = Path.Combine(install, "modules", "demo-sweep", "1.0.0", "rod-module.toml");
+        File.WriteAllText(installedManifest,
+            File.ReadAllText(installedManifest).Replace("requires = [\"plugin-loader\", \"exfil-chunks\"]", "requires = []"));
+        var tampered = CliRun.Run("mod", "verify", "--dir", install);
+        Assert.Equal(RodCli.ExitTrustFailure, tampered.Code);
+        Assert.Contains("FAIL demo-sweep@1.0.0", tampered.Output);
+    }
+
     private static void Author(string module, string version, string? payload, string teamserver = "1.0.0", string? description = null)
     {
         // Regex edits rather than Replace(): the scaffold fills version and

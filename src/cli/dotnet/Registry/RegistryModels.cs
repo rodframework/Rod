@@ -38,13 +38,26 @@ public sealed record RegistryVersion(
     string Fingerprint,
     RegistryVersion.CompatibilityInfo Compatibility,
     IReadOnlyList<RegistryVersion.VerbInfo>? Verbs = null,
-    IReadOnlyList<string>? Assets = null)
+    IReadOnlyList<string>? Assets = null,
+    RegistryVersion.ConformanceInfo? Conformance = null)
 {
     public sealed record CompatibilityInfo(
         string Teamserver,
-        IReadOnlyList<TargetInfo> Targets);
+        IReadOnlyList<TargetInfo> Targets,
+        IReadOnlyList<string>? Requires = null);
 
     public sealed record TargetInfo(string ImplantClass, string Platform, string Arch);
+
+    /// <summary>The build unit's conformance report, mirrored from the
+    /// manifest (ADR-017): the tier its candidate proved, the harness
+    /// generation, the date, and the clauses that passed -- a publisher's
+    /// signature-bound claim, carried in the index so the catalog answers
+    /// "what does this implant run" without unpacking the package.</summary>
+    public sealed record ConformanceInfo(
+        int Tier,
+        string Harness,
+        string Date,
+        IReadOnlyList<string> Clauses);
 
     /// <summary>One verb row of the version matrix (architecture.md Sec 15.2's
     /// third contract): the verb, its module-scoped version, its optional

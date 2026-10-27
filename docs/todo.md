@@ -31,6 +31,40 @@ promotes it ahead of the standing order.
 
 ## Active
 
+Polyglot on-ramps first (serves architecture.md Sec 15.2, ADR-018 -- the
+designed last mile for any-language implants and plugins; ADR-017's CLI
+half -- the `requires` rows and the conformance report -- already
+shipped):
+
+- **Linkable core** (the shell contract): the crate's lib target as a
+  documented C-ABI embedding surface -- init-with-profile, IO pump,
+  state read -- so a Nim/Zig/C shell links the static core and writes
+  `main`, not a wire stack. _AC:_ a non-Rust shell built against the
+  static library passes the conformance harness's Tier 0 clauses end to
+  end.
+- **Standalone conformance runner**: the harness packaged as a `rod
+  conform <candidate>` command against any process, no tree checkout.
+  _AC:_ a candidate binary authored outside the repo runs the clause
+  suite and gets the same pass/fail report the in-tree rig produces.
+- **Manifest-declared descriptors**: verb rows carrying the parameter
+  schema and output kind as manifest data, a pure-descriptor loading
+  path beside `Capabilities:Modules`. _AC:_ a novel-namespace module
+  opens its issuance gate with zero .NET code and the UI renders its
+  task form from the manifest schema -- zero framework changes.
+- **Runtime requirement matching** (ADR-017's runtime half): the server
+  refuses `module.load` for a session whose handshake advertisement does
+  not cover the module's `requires` rows, and the operator UI filters a
+  session's loadable plugin set the same way. _AC:_ a load onto a
+  non-covering implant is refused naming the missing capability.
+- **Presentation profile file**: the baked profile's presentation keys
+  (URI shapes, User-Agent, headers, envelope shape) as a standalone file
+  contract any build unit consumes. _AC:_ one profile file drives both
+  in-tree build units' bakes with no unit-specific parsing.
+- **In-tree `requires` sweep**: carry the honest requirement rows across
+  the remaining in-tree pairs (`modules/hostenum` already declares
+  `plugin-loader`). _AC:_ every server-entry module under `modules/`
+  whose execution half is a plugin declares it.
+
 The module layer's standing line: capability modules advancing the
 ATT&CK coverage matrix (architecture.md Sec 15.1, Sec 5.4), in family
 batches ordered by matrix gap.

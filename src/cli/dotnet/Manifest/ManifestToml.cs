@@ -35,6 +35,9 @@ public static class ManifestToml
         [TomlPropertyName("attack")]
         public AttackSection? Attack { get; set; }
 
+        [TomlPropertyName("conformance")]
+        public ConformanceSection? Conformance { get; set; }
+
         [TomlPropertyName("package")]
         public PackageSection? Package { get; set; }
 
@@ -58,7 +61,16 @@ public static class ManifestToml
     private sealed class CompatibilitySection
     {
         [TomlPropertyName("teamserver")] public string? Teamserver { get; set; }
+        [TomlPropertyName("requires")] public List<string>? Requires { get; set; }
         [TomlPropertyName("targets")] public List<TargetRow>? Targets { get; set; }
+    }
+
+    private sealed class ConformanceSection
+    {
+        [TomlPropertyName("tier")] public long? Tier { get; set; }
+        [TomlPropertyName("harness")] public string? Harness { get; set; }
+        [TomlPropertyName("date")] public string? Date { get; set; }
+        [TomlPropertyName("clauses")] public List<string>? Clauses { get; set; }
     }
 
     private sealed class TargetRow
@@ -154,6 +166,48 @@ public static class ManifestToml
             TrimOrNull(row.Platform) ?? "",
             TrimOrNull(row.Arch) ?? "")).ToList();
 
+        // The capability requirements (ADR-017): trims and drops empties the
+        // way the technique list does; the closed-vocabulary check is the
+        // validator's, so one load reports every wrong name at once.
+        var requires = (compatibility?.Requires ?? [])
+            .Where(r => !string.IsNullOrWhiteSpace(r))
+            .Select(r => r.Trim())
+            .ToList();
+
+        // The conformance report (build units): a section any field of which
+        // is set must be whole -- a partial report is a claim missing its
+        // proof shape, not a report.
+        ConformanceReport? conformance = null;
+        var conformanceSection = document.Conformance;
+        if (conformanceSection is { } section
+            && (section.Tier is not null || section.Harness is not null || section.Date is not null || section.Clauses is not null))
+        {
+            if (section.Tier is null)
+                errors.Add("conformance.tier is missing (0, 1, or 2).");
+            if (TrimOrNull(section.Harness) is null)
+                errors.Add("conformance.harness is missing (the harness generation the run used).");
+            if (TrimOrNull(section.Date) is null)
+                errors.Add("conformance.date is missing (the run's date, YYYY-MM-DD).");
+            if (errors.Count == 0)
+            {
+                if (!SemVer.TryParse(section.Harness!.Trim(), out var harness))
+                {
+                    errors.Add($"conformance.harness '{section.Harness}' is not a SemVer version.");
+                }
+                else
+                {
+                    conformance = new ConformanceReport(
+                        (int)section.Tier!,
+                        harness,
+                        section.Date!.Trim(),
+                        (section.Clauses ?? [])
+                            .Where(c => !string.IsNullOrWhiteSpace(c))
+                            .Select(c => c.Trim())
+                            .ToList());
+                }
+            }
+        }
+
         var techniques = (document.Attack?.Techniques ?? [])
             .Where(t => !string.IsNullOrWhiteSpace(t))
             .Select(t => t.Trim().ToUpperInvariant())
@@ -237,6 +291,8 @@ public static class ManifestToml
             Homepage = TrimOrNull(module?.Homepage),
             TeamserverMin = teamserverMin,
             Targets = targets,
+            Requires = requires,
+            Conformance = conformance,
             // Non-null here: a null lands-on-disk added an error above, and
             // any error returns before the manifest is built.
             Opsec = new OpsecMetadata(landsOnDisk!.Value, TrimOrNull(opsec?.Notes)),
@@ -283,6 +339,11 @@ public static class ManifestToml
         sb.AppendLine();
         sb.AppendLine("[compatibility]");
         sb.AppendLine($"teamserver = {Quote(teamserverMin.ToString())}  # minimum teamserver version");
+        sb.AppendLine("# Wire capabilities the hosting implant must support (the closed");
+        sb.AppendLine("# vocabulary: plugin-loader, exfil-chunks, staged-uploads). The");
+        sb.AppendLine("# implant's handshake advertisement is the runtime truth; this row");
+        sb.AppendLine("# is the store's static filter.");
+        sb.AppendLine("# requires = [\"plugin-loader\"]");
         sb.AppendLine();
         sb.AppendLine("[opsec]");
         sb.AppendLine($"lands-on-disk = {landsOnDisk.ToString().ToLowerInvariant()}  # what running the module leaves on the target");
@@ -290,6 +351,23 @@ public static class ManifestToml
         sb.AppendLine("[attack]");
         sb.AppendLine("techniques = []  # the roll-up of the verb rows' techniques, e.g. [\"T1082\"]");
         sb.AppendLine();
+
+        if (entry == ModuleEntryKind.BuildUnit)
+        {
+            // The conformance report is the build unit's half of the
+            // compatibility collapse: what its candidate proved against the
+            // harness, signed with the package so a store badge is a
+            // publisher's signature-bound claim.
+            sb.AppendLine("# The conformance report (build units): what a harness run proved --");
+            sb.AppendLine("# the tier achieved, the harness generation, the date, the clauses.");
+            sb.AppendLine("# It rides the signed canonical form and the registry catalog.");
+            sb.AppendLine("# [conformance]");
+            sb.AppendLine("# tier = 0  # 0 (interop), 1 (hardening), or 2 (optional features)");
+            sb.AppendLine("# harness = \"1.0.0\"");
+            sb.AppendLine("# date = \"2026-01-15\"");
+            sb.AppendLine("# clauses = [\"enroll.public-key-and-token\", \"handshake.first-frame-ok\", \"task.round-trip\"]");
+            sb.AppendLine();
+        }
 
         if (entry == ModuleEntryKind.Assets)
         {

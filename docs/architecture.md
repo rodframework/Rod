@@ -3048,14 +3048,16 @@ is deliberately per-publisher and local: a lost key is a new identity
 every pin will name, not a recovery flow the platform owes.
 
 **The manifest** (`rod-module.toml`): name, version, a compatibility
-matrix (implant class / platform / arch, minimum teamserver version),
-OPSEC metadata, ATT&CK mapping, the entry kind (server module, implant
+matrix (implant class / platform / arch, minimum teamserver version, and
+the wire-capability `requires` rows -- the compatibility collapse
+below), OPSEC metadata, ATT&CK mapping, the entry kind (server module, implant
 module, build unit, or asset module), the verb rows of the version matrix
 (each verb's module-scoped version and optional per-verb teamserver
 floor), the asset rows (`[[assets]]`, each binding a logical name a
 consumer resolves as `module/asset` to a package-relative file -- they
 ride the signed canonical form like verb rows, and the file bytes ride it
-through the per-file digests), license, packaging rules, and signature. The
+through the per-file digests), the conformance report a build unit
+carries (the collapse again), license, packaging rules, and signature. The
 registry is a git repository in the Homebrew-tap shape -- one JSON file
 per module under `modules/`, contributed by pull request, no server, no
 database, an optional GitHub Pages mirror; the lock file
@@ -3105,6 +3107,53 @@ from registration to schema-rendered catalog to structured products in the
 topology, credentials, and loot panels, zero framework changes), and the
 client's vitest suite (the generic form builder and the taxonomy parsers
 over a novel schema).
+
+**The compatibility collapse (ADR-017; shipped).** The ecosystem's
+compatibility question is where Mythic's agent-per-plugin coupling lives:
+a plugin written against an agent's private message format serves that
+agent alone, and the store inherits an N-plugins-times-M-implants matrix
+nobody tests. Rod keeps every artifact coupled to the contract and to
+nothing else, collapsing the matrix into N-plus-M: a plugin declares its
+**wire-capability requirements** (`compatibility.requires`, a closed
+vocabulary naming the task-path tiers -- `plugin-loader`,
+`exfil-chunks`, `staged-uploads`, grown additively with the tiers; an
+unknown name is a refused manifest, never a silent mismatch), and a
+build unit carries a **conformance report** (`[conformance]`: the tier
+its candidate proved against the harness, the harness generation, the
+date, the clauses). An operator -- or a store view -- matches
+requirements against what an implant proved and, at run time, against
+what its handshake advertises (Sec 5.4's advertisement is the truth the
+static rows approximate). Both rows ride the signed canonical form (a
+tampered badge or requirement breaks `rod mod verify` like a tampered
+payload byte), mirror into the registry index beside the target matrix,
+and surface at search, info, and install -- advisory at install, since
+the target's advertisement, not the operator's screen, is the runtime
+gate. The reference declaration rides the tree: `modules/hostenum`
+requires `plugin-loader`, the honest statement that its execution half
+is a plugin. **Shipped** in the CLI's manifest and registry models, with
+the acceptance in `tests/cli/dotnet`: the vocabulary's refusals, the
+canonical-form participation, and the end-to-end run from scaffold
+through publish, mirror, info, and install to a tampered requirement
+reading as a trust failure.
+
+**The polyglot on-ramps (ADR-018) _(future)_.** The wire contract is the
+language boundary; three designed on-ramps drop the remaining
+per-language cost without widening the kernel or the wire. The
+**linkable core** formalizes the crate's existing lib target as a C-ABI
+embedding surface (an init-with-profile, an IO pump, a state read -- a
+handful of symbols beside the plugin family's six), so a shell in any
+language that links a static library writes `main` and a pump and gets
+the whole wire stack -- the middle rung between Tier 0 from scratch and
+the crate fork. The **standalone conformance runner** packages the
+harness so a community author points it at a candidate binary without
+the tree. The **manifest-declared descriptor** extends the verb rows
+with the parameter schema and output kind as manifest data, opening a
+novel namespace's gate with zero .NET code -- the server-side twin of
+the C-ABI seam's language freedom. Two smaller contracts ride the same
+item: the server refuses a `module.load` for a session whose
+advertisement does not cover the module's requirements (the runtime
+half of ADR-017), and the baked profile's presentation keys travel as a
+standalone profile file any build unit consumes.
 
 There is **no carry-over from existing ecosystems**: no BOF/COFF execution
 layer, no Armory migration. The ecosystem accumulates from zero, quality
@@ -3392,3 +3441,5 @@ Where the program touches the existing layers:
 | 014 | Domain open/close discipline: three granularities, four tests | Sec 15.4 |
 | 015 | Closed documentation set, one topic per document | Sec 15.4 |
 | 016 | Range mode: scripted beacons over the real protocol, default off | Sec 15.3 |
+| 017 | Compatibility collapse: capability `requires` + conformance report in the module contract | Sec 15.2 |
+| 018 | Polyglot on-ramps: linkable core, standalone conformance runner, manifest-declared descriptors | Sec 15.2 |

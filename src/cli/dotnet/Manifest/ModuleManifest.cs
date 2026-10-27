@@ -41,7 +41,39 @@ public static class ModuleEntryKindNames
     };
 }
 
-/// <summary>A row of the manifest's compatibility matrix: which implant
+/// <summary>
+/// The wire capability names the module contract's compatibility rows draw
+/// from (architecture.md Sec 15.2, ADR-017): a plugin declares what the
+/// hosting implant must support, an implant's conformance report proves
+/// what its candidate passed. The names are the wire tiers' own features
+/// (extending/implants.md), a closed vocabulary so a store filter compares
+/// like against like -- it grows additively with the tiers, and an unknown
+/// name is a refused manifest, never a silent mismatch.
+/// </summary>
+public static class WireCapabilities
+{
+    /// <summary>The module.load family: the implant half can host plugins.</summary>
+    public const string PluginLoader = "plugin-loader";
+
+    /// <summary>Bulk output through ExfilChunk frames (Tier 2).</summary>
+    public const string ExfilChunks = "exfil-chunks";
+
+    /// <summary>Downstream bulk through StagedPull/StagedChunk (Tier 2).</summary>
+    public const string StagedUploads = "staged-uploads";
+
+    /// <summary>The names a manifest's <c>requires</c> may carry: the
+    /// task-path capabilities a plugin's verbs can depend on. A plugin
+    /// cannot own a live channel (the loader refuses channel verbs), so
+    /// the interactive-channel tier is deliberately absent.</summary>
+    public static readonly IReadOnlyList<string> Requirable =
+        [PluginLoader, ExfilChunks, StagedUploads];
+
+    public static bool IsRequirable(string name)
+        => Requirable.Contains(name, StringComparer.Ordinal);
+}
+
+/// <summary>
+/// One row of the manifest's compatibility matrix: which implant
 /// class, on which platform and arch, the module's execution half serves.</summary>
 public sealed record TargetMatrix(string ImplantClass, string Platform, string Arch);
 
@@ -89,6 +121,27 @@ public sealed record VerbDeclaration(
 public sealed record AssetDeclaration(string Name, string Path);
 
 /// <summary>
+/// The manifest's conformance report (ADR-017): what a build unit's
+/// candidate proved against the conformance harness -- the tier achieved,
+/// the harness generation, the run's date, and the clauses that passed.
+/// The report is the build-unit half of the compatibility collapse: an
+/// operator matches a plugin's <c>requires</c> against what an implant
+/// proved, so compatibility is checked module-to-contract and
+/// implant-to-contract, never module-to-implant. It rides the signed
+/// canonical form: a publisher's self-claim, but a signature-bound one a
+/// tampered registry index cannot forge.
+/// </summary>
+public sealed record ConformanceReport(
+    int Tier,
+    SemVer Harness,
+    string Date,
+    IReadOnlyList<string> Clauses)
+{
+    public sealed override string ToString()
+        => $"tier {Tier} (harness {Harness}, {Date})";
+}
+
+/// <summary>
 /// The parsed <c>rod-module.toml</c> (ADR-009): the self-describing module
 /// contract shared by all the entry kinds. This model is the authority for
 /// the canonical form that gets signed -- every field it carries participates
@@ -104,6 +157,8 @@ public sealed record ModuleManifest
     public string? Homepage { get; init; }
     public required SemVer TeamserverMin { get; init; }
     public IReadOnlyList<TargetMatrix> Targets { get; init; } = [];
+    public IReadOnlyList<string> Requires { get; init; } = [];
+    public ConformanceReport? Conformance { get; init; }
     public required OpsecMetadata Opsec { get; init; }
     public IReadOnlyList<string> Techniques { get; init; } = [];
     public IReadOnlyList<VerbDeclaration> Verbs { get; init; } = [];
@@ -112,6 +167,12 @@ public sealed record ModuleManifest
 
     private static readonly Regex NamePattern = new("^[a-z0-9][a-z0-9-]{0,63}$", RegexOptions.Compiled);
     private static readonly Regex TechniquePattern = new("^T\\d{4}(\\.\\d{3})?$", RegexOptions.Compiled);
+    private static readonly Regex IsoDatePattern = new("^\\d{4}-\\d{2}-\\d{2}$", RegexOptions.Compiled);
+
+    // A harness clause name (enroll.public-key-and-token and its kin): a
+    // single lowercase token, so the canonical form's comma-joined clause
+    // line stays unambiguous.
+    private static readonly Regex ClausePattern = new("^[a-z0-9][a-z0-9._-]*$", RegexOptions.Compiled);
 
     // The verb grammar Sec 10 names: namespace.action, each segment lowercase
     // kebab with underscores allowed (the reference set carries
@@ -153,6 +214,47 @@ public sealed record ModuleManifest
             {
                 if (part.Contains('\n') || part.Contains('\r') || part.Contains('/'))
                     errors.Add($"compatibility.targets[{i}] fields must be single-line and contain no '/'.");
+            }
+        }
+
+        // The capability requirements (ADR-017): names from the closed wire
+        // vocabulary only, on the entries that carry an execution half -- a
+        // build unit is the implant itself and an assets module runs
+        // nothing on a target, so a requirement there names nothing real.
+        // The runtime check is the implant's own handshake advertisement;
+        // this row is the store's static filter.
+        var seenRequires = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < Requires.Count; i++)
+        {
+            if (!WireCapabilities.IsRequirable(Requires[i]))
+                errors.Add(
+                    $"compatibility.requires[{i}] '{Requires[i]}' is not a wire capability a module may require; "
+                    + $"the vocabulary is: {string.Join(", ", WireCapabilities.Requirable)}.");
+            else if (!seenRequires.Add(Requires[i]))
+                errors.Add($"compatibility.requires[{i}] '{Requires[i]}' is declared twice.");
+        }
+        if (seenRequires.Count > 0 && Entry is ModuleEntryKind.BuildUnit or ModuleEntryKind.Assets)
+            errors.Add(
+                "compatibility.requires constrains an implant hosting this module's execution half; "
+                + $"a {ModuleEntryKindNames.ToString(Entry)} module carries none.");
+
+        if (Conformance is { } report)
+        {
+            if (Entry != ModuleEntryKind.BuildUnit)
+                errors.Add(
+                    "[conformance] reports what a build unit's candidate proved against the harness; "
+                    + $"a {ModuleEntryKindNames.ToString(Entry)} module carries none.");
+            if (report.Tier is < 0 or > 2)
+                errors.Add($"conformance.tier '{report.Tier}' must be 0, 1, or 2.");
+            if (!IsoDatePattern.IsMatch(report.Date) || !DateOnly.TryParse(report.Date, out _))
+                errors.Add($"conformance.date '{report.Date}' must be an ISO date (YYYY-MM-DD).");
+            var seenClauses = new HashSet<string>(StringComparer.Ordinal);
+            for (var i = 0; i < report.Clauses.Count; i++)
+            {
+                if (!ClausePattern.IsMatch(report.Clauses[i]))
+                    errors.Add($"conformance.clauses[{i}] '{report.Clauses[i]}' must be a single lowercase token (the harness's clause names).");
+                else if (!seenClauses.Add(report.Clauses[i]))
+                    errors.Add($"conformance.clauses[{i}] '{report.Clauses[i]}' is declared twice.");
             }
         }
 

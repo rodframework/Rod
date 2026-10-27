@@ -117,6 +117,16 @@ public static class InstallCommand
                 throw new CliError($"signature verification failed for {name}@{version.Version}.", RodCli.ExitTrustFailure);
             output.WriteLine($"signature verified (publisher {version.Fingerprint}).");
 
+            // The compatibility rows ride the verified manifest (ADR-017):
+            // what the hosting implant must advertise, and for a build unit
+            // what its candidate proved -- advisory at install (the target's
+            // own handshake advertisement is the runtime truth), surfaced so
+            // the operator screens before the module reaches an engagement.
+            if (manifest.Requires.Count > 0)
+                output.WriteLine($"requires on the target implant: {string.Join(", ", manifest.Requires)}");
+            if (manifest.Conformance is { } conformance)
+                output.WriteLine($"conformance: Tier {conformance.Tier} (harness {conformance.Harness}, {conformance.Date})");
+
             var trusted = lockFile.TrustedKeyFor(name);
             if (trusted is null)
             {
