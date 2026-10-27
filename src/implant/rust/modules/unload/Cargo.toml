@@ -1,0 +1,25 @@
+[package]
+name = "rod-module-unload"
+version = "1.0.0"
+edition = "2021"
+
+# The defense-evasion family's second module (architecture.md Sec 5.4):
+# evasion.unload, the module-layer implementation behind the kernel's
+# placeholder verb -- the classic fresh-copy unhook: ntdll's mapped
+# .text compared against the disk copy's own bytes and, when the
+# operator names it, restored from them, the bare task the read. The
+# Windows half speaks kernel32 directly: a module owes the loader no
+# dependency for nine functions. Built as a cdylib for Windows targets
+# and delivered as a module.load task's content.
+
+[lib]
+# rlib beside cdylib so the bin target below links the same plugin code;
+# cargo emits the rlib for internal use only, the cdylib is the artifact.
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "rod-module-unload"
+path = "src/main.rs"
+
+[dependencies]
+rod-plugin-sdk = { path = "../../plugin-sdk" }
