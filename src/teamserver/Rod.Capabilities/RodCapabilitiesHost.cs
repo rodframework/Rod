@@ -99,8 +99,13 @@ public static class RodCapabilitiesHost
         if (configuration is not null)
         {
             // Loads the config-listed modules; a bad entry fails startup loudly
-            // rather than leaving the verb on its placeholder.
+            // rather than leaving the verb on its placeholder. Assemblies load
+            // first, descriptor directories after, so a manifest-listed module
+            // wins the verb when an operator lists both -- last-wins, the
+            // authority rule every module seam applies.
             CapabilityModuleLoader.LoadAsync(registry: registry, configuration: configuration, cancellationToken: CancellationToken.None)
+                .GetAwaiter().GetResult();
+            DescriptorModuleLoader.LoadAsync(registry: registry, configuration: configuration, cancellationToken: CancellationToken.None)
                 .GetAwaiter().GetResult();
         }
 

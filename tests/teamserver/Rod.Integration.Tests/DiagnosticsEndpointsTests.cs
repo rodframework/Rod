@@ -30,6 +30,19 @@ namespace Rod.Integration.Tests;
 /// </summary>
 public class DiagnosticsEndpointsTests
 {
+    private static string FindRepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            if (Directory.Exists(Path.Combine(dir.FullName, "src"))
+                && Directory.Exists(Path.Combine(dir.FullName, "tests")))
+                return dir.FullName;
+            dir = dir.Parent!;
+        }
+        throw new InvalidOperationException("Could not locate the repo root from the test assembly.");
+    }
+
     // The full composition the endpoint needs: the capabilities layer's
     // registry beside the operator/transport/auth core, the diagnostics
     // endpoint mapped the way the teamserver host maps it.
@@ -155,13 +168,14 @@ public class DiagnosticsEndpointsTests
     [Fact]
     public async Task Diagnostics_ReportsTheLoadedModuleSet()
     {
-        // The exact config entry the shipped appsettings.json carries: the
-        // in-tree hostenum module through the same path an external module
+        // The exact section the shipped appsettings.json carries: the
+        // in-tree hostenum module (a pure descriptor manifest, ADR-018) at
+        // its repository tree, through the same path an external module
         // takes, so the diagnostics module section reads the real loading
         // state, not a fixture's.
+        var hostenumDirectory = Path.Combine(FindRepoRoot(), "modules", "hostenum");
         var (client, host) = AdminClient(extendConfig: settings =>
-            settings["Capabilities:Modules:0"] =
-                "Rod.Modules.Hostenum.HostEnumCapabilityModule, Rod.Modules.Hostenum");
+            settings["Capabilities:DescriptorModules:0"] = hostenumDirectory);
         using (client)
         using (host)
         {

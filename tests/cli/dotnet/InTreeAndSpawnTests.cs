@@ -71,6 +71,14 @@ public class InTreeModuleTests
         Assert.Equal(manifest.Version, verb.Version);
         Assert.NotEmpty(verb.Techniques!);
 
+        // The row is the module's whole server-side half (ADR-018): a
+        // descriptor row -- the category anchors it, and the schema it
+        // declares is one the teamserver's registry gate accepts. This is
+        // the drift protection the per-module descriptor tests used to
+        // carry, restated at the manifest the declaration now lives in.
+        Assert.True(verb.IsDescriptor);
+        Assert.NotNull(verb.Category);
+
         // ADR-017's sweep: every tree pair's execution half is a plugin the
         // hosting implant loads through the module family, so every tree
         // manifest declares the loader requirement -- a future module that
@@ -106,7 +114,11 @@ public class InTreeModuleTests
         Assert.True(installed.Code == 0, installed.Error);
 
         var landed = Path.Combine(install, "modules", name, version);
-        Assert.NotEmpty(Directory.GetFiles(landed, "*.cs"));
+        // The module is its manifest (ADR-018): the descriptor rows are the
+        // whole package, so the landed tree carries the manifest and no
+        // payload at all.
+        var landedFiles = Directory.GetFiles(landed);
+        Assert.Equal(ManifestToml.FileName, Assert.Single(landedFiles.Select(Path.GetFileName)));
         Assert.False(Directory.Exists(Path.Combine(landed, "bin")));
 
         var verify = CliRun.Run("mod", "verify", "--dir", install);

@@ -216,9 +216,13 @@ public class EndToEndTests
         Assert.Contains("UNLICENSED", unlicensed.Error);
 
         // A license but packaging rules that select nothing: an empty
-        // package is a mistake, not a module.
+        // package is a mistake, not a module. The manifest-alone exemption
+        // belongs to server-entry descriptor rows (ADR-018 -- the rows are
+        // the whole module); an implant module carries its plugin as
+        // payload, so rules that select nothing stay a refusal.
         Author(module, "1.0.0", payload: null);
-        var toml = File.ReadAllText(Path.Combine(module, "rod-module.toml")) + "\n[package]\ninclude = [\"nothing/**\"]\n";
+        var toml = File.ReadAllText(Path.Combine(module, "rod-module.toml")).Replace("entry = \"server\"", "entry = \"implant\"")
+            + "\n[package]\ninclude = [\"nothing/**\"]\n";
         File.WriteAllText(Path.Combine(module, "rod-module.toml"), toml);
         var empty = CliRun.Run("mod", "publish", "--path", module, "--registry", registry);
         Assert.Equal(RodCli.ExitUsage, empty.Code);

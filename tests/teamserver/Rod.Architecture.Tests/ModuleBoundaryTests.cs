@@ -1,21 +1,22 @@
 using System.Text.Json;
-using System.Xml.Linq;
 
 namespace Rod.Architecture.Tests;
 
 /// <summary>
-/// Encodes the in-tree module host rules (architecture.md Sec 15.1, ADR-001):
-/// reference modules live under <c>modules/</c> as separate assemblies that
-/// reach the process through exactly the path an operator's external module
-/// takes -- an assembly beside the binary plus an entry under
-/// <c>Capabilities:Modules</c> -- so the tree eats its own dogfood and the
-/// seams stay the public contract. Three rules must hold: a server module
-/// references the contract project (<c>Rod.Capabilities</c>) and nothing else
-/// in-house; no kernel project compile-references a module (the composition
-/// root deploys modules, it never references them); and the shipped
-/// configuration lists every in-tree module, so what ships, loads. A fourth
-/// keeps the host honest: the tree carries at least one reference module, so
-/// the in-tree path is exercised, not merely permitted.
+/// Encodes the in-tree module host rules (architecture.md Sec 15.1,
+/// ADR-001, ADR-018): the reference modules under <c>modules/</c> are pure
+/// descriptor manifests -- their verb rows carry the whole server-side half
+/// -- and reach the process through exactly the path an operator's external
+/// module takes: the directory listed under
+/// <c>Capabilities:DescriptorModules</c>, read by the descriptor loader.
+/// The rules must hold: the tree ships no server-module assemblies (the
+/// .NET halves are gone and no dual shape grows back); every in-tree verb
+/// row carries its category (a listed module is whole); the shipped
+/// configuration lists exactly the in-tree descriptor modules, so what
+/// ships, loads; and the tree carries at least one, so the in-tree path is
+/// exercised, not merely permitted. The asset-module rules ride beside
+/// them, unchanged by ADR-018: content ships as file trees under
+/// <c>Capabilities:AssetModules</c>.
 /// </summary>
 public class ModuleBoundaryTests
 {
@@ -34,23 +35,19 @@ public class ModuleBoundaryTests
         throw new InvalidOperationException("Could not locate the repo root from the test assembly.");
     }
 
-    // Server module assemblies live at modules/<name>/<Name>.csproj; the
-    // module-owned test projects under modules/<name>/tests/ are not module
-    // assemblies (they ride along with the module, loading nothing at
-    // runtime), so only the top-level project of each module counts.
-    private static readonly string[] ServerModuleProjects = Directory
+    // Descriptor modules (the server halves, ADR-018) and asset modules
+    // (the content halves, Sec 15.1) are both directories under modules/
+    // carrying a rod-module.toml, told apart by the entry kind. Recognized
+    // by a manifest line scan, deliberately -- the architecture tests read
+    // the tree, they do not link the tooling.
+    private static readonly string[] DescriptorModuleDirectories = Directory
         .GetDirectories(Path.Combine(RepoRoot, "modules"))
-        .SelectMany(directory => Directory.GetFiles(directory, "*.csproj"))
-        .OrderBy(p => p)
+        .Where(directory => File.Exists(Path.Combine(directory, "rod-module.toml"))
+            && !File.ReadAllLines(Path.Combine(directory, "rod-module.toml"))
+                .Any(line => line.Trim().Equals("entry = \"assets\"", StringComparison.OrdinalIgnoreCase)))
+        .OrderBy(directory => directory)
         .ToArray();
 
-    public static IEnumerable<object[]> ServerModuleProjectCases =>
-        ServerModuleProjects.Select(p => new object[] { p });
-
-    // Asset modules (Sec 15.1's content half) are directories, not
-    // assemblies: a rod-module.toml whose entry kind is "assets" plus the
-    // declared files. Recognized by a manifest line scan, deliberately --
-    // the architecture tests read the tree, they do not link the tooling.
     private static readonly string[] AssetModuleDirectories = Directory
         .GetDirectories(Path.Combine(RepoRoot, "modules"))
         .Where(directory => File.Exists(Path.Combine(directory, "rod-module.toml"))
@@ -59,107 +56,120 @@ public class ModuleBoundaryTests
         .OrderBy(directory => directory)
         .ToArray();
 
-    private static string[] ReadProjectReferences(string projectFile)
-        => XDocument.Load(projectFile).Descendants()
-            .Where(e => e.Name.LocalName == "ProjectReference")
-            .Select(e => (string?)e.Attribute("Include")?.Value)
-            .Where(include => include is not null)
-            .Select(include => include!.Replace('\\', '/'))
-            .ToArray();
-
-    // A server module couples to the module seam and to nothing else in-house:
-    // Rod.Capabilities carries the contract, and any wider reference would
-    // weld the module into the kernel -- exactly what the module layer exists
-    // to avoid.
-    [Theory]
-    [MemberData(nameof(ServerModuleProjectCases))]
-    public void ServerModules_ReferenceTheContractOnly(string projectFile)
-    {
-        var project = Path.GetFileNameWithoutExtension(projectFile)!;
-        var targets = ReadProjectReferences(projectFile)
-            .Select(Path.GetFileNameWithoutExtension)
-            .OrderBy(t => t)
-            .ToArray();
-
-        var forbidden = targets.Where(t => t != "Rod.Capabilities").ToArray();
-        Assert.True(forbidden.Length == 0,
-            $"{project} references {string.Join(", ", forbidden)}; a server module may reference " +
-            "Rod.Capabilities (the contract) and nothing else in-house.");
-    }
-
-    // The dogfood rule: in-tree modules load through the external path, so no
-    // kernel project may reference one -- a compile-time edge would make the
-    // module a layer participant and quietly retire the loading path the
-    // ecosystem depends on. (ProjectReferenceTests would also fail the added
-    // edge through its allowed-references matrix; this test names the rule.)
-    [Fact]
-    public void KernelProjects_NeverReferenceServerModules()
-    {
-        var violators = new List<string>();
-        foreach (var projectFile in Directory.GetFiles(
-                     Path.Combine(RepoRoot, "src", "teamserver"), "*.csproj", SearchOption.AllDirectories))
-        {
-            var project = Path.GetFileNameWithoutExtension(projectFile)!;
-            foreach (var include in ReadProjectReferences(projectFile))
-            {
-                if (include.Contains("/modules/", StringComparison.Ordinal))
-                    violators.Add($"{project} -> {include}");
-            }
-        }
-
-        Assert.True(violators.Count == 0,
-            "Kernel projects must not reference in-tree modules (they load through the " +
-            "config-listed path): " + string.Join(", ", violators));
-    }
-
-    // What ships, loads: every module under modules/ is named in the shipped
-    // appsettings.json so the in-tree set rides the operator's config path by
-    // default -- and every named entry corresponds to a module that exists,
-    // so a removed or renamed module leaves no stale entry behind that would
-    // abort startup.
-    [Fact]
-    public void ShippedConfig_ListsExactlyTheInTreeServerModules()
-    {
-        var settingsPath = Path.Combine(
-            RepoRoot, "src", "teamserver", "Rod.TeamServer", "appsettings.json");
-        using var document = JsonDocument.Parse(
-            File.ReadAllText(settingsPath),
+    private static JsonDocument ShippedSettings()
+        => JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(
+                RepoRoot, "src", "teamserver", "Rod.TeamServer", "appsettings.json")),
             new JsonDocumentOptions
             {
                 CommentHandling = JsonCommentHandling.Skip,
                 AllowTrailingCommas = true,
             });
 
+    // The tree ships no server-module assemblies: the thirteen .NET halves
+    // were pure descriptors and migrated to their manifests (ADR-018), and
+    // no dual shape -- a manifest beside the assembly it replaced -- grows
+    // back. An external assembly module remains legal; it just ships
+    // outside this tree, and the config-listed assembly path
+    // (Capabilities:Modules) stays the seam it loads through.
+    [Fact]
+    public void TheTree_ShipsNoServerModuleAssemblies()
+    {
+        var offenders = new List<string>();
+        foreach (var directory in Directory.GetDirectories(Path.Combine(RepoRoot, "modules")))
+        {
+            var module = Path.GetFileName(directory);
+            foreach (var file in Directory.GetFiles(directory, "*", SearchOption.TopDirectoryOnly))
+            {
+                var extension = Path.GetExtension(file);
+                if (extension is ".cs" or ".csproj" or ".dll")
+                    offenders.Add($"{module}/{Path.GetFileName(file)}");
+            }
+        }
+
+        Assert.True(offenders.Count == 0,
+            "modules/ ships server-module assemblies; the server halves are pure descriptor " +
+            "manifests (ADR-018): " + string.Join(", ", offenders));
+    }
+
+    // The assembly list the shipped configuration carries is empty to match:
+    // a stale entry would abort startup on an assembly the tree no longer
+    // builds (the what-ships-loads rule), and an in-tree assembly listed
+    // here would be the dual shape the rule above refuses.
+    [Fact]
+    public void ShippedConfig_ListsNoAssemblyModules()
+    {
+        using var document = ShippedSettings();
         var listed = document.RootElement
             .GetProperty("Capabilities").GetProperty("Modules")
             .EnumerateArray()
             .Select(e => e.GetString()!)
             .ToList();
 
-        // The assembly token follows the last comma, mirroring the loader's
-        // own split of a "Namespace.Type, AssemblyName" entry.
-        var listedAssemblies = listed
-            .Select(entry => entry[(entry.LastIndexOf(',') + 1)..].Trim())
-            .OrderBy(a => a)
-            .ToList();
-        var moduleAssemblies = ServerModuleProjects
-            .Select(Path.GetFileNameWithoutExtension)
-            .OrderBy(a => a)
-            .ToList();
-
-        Assert.True(!listedAssemblies.Except(moduleAssemblies).Any()
-                    && !moduleAssemblies.Except(listedAssemblies).Any(),
-            "The shipped Capabilities:Modules list and the modules under modules/ disagree: " +
-            $"shipped [{string.Join(", ", listedAssemblies)}] vs tree [{string.Join(", ", moduleAssemblies)}].");
+        Assert.True(listed.Count == 0,
+            "The shipped Capabilities:Modules list carries assembly entries while modules/ ships " +
+            $"no assemblies: [{string.Join(", ", listed)}].");
     }
 
-    // The host is real only while it hosts something: an empty modules/ tree
-    // would pass every rule above while exercising none of them.
+    // What ships, loads: every descriptor module under modules/ is named in
+    // the shipped Capabilities:DescriptorModules list (the in-tree set rides
+    // the operator's config path by default), and every named entry
+    // corresponds to a module that exists -- a removed or renamed module
+    // leaves no stale entry behind that would abort startup.
     [Fact]
-    public void TheTree_CarriesAtLeastOneServerModule()
+    public void ShippedConfig_ListsExactlyTheInTreeDescriptorModules()
     {
-        Assert.True(ServerModuleProjects.Length > 0,
-            "modules/ holds no server module; the in-tree module host would be dead code.");
+        using var document = ShippedSettings();
+        var listed = document.RootElement
+            .GetProperty("Capabilities").GetProperty("DescriptorModules")
+            .EnumerateArray()
+            .Select(e => e.GetString()!)
+            .ToList();
+        var inTree = DescriptorModuleDirectories
+            .Select(directory => "modules/" + Path.GetFileName(directory))
+            .ToList();
+
+        Assert.True(!listed.Except(inTree).Any() && !inTree.Except(listed).Any(),
+            "The shipped Capabilities:DescriptorModules list and the descriptor modules under modules/ disagree: "
+            + $"shipped [{string.Join(", ", listed)}] vs tree [{string.Join(", ", inTree)}].");
+    }
+
+    // A module listed under the descriptor path must be whole (the loader's
+    // own refusal, pinned at the tree level): every [[verbs]] row in an
+    // in-tree descriptor module carries its category, so no half-describe
+    // module ships -- a row without one would gate its siblings' verbs and
+    // silently skip its own.
+    [Fact]
+    public void DescriptorModules_DeclareWholeVerbRows()
+    {
+        foreach (var directory in DescriptorModuleDirectories)
+        {
+            var module = Path.GetFileName(directory);
+            var manifest = File.ReadAllLines(Path.Combine(directory, "rod-module.toml"));
+
+            var rows = 0;
+            for (var i = 0; i < manifest.Length; i++)
+            {
+                if (!manifest[i].Trim().Equals("[[verbs]]", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                rows++;
+                var category = ReadKeyValue(manifest, i + 1, "category");
+                Assert.False(category is null,
+                    $"{module}'s [[verbs]] row at line {i + 1} carries no category; a descriptor " +
+                    "module's every row declares its server-side half.");
+            }
+
+            Assert.True(rows > 0, $"{module} declares no [[verbs]] rows.");
+        }
+    }
+
+    // The host is real only while it hosts something: an empty modules/
+    // tree would pass every rule above while exercising none of them.
+    [Fact]
+    public void TheTree_CarriesAtLeastOneDescriptorModule()
+    {
+        Assert.True(DescriptorModuleDirectories.Length > 0,
+            "modules/ holds no descriptor module; the descriptor-module loader would be dead code.");
     }
 
     // The same what-ships-loads rule for the content half: every asset module
@@ -173,28 +183,19 @@ public class ModuleBoundaryTests
     [Fact]
     public void ShippedConfig_ListsExactlyTheInTreeAssetModules()
     {
-        var settingsPath = Path.Combine(
-            RepoRoot, "src", "teamserver", "Rod.TeamServer", "appsettings.json");
-        using var document = JsonDocument.Parse(
-            File.ReadAllText(settingsPath),
-            new JsonDocumentOptions
-            {
-                CommentHandling = JsonCommentHandling.Skip,
-                AllowTrailingCommas = true,
-            });
-
+        using var document = ShippedSettings();
         var listed = document.RootElement
-            .TryGetProperty("Capabilities", out var capabilities)
-            && capabilities.TryGetProperty("AssetModules", out var assetModules)
-            ? assetModules.EnumerateArray().Select(e => e.GetString()!).ToList()
-            : [];
+            .GetProperty("Capabilities").GetProperty("AssetModules")
+            .EnumerateArray()
+            .Select(e => e.GetString()!)
+            .ToList();
         var inTree = AssetModuleDirectories
             .Select(directory => "modules/" + Path.GetFileName(directory))
             .ToList();
 
         Assert.True(!listed.Except(inTree).Any() && !inTree.Except(listed).Any(),
-            "The shipped Capabilities:AssetModules list and the asset modules under modules/ disagree: " +
-            $"shipped [{string.Join(", ", listed)}] vs tree [{string.Join(", ", inTree)}].");
+            "The shipped Capabilities:AssetModules list and the asset modules under modules/ disagree: "
+            + $"shipped [{string.Join(", ", listed)}] vs tree [{string.Join(", ", inTree)}].");
     }
 
     // A declared asset must be present in the tree it ships in, and its path
@@ -238,7 +239,7 @@ public class ModuleBoundaryTests
 
     // The content half's own liveness rule: an empty asset-module set would
     // pass the shipped-config and declaration rules while exercising none
-    // of the seam, exactly as an empty modules/ tree would for assemblies.
+    // of the seam, exactly as an empty modules/ tree would for descriptors.
     [Fact]
     public void TheTree_CarriesAtLeastOneAssetModule()
     {
@@ -259,7 +260,7 @@ public class ModuleBoundaryTests
                      Path.Combine(RepoRoot, "src", "teamserver"), "*.csproj", SearchOption.AllDirectories))
         {
             var project = Path.GetFileNameWithoutExtension(projectFile)!;
-            foreach (var element in XDocument.Load(projectFile).Descendants()
+            foreach (var element in System.Xml.Linq.XDocument.Load(projectFile).Descendants()
                          .Where(e => e.Name.LocalName == "EmbeddedResource"))
             {
                 var include = (string?)element.Attribute("Include")?.Value ?? "";

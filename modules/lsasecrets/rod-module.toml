@@ -20,11 +20,12 @@ teamserver = "1.0.0"
 # runtime truth; this row is the store's static filter.
 requires = ["plugin-loader"]
 
-# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# The verb version matrix (architecture.md Sec 15.2), now the descriptor
+# row itself (ADR-018): the verb iterates
 # under its own module-scoped version, independently of the package
 # version. The row's techniques are the authoritative per-verb ATT&CK
-# declaration (ADR-007) -- the same ids the server-side descriptor
-# registers -- with the module-level [attack] list as their validated
+# declaration (ADR-007) -- the ids the descriptor row itself declares
+# -- with the module-level [attack] list as their validated
 # roll-up. T1003.004 (OS Credential Dumping: LSA Secrets) is the
 # in-place read itself; the kernel catalog carries the T1003 parent
 # under collect.cred and the matrix renders this sub-technique by id
@@ -32,7 +33,26 @@ requires = ["plugin-loader"]
 [[verbs]]
 name = "collect.lsasecrets"
 version = "1.0.0"
+category = "collect"
+opsec = { "reads-credential" = true }
 techniques = ["T1003.004"]
+output-kind = "text"
+output-help = "The seat row and the store's names on list, or one row per secret on read -- the value as text where the bytes decode cleanly, as hex where they do not."
+
+  [[verbs.parameters]]
+  name = "action"
+  label = "Action"
+  kind = "enum"
+  help = "Empty reports the survey -- a bare task is a read. The value read needs a SYSTEM implant."
+  choices = ["list", "read"]
+
+  [[verbs.parameters]]
+  name = "name"
+  label = "Secret name"
+  kind = "text"
+  help = "The one secret read narrows to; absent reads the whole store. Read only."
+  placeholder = "$MACHINE.ACC"
+  trailing = true
 
 # The store exists only on Windows: the manifest claims the two Windows
 # targets and no others, so the module loads nowhere the technique has
@@ -49,10 +69,10 @@ arch = "arm64"
 
 [opsec]
 lands-on-disk = false
-notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content and nothing it does lands on disk: the subtree and the values are read where they sit, in the implant process's own LSA session, and the rows ride the task's channel back. Both halves of the act answer to the SYSTEM seat -- the subtree that enumerates the names answers SYSTEM alone, and so do the secret objects the policy API queries -- so an implant that is merely elevated refuses once, named. The values are the store's own secrets (service-account passwords, the auto-logon password, the DPAPI machine keys, the machine-account password) in plain reach of the audit log the rows enter. The verb rides the per-engagement module load -- never a default profile."
+notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content and nothing it does lands on disk: the subtree and the values are read where they sit, in the implant process's own LSA session, and the rows ride the task's channel back. Both halves of the act answer to the SYSTEM seat -- the subtree that enumerates the names answers SYSTEM alone, and so do the secret objects the policy API queries -- so an implant that is merely elevated refuses once, named. The values are the store's own secrets (service-account passwords, the auto-logon password, the DPAPI machine keys, the machine-account password) in plain reach of the audit log the rows enter. The verb rides the per-engagement module load -- never a default profile."
 
 [attack]
 techniques = ["T1003.004"]
 
 [package]
-include = ["rod-module.toml", "*.cs", "*.csproj"]
+include = ["rod-module.toml"]

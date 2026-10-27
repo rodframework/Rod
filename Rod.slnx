@@ -32,14 +32,6 @@
   <Folder Name="/src/redirector/">
     <Project Path="src/redirector/dotnet/Rod.Redirector.csproj" />
   </Folder>
-  <!-- In-tree server-side capability modules (ADR-001): separate assemblies
-       the teamserver never compile-references; they load through the
-       config-listed path external modules take. In the solution for central
-       build and format coverage; the teamserver's build deploys their
-       outputs beside its binary. -->
-  <Folder Name="/modules/">
-    <Project Path="modules/hostenum/Rod.Modules.Hostenum.csproj" />
-  </Folder>
   <Folder Name="/tests/" />
   <Folder Name="/tests/cli/" />
   <Folder Name="/tests/cli/dotnet/">

@@ -20,17 +20,42 @@ teamserver = "1.0.0"
 # runtime truth; this row is the store's static filter.
 requires = ["plugin-loader"]
 
-# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# The verb version matrix (architecture.md Sec 15.2), now the descriptor
+# row itself (ADR-018): the verb iterates
 # under its own module-scoped version, independently of the package
 # version. The row's techniques are the authoritative per-verb ATT&CK
-# declaration (ADR-007) -- the same ids the server-side descriptor
-# registers -- with the module-level [attack] list as their validated
+# declaration (ADR-007) -- the ids the descriptor row itself declares
+# -- with the module-level [attack] list as their validated
 # roll-up. v1.1 widened the row from the credential-free pair to carry
 # the authenticated half's account and group discovery techniques.
 [[verbs]]
 name = "recon.domainenum"
 version = "1.1.0"
+category = "recon"
+opsec = { "touches-network" = true, "writes-to-disk" = false, "uses-credential" = true }
 techniques = ["T1018", "T1482", "T1087.002", "T1069.002"]
+output-kind = "enumeration"
+output-help = "One JSON finding per line: the posture row, then DC rows (host, port, service), the root-DSE row, and -- with a credential -- the directory rows (users, groups, ACLs, SPN objects, trusts)."
+
+  [[verbs.parameters]]
+  name = "scope"
+  label = "Scope"
+  kind = "enum"
+  help = "Empty runs the whole sweep the credential affords."
+  choices = ["all", "info", "trusts", "spns", "users", "groups", "acls"]
+
+  [[verbs.parameters]]
+  name = "user"
+  label = "Bind principal"
+  kind = "string"
+  help = "UPN (jdoe@corp.example.com) or DOMAIN\\jdoe; the authenticated scopes need it."
+
+  [[verbs.parameters]]
+  name = "pass"
+  label = "Bind secret"
+  kind = "string"
+  help = "A $cred-<id> placeholder resolves to the stored secret at dispatch."
+  trailing = true
 
 # Both delivery shapes run everywhere the seam compiles: the Linux
 # executable reads krb5/sssd/resolv and answers over DNS/LDAP, the
@@ -57,10 +82,10 @@ arch = "arm64"
 
 [opsec]
 lands-on-disk = true
-notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content: through a memfd on Linux (nothing on disk), mapped in memory on Windows. The sweep sends DNS and LDAP packets to the domain's own servers -- network-visible to the DC. The authenticated scopes bind with the task's credential over simple bind on the cleartext port: the secret crosses the implant-to-DC path in the open unless the site seals it, and a wrong password counts toward the account's lockout."
+notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content: through a memfd on Linux (nothing on disk), mapped in memory on Windows. The sweep sends DNS and LDAP packets to the domain's own servers -- network-visible to the DC. The authenticated scopes bind with the task's credential over simple bind on the cleartext port: the secret crosses the implant-to-DC path in the open unless the site seals it, and a wrong password counts toward the account's lockout."
 
 [attack]
 techniques = ["T1018", "T1482", "T1087.002", "T1069.002"]
 
 [package]
-include = ["rod-module.toml", "*.cs", "*.csproj"]
+include = ["rod-module.toml"]

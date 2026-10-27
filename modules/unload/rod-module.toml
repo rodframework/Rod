@@ -20,11 +20,12 @@ teamserver = "1.0.0"
 # runtime truth; this row is the store's static filter.
 requires = ["plugin-loader"]
 
-# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# The verb version matrix (architecture.md Sec 15.2), now the descriptor
+# row itself (ADR-018): the verb iterates
 # under its own module-scoped version, independently of the package
 # version. The row's techniques are the authoritative per-verb ATT&CK
-# declaration (ADR-007) -- the same ids the server-side descriptor
-# registers -- with the module-level [attack] list as their validated
+# declaration (ADR-007) -- the ids the descriptor row itself declares
+# -- with the module-level [attack] list as their validated
 # roll-up. T1562.001 (Impair Defenses: Disable or Modify Tools) is the
 # restore itself, whole-text or per-function alike; the kernel catalog
 # maps this very verb to the id, so the sweep renders the module's
@@ -34,7 +35,33 @@ requires = ["plugin-loader"]
 [[verbs]]
 name = "evasion.unload"
 version = "1.1.0"
+category = "evasion"
+opsec = { "modifies-defenses" = true }
 techniques = ["T1562.001"]
+output-kind = "text"
+output-help = "One row for the whole .text, or one row per named export: how many bytes differ from the fresh copy or how many the restore rewrote, the row naming the source that served (KnownDlls section object or disk copy)."
+
+  [[verbs.parameters]]
+  name = "action"
+  label = "Action"
+  kind = "enum"
+  help = "Empty compares the named library's in-memory .text against the fresh copy -- a bare task is a read."
+  choices = ["list", "restore"]
+
+  [[verbs.parameters]]
+  name = "dll"
+  label = "Library"
+  kind = "text"
+  help = "The library the verb addresses -- a name, never a path; ntdll.dll the default."
+  placeholder = "kernel32.dll"
+
+  [[verbs.parameters]]
+  name = "functions"
+  label = "Exports"
+  kind = "text"
+  help = "The comma-joined exports to narrow to; empty addresses the whole .text."
+  placeholder = "NtAllocateVirtualMemory,NtProtectVirtualMemory"
+  trailing = true
 
 # The compare and the copy are byte arithmetic no architecture owns:
 # the manifest claims both Windows targets, and no others -- the
@@ -51,10 +78,10 @@ arch = "arm64"
 
 [opsec]
 lands-on-disk = false
-notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content and nothing it does lands on disk: the fresh copy is read where it sits (the KnownDlls section object preferred -- the loader's own clean copy, read through no file at all; the System32 disk file the fallback the row names) and the restore rewrites pages of the implant process's own mapping -- copy-on-write makes them private, the effect dies with the process, and a new process maps fresh libraries. The bare task is the read (the differing-byte count, whole-text or per-function); the restore is the write the operator names. The compare trusts the fresh copy only as far as a build fingerprint carries (a patch-Tuesday drift refuses). Products that guard the mapped .text (periodic re-hooking, guard-page telemetry) are a live blue-team surface -- the wider the library list and the narrower the function list, the smaller the rewrite window a re-hook needs to notice; the verb is sensitive (Evasion category, modifies-defenses attribute), held out of unattended firing by the registry-backed policy, and the plugin rides the per-engagement module load -- never a default profile."
+notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content and nothing it does lands on disk: the fresh copy is read where it sits (the KnownDlls section object preferred -- the loader's own clean copy, read through no file at all; the System32 disk file the fallback the row names) and the restore rewrites pages of the implant process's own mapping -- copy-on-write makes them private, the effect dies with the process, and a new process maps fresh libraries. The bare task is the read (the differing-byte count, whole-text or per-function); the restore is the write the operator names. The compare trusts the fresh copy only as far as a build fingerprint carries (a patch-Tuesday drift refuses). Products that guard the mapped .text (periodic re-hooking, guard-page telemetry) are a live blue-team surface -- the wider the library list and the narrower the function list, the smaller the rewrite window a re-hook needs to notice; the verb is sensitive (Evasion category, modifies-defenses attribute), held out of unattended firing by the registry-backed policy, and the plugin rides the per-engagement module load -- never a default profile."
 
 [attack]
 techniques = ["T1562.001"]
 
 [package]
-include = ["rod-module.toml", "*.cs", "*.csproj"]
+include = ["rod-module.toml"]

@@ -20,11 +20,12 @@ teamserver = "1.0.0"
 # runtime truth; this row is the store's static filter.
 requires = ["plugin-loader"]
 
-# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# The verb version matrix (architecture.md Sec 15.2), now the descriptor
+# row itself (ADR-018): the verb iterates
 # under its own module-scoped version, independently of the package
 # version. The row's techniques are the authoritative per-verb ATT&CK
-# declaration (ADR-007) -- the same ids the server-side descriptor
-# registers -- with the module-level [attack] list as their validated
+# declaration (ADR-007) -- the ids the descriptor row itself declares
+# -- with the module-level [attack] list as their validated
 # roll-up. T1546.003 is the subscription seat itself; the kernel
 # catalog carries no T1546 parent (no compiled verb claims it), so the
 # matrix renders this row by id alone, the degradation path designed
@@ -32,7 +33,39 @@ requires = ["plugin-loader"]
 [[verbs]]
 name = "persist.wmi"
 version = "1.0.0"
+category = "persist"
+opsec = { "writes-to-disk" = true, "persists" = true }
 techniques = ["T1546.003"]
+output-kind = "text"
+output-help = "One row per bound subscription on list (seat name, query, command), or the triple the install wrote or the remove deleted."
+
+  [[verbs.parameters]]
+  name = "action"
+  label = "Action"
+  kind = "enum"
+  help = "Empty lists the seats -- a bare task is a read. Every write needs an elevated implant."
+  choices = ["install", "remove", "list"]
+
+  [[verbs.parameters]]
+  name = "name"
+  label = "Seat name"
+  kind = "string"
+  help = "The one name the filter, the consumer, and the binding's two sides share; for list, a filter narrowing the report to it."
+  placeholder = "UpdateCheck"
+
+  [[verbs.parameters]]
+  name = "trigger"
+  label = "Trigger"
+  kind = "string"
+  help = "When the seat fires; install only. Forms: daily:HH:MM, process:<image name>, logon."
+  placeholder = "daily:09:30"
+
+  [[verbs.parameters]]
+  name = "command"
+  label = "Command"
+  kind = "text"
+  help = "The command line the consumer runs when the trigger fires; install only."
+  trailing = true
 
 # The seat exists only on Windows: the manifest claims the two Windows
 # targets and no others, so the module loads nowhere the technique has
@@ -49,10 +82,10 @@ arch = "arm64"
 
 [opsec]
 lands-on-disk = true
-notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content, mapped in memory on Windows -- the module itself drops no file. Every write needs an elevated implant: the repository's PutInstance and DeleteInstance under ROOT\\SUBSCRIPTION are the administrator's calls. The seat lives entirely in the on-disk WMI repository, its query and command line plain to any blue-team reader that enumerates __FilterToConsumerBinding, and it fires on its trigger across reboots while it sits."
+notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content, mapped in memory on Windows -- the module itself drops no file. Every write needs an elevated implant: the repository's PutInstance and DeleteInstance under ROOT\\SUBSCRIPTION are the administrator's calls. The seat lives entirely in the on-disk WMI repository, its query and command line plain to any blue-team reader that enumerates __FilterToConsumerBinding, and it fires on its trigger across reboots while it sits."
 
 [attack]
 techniques = ["T1546.003"]
 
 [package]
-include = ["rod-module.toml", "*.cs", "*.csproj"]
+include = ["rod-module.toml"]

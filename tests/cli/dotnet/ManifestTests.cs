@@ -116,6 +116,141 @@ public class ManifestTests
     }
 
     [Fact]
+    public void DescriptorRows_ParseTheirWholeHalf()
+    {
+        // ADR-018: a row that names a category declares the verb's whole
+        // server-side half as manifest data -- the OPSEC flags, the parameter
+        // schema, and the output declaration -- the zero-.NET path a novel
+        // namespace rides.
+        var toml = Valid.Replace("techniques = [\"t1082\", \"T1059.003\"]", "techniques = []") + """
+
+            [[verbs]]
+            name = "sweep.discover"
+            version = "0.3.0"
+            category = "recon"
+            opsec = { "touches-network" = true, "writes-to-disk" = false }
+            techniques = ["T1046"]
+            output-kind = "enumeration"
+            output-help = "One JSON finding per line."
+
+              [[verbs.parameters]]
+              name = "host"
+              label = "Host"
+              kind = "string"
+              required = true
+              placeholder = "10.0.0.7"
+
+              [[verbs.parameters]]
+              name = "ports"
+              label = "Port range"
+              kind = "string"
+              help = "1-1024 or a comma list."
+              placeholder = "1-1024"
+            """;
+        var errors = ManifestToml.Load(toml, out var manifest);
+
+        Assert.Empty(errors);
+        Assert.NotNull(manifest);
+        var row = manifest!.Verbs[0];
+        Assert.True(row.IsDescriptor);
+        Assert.Equal("recon", row.Category);
+        Assert.False(row.Opsec!["writes-to-disk"]);
+        Assert.True(row.Opsec!["touches-network"]);
+        Assert.Equal("enumeration", row.Output!.Kind);
+        Assert.Equal("One JSON finding per line.", row.Output.Help);
+        Assert.Equal(2, row.Parameters!.Count);
+
+        var host = row.Parameters[0];
+        Assert.Equal("host", host.Name);
+        Assert.Equal("string", host.Kind);
+        Assert.True(host.Required);
+        // The serialization defaults normalize at parse (required/trailing
+        // false, inline true), so the canonical form is a function of the
+        // declared fields, not the syntax that carried them.
+        Assert.False(host.Trailing);
+        Assert.True(host.Inline);
+
+        var ports = row.Parameters[1];
+        Assert.False(ports.Required);
+        Assert.Equal("1-1024 or a comma list.", ports.Help);
+    }
+
+    [Fact]
+    public void DescriptorFields_WithoutACategory_AreNamed()
+    {
+        // The mixed shape both loading paths refuse: descriptor fields with
+        // no anchor category mean a row that is neither a version row nor a
+        // descriptor row.
+        var toml = Valid.Replace("techniques = [\"t1082\", \"T1059.003\"]", "techniques = []") + """
+
+            [[verbs]]
+            name = "sweep.discover"
+            version = "0.3.0"
+            output-kind = "enumeration"
+            """;
+        var errors = ManifestToml.Load(toml, out var manifest);
+
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("carries descriptor fields but no category"));
+    }
+
+    [Fact]
+    public void DescriptorRows_ValidateAgainstTheClosedVocabularies()
+    {
+        var toml = Valid.Replace("techniques = [\"t1082\", \"T1059.003\"]", "techniques = []") + """
+
+            [[verbs]]
+            name = "sweep.discover"
+            version = "0.3.0"
+            category = "reconnaissance"
+            output-kind = "portscan"
+
+              [[verbs.parameters]]
+              name = "host"
+              label = "Host"
+              kind = "hostname"
+            """;
+        var errors = ManifestToml.Load(toml, out var manifest);
+
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("category 'reconnaissance' is not a capability category"));
+        Assert.Contains(errors, e => e.Contains("output-kind 'portscan' is not an output kind"));
+        Assert.Contains(errors, e => e.Contains("kind 'hostname' is not a parameter kind"));
+    }
+
+    [Fact]
+    public void DescriptorRows_RefuseSchemasTheUiCannotRender()
+    {
+        // The registry's own rendering invariants (the UI renders the schema
+        // verbatim) stated at publish: an enum without choices, a duplicate
+        // name, a trailing parameter that is not last.
+        var toml = Valid.Replace("techniques = [\"t1082\", \"T1059.003\"]", "techniques = []") + """
+
+            [[verbs]]
+            name = "sweep.discover"
+            version = "0.3.0"
+            category = "recon"
+
+              [[verbs.parameters]]
+              name = "host"
+              label = "Host"
+              kind = "enum"
+              trailing = true
+
+              [[verbs.parameters]]
+              name = "host"
+              label = "Host again"
+              kind = "string"
+            """;
+        var errors = ManifestToml.Load(toml, out var manifest);
+
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("'host' is an enum and needs at least one choice"));
+        Assert.Contains(errors, e => e.Contains("declares the parameter 'host' twice"));
+        Assert.Contains(errors, e => e.Contains("'host' is trailing but not last"));
+    }
+
+    [Fact]
     public void VerbTechniques_MustMatchTheModuleLevelRollUp()
     {
         // ADR-007: once verb rows declare techniques, the module-level
@@ -601,6 +736,28 @@ public class CanonicalFormTests
             // conformance claim breaks verification the same way.
             Manifest() with { Requires = ["plugin-loader"] },
             Manifest() with { Conformance = new ConformanceReport(0, new SemVer(1, 0, 0, null), "2026-01-15", []) },
+            // The descriptor half (ADR-018): a tampered category, flag,
+            // schema, or output kind breaks verification the same way -- the
+            // metadata decides what the UI renders and where results land.
+            Manifest() with { Verbs = [DescriptorVerb() with { Category = "collect" }] },
+            Manifest() with { Verbs = [DescriptorVerb() with { Opsec = new Dictionary<string, bool> { ["persists"] = true } }] },
+            Manifest() with { Verbs = [DescriptorVerb() with
+            {
+                Parameters =
+                [
+                    new VerbParameterDeclaration("host", "Host", "string", Required: true, Placeholder: "10.0.0.8"),
+                    new VerbParameterDeclaration("range", "Range", "string"),
+                ],
+            }] },
+            Manifest() with { Verbs = [DescriptorVerb() with
+            {
+                Parameters =
+                [
+                    new VerbParameterDeclaration("range", "Range", "string"),
+                    new VerbParameterDeclaration("host", "Host", "string", Required: true, Placeholder: "10.0.0.7"),
+                ],
+            }] },
+            Manifest() with { Verbs = [DescriptorVerb() with { Output = new VerbOutputDeclaration("text") }] },
         };
         foreach (var edited in edits)
             Assert.NotEqual(baseline, CanonicalForm.Build(edited, payload));
@@ -609,6 +766,14 @@ public class CanonicalFormTests
         Assert.NotEqual(baseline, CanonicalForm.Build(Manifest(), new Dictionary<string, string> { ["src/a.cs"] = "cc", ["src/b.cs"] = "bb" }));
         Assert.NotEqual(baseline, CanonicalForm.Build(Manifest(), new Dictionary<string, string> { ["src/a.cs"] = "aa" }));
     }
+
+    // The descriptor-declaring variant of the fixture's one verb row.
+    private static VerbDeclaration DescriptorVerb() => new(
+        "demo-sweep.run", new SemVer(0, 1, 0, null), null, ["T1082"],
+        Category: "recon",
+        Opsec: new Dictionary<string, bool> { ["touches-network"] = true },
+        Parameters: [new VerbParameterDeclaration("host", "Host", "string", Required: true, Placeholder: "10.0.0.7")],
+        Output: new VerbOutputDeclaration("enumeration", "One finding per line."));
 
     [Fact]
     public void CompatibilityRows_RideTheFormSorted_OrDashWhenAbsent()
@@ -654,6 +819,34 @@ public class CanonicalFormTests
     }
 
     [Fact]
+    public void DescriptorRows_RideTheForm_WithSchemaAndOutputLines()
+    {
+        // The descriptor half's own lines (ADR-018): the category and OPSEC
+        // flags fold into the verb line; the parameter schema and the output
+        // declaration ride their own lines, parameters in declaration order
+        // (the order is data) and flags key-sorted (the set is the data).
+        var manifest = Manifest() with { Verbs = [DescriptorVerb()], Assets = [] };
+        var canonical = CanonicalForm.Build(manifest, new Dictionary<string, string>());
+
+        Assert.Contains(
+            "verb/demo-sweep.run=0.1.0 techniques=T1082 category=recon opsec=touches-network=true\n",
+            canonical);
+        Assert.Contains(
+            "param/demo-sweep.run/host=kind=string required=true trailing=false inline=true choices=- label=Host placeholder=10.0.0.7 help=-\n",
+            canonical);
+        Assert.EndsWith(
+            "output/demo-sweep.run=kind=enumeration help=One finding per line.",
+            canonical);
+
+        // A version-only row contributes its verb line alone: the line set is
+        // stable across the two row shapes.
+        var bare = CanonicalForm.Build(Manifest(), new Dictionary<string, string>());
+        Assert.Contains("verb/demo-sweep.run=0.1.0 techniques=T1082\n", bare);
+        Assert.DoesNotContain("param/", bare);
+        Assert.DoesNotContain("output/", bare);
+    }
+
+    [Fact]
     public void PayloadOrdering_IsPathSorted_NotEnumerationAccident()
     {
         var first = CanonicalForm.Build(Manifest(), new Dictionary<string, string>
@@ -672,9 +865,10 @@ public class CanonicalFormTests
     public void TheForm_CarriesItsVersionLineAndNoTrailingNewline()
     {
         var form = CanonicalForm.Build(Manifest(), new Dictionary<string, string>());
-        // v2 names the form whose field set carries the compatibility rows
-        // (requires, conformance) -- the shape change is the bump.
-        Assert.StartsWith("rod-module-manifest-v2\n", form);
+        // v3 names the form whose field set carries the verb rows' descriptor
+        // half (category, OPSEC flags, parameters, output) -- the shape
+        // change is the bump.
+        Assert.StartsWith("rod-module-manifest-v3\n", form);
         Assert.False(form.EndsWith('\n'));
         Assert.StartsWith("name=demo-sweep\n", form[(CanonicalForm.VersionLine.Length + 1)..]);
     }

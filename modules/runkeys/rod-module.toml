@@ -20,18 +20,51 @@ teamserver = "1.0.0"
 # runtime truth; this row is the store's static filter.
 requires = ["plugin-loader"]
 
-# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# The verb version matrix (architecture.md Sec 15.2), now the descriptor
+# row itself (ADR-018): the verb iterates
 # under its own module-scoped version, independently of the package
 # version. The row's techniques are the authoritative per-verb ATT&CK
-# declaration (ADR-007) -- the same ids the server-side descriptor
-# registers -- with the module-level [attack] list as their validated
+# declaration (ADR-007) -- the ids the descriptor row itself declares
+# -- with the module-level [attack] list as their validated
 # roll-up. T1547.001 is the registry run key seat itself; the kernel
 # catalog carries its parent (T1547) and the matrix renders the
 # sub-technique by id alone, the same way domainenum's rows render.
 [[verbs]]
 name = "persist.runkeys"
 version = "1.0.0"
+category = "persist"
+opsec = { "writes-to-disk" = true, "persists" = true }
 techniques = ["T1547.001"]
+output-kind = "text"
+output-help = "One row per seat on list (seat path, name, command), or the seat the install wrote or the remove deleted."
+
+  [[verbs.parameters]]
+  name = "action"
+  label = "Action"
+  kind = "enum"
+  help = "Empty lists the seats -- a bare task is a read."
+  choices = ["install", "remove", "list"]
+
+  [[verbs.parameters]]
+  name = "hive"
+  label = "Hive"
+  kind = "enum"
+  help = "HKCU holds the per-user seat; HKLM the machine-wide one elevation buys."
+  choices = ["hkcu", "hklm"]
+
+  [[verbs.parameters]]
+  name = "name"
+  label = "Value name"
+  kind = "string"
+  help = "The seat's own name; for list, a filter narrowing the report to it."
+  placeholder = "UpdateCheck"
+
+  [[verbs.parameters]]
+  name = "command"
+  label = "Command"
+  kind = "text"
+  help = "The command line the seat runs at every logon; install only."
+  trailing = true
 
 # The seat exists only on Windows: the manifest claims the two Windows
 # targets and no others, so the module loads nowhere the technique has
@@ -48,10 +81,10 @@ arch = "arm64"
 
 [opsec]
 lands-on-disk = true
-notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content, mapped in memory on Windows -- nothing on disk itself. The seat is one registry value: its command line sits in the hive as plain text any blue-team reader sees, and it runs at every interactive logon while it sits. HKCU seats need no elevation; HKLM seats need an elevated implant."
+notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content, mapped in memory on Windows -- nothing on disk itself. The seat is one registry value: its command line sits in the hive as plain text any blue-team reader sees, and it runs at every interactive logon while it sits. HKCU seats need no elevation; HKLM seats need an elevated implant."
 
 [attack]
 techniques = ["T1547.001"]
 
 [package]
-include = ["rod-module.toml", "*.cs", "*.csproj"]
+include = ["rod-module.toml"]

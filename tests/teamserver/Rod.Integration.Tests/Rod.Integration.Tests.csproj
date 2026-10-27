@@ -45,17 +45,6 @@
          build-stamp endpoint (GET /build) lives in the executable because the
          stamp is a property of the binary, not of any layer. -->
     <ProjectReference Include="..\..\..\src\teamserver\Rod.TeamServer\Rod.TeamServer.csproj" />
-    <!-- The in-tree reference module (modules/hostenum), so its assembly
-         lands in the test bin directory: the stand-in for the deploy step
-         (the teamserver build copying module dlls beside the binary). The
-         in-tree module loading test resolves it through the config-listed
-         loader path exactly as production does; no test code touches its
-         types beyond that assertion. -->
-    <ProjectReference Include="..\..\..\modules\hostenum\Rod.Modules.Hostenum.csproj" />
-    <!-- The domain-discovery module (modules/domainenum) rides the same
-         stand-in: its assembly lands beside the test host's, and the
-         loading test exercises its config-listed entry the same way. -->
-    <ProjectReference Include="..\..\..\modules\domainenum\Rod.Modules.Domainenum.csproj" />
   </ItemGroup>
 
 </Project>

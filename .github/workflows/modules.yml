@@ -1,15 +1,18 @@
 name: modules
 
-# The module lane, on demand: module tests travel with the module
+# The module lane, on demand: module content tests travel with the module
 # (architecture.md Sec 15.1 -- under modules/<name>/tests/), so their cost
-# belongs to the trees that carry them, not to every push. The main lanes
-# keep BUILDING the modules -- the teamserver's own build restores and
-# deploys every modules/**/*.csproj beside its binary (Rod.TeamServer.csproj),
-# so the build path stays central by deployment design -- but the module
-# TEST projects run only here, when a module tree or the shared build
-# settings it compiles under change. The nightly schedule keeps a standing
-# verdict, the same discipline ci.yml's extended lane and the implant matrix
-# carry; ci.yml's core lane excludes the Rod.Modules.* tests to match.
+# belongs to the trees that carry them, not to every push. The server-side
+# halves under modules/ are pure descriptor manifests (ADR-018) -- no
+# assembly to build -- so the lane's build verdict is the CLI's own manifest
+# validation (parse plus the closed-vocabulary checks `rod mod coverage`
+# runs) over every manifest by shape; the kernel suites hold the loading
+# acceptance (the in-tree modules load through the config-listed path).
+# Asset-module test projects (the content half's .NET trees) run only here,
+# when a module tree or the shared build settings they compile under
+# change. The nightly schedule keeps a standing verdict, the same
+# discipline ci.yml's extended lane and the implant matrix carry; ci.yml's
+# core lane excludes the Rod.Modules.* tests to match.
 
 on:
   push:
@@ -37,7 +40,7 @@ permissions:
 
 jobs:
   module-tests:
-    name: Build and test the modules
+    name: Validate and test the modules
     # Pinned like every runner here (ci.yml's rationale): an unpinned label
     # lets a runner image change the toolchain under an unchanged tree.
     runs-on: ubuntu-24.04
@@ -46,19 +49,25 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         # Version comes from global.json (pinned to 10.0.110).
-      - name: Build the module assemblies
-        # The server-side module csproj trees, standalone -- a module pull
-        # request gets its own build verdict without the kernel lanes. Asset
-        # modules carry no build (pure file trees); a glob that matches
-        # nothing skips the dotnet call rather than failing it.
+      - name: Validate the module manifests
+        # Every manifest under modules/ through the CLI's own loader: parse
+        # plus validation, the same gate `rod mod publish` holds -- a broken
+        # descriptor row fails the lane before any kernel suite runs.
+        # Discovery by shape, not by list: a new module joins the lane by
+        # carrying its rod-module.toml, no workflow edit.
         run: |
           shopt -s nullglob
-          projects=(modules/*/*.csproj)
-          if [ ${#projects[@]} -gt 0 ]; then
-            dotnet build "${projects[@]}" --configuration Release
-          else
-            echo "no module assemblies to build"
+          manifests=(modules/*/rod-module.toml)
+          if [ ${#manifests[@]} -eq 0 ]; then
+            echo "no module manifests"
+            exit 0
           fi
+          dotnet build src/cli/dotnet/Rod.Cli.csproj --configuration Release
+          for manifest in "${manifests[@]}"; do
+            directory=$(dirname "$manifest")
+            dotnet run --project src/cli/dotnet --no-build --configuration Release -- \
+              mod coverage --path "$directory"
+          done
       - name: Run the module test projects
         # Discovery by shape, not by list: a new module's tests join the lane
         # by existing under modules/<name>/tests/, no workflow edit -- the

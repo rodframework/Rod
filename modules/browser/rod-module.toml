@@ -20,11 +20,12 @@ teamserver = "1.0.0"
 # runtime truth; this row is the store's static filter.
 requires = ["plugin-loader"]
 
-# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# The verb version matrix (architecture.md Sec 15.2), now the descriptor
+# row itself (ADR-018): the verb iterates
 # under its own module-scoped version, independently of the package
 # version. The row's techniques are the authoritative per-verb ATT&CK
-# declaration (ADR-007) -- the same ids the server-side descriptor
-# registers -- with the module-level [attack] list as their validated
+# declaration (ADR-007) -- the ids the descriptor row itself declares
+# -- with the module-level [attack] list as their validated
 # roll-up. T1555.003 (Credentials from Password Stores: Credentials
 # from Web Browsers) is the store sweep itself; the kernel catalog
 # carries the technique with its name and the parent (T1555) under
@@ -33,7 +34,25 @@ requires = ["plugin-loader"]
 [[verbs]]
 name = "collect.browser"
 version = "1.0.0"
+category = "collect"
+opsec = { "reads-credential" = true, "writes-to-disk" = false }
 techniques = ["T1555.003"]
+output-kind = "credential"
+output-help = "One JSON credential row per login (kind, principal, host, source); export adds the secret, and a note names any row that refused decryption."
+
+  [[verbs.parameters]]
+  name = "action"
+  label = "Action"
+  kind = "enum"
+  help = "Empty lists the logins -- a bare task is a read."
+  choices = ["list", "export"]
+
+  [[verbs.parameters]]
+  name = "browser"
+  label = "Browser"
+  kind = "enum"
+  help = "Which Chromium store to sweep; empty probes both Chrome and Edge."
+  choices = ["chrome", "edge", "all"]
 
 # The stores exist only on Windows: the manifest claims the two Windows
 # targets and no others, so the module loads nowhere the technique has
@@ -50,10 +69,10 @@ arch = "arm64"
 
 [opsec]
 lands-on-disk = false
-notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content and nothing it does lands on disk: the stores and the key are read where they sit, the passwords unseal in the implant process's memory, and the rows ride the task's channel back (the secrets through the credential rows the board renders masked). The sweep reads the login stores of the user the implant runs as -- a store sealed under another user's masterkeys refuses naming the mismatch, a live browser's write-ahead log may hold rows newer than the main file this read answers for, and passwords under the newer app-bound (v20) form report named rather than forced. The verb rides the per-engagement module load -- never a default profile."
+notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content and nothing it does lands on disk: the stores and the key are read where they sit, the passwords unseal in the implant process's memory, and the rows ride the task's channel back (the secrets through the credential rows the board renders masked). The sweep reads the login stores of the user the implant runs as -- a store sealed under another user's masterkeys refuses naming the mismatch, a live browser's write-ahead log may hold rows newer than the main file this read answers for, and passwords under the newer app-bound (v20) form report named rather than forced. The verb rides the per-engagement module load -- never a default profile."
 
 [attack]
 techniques = ["T1555.003"]
 
 [package]
-include = ["rod-module.toml", "*.cs", "*.csproj"]
+include = ["rod-module.toml"]

@@ -87,6 +87,71 @@ public sealed record OpsecMetadata(bool LandsOnDisk, string? Notes);
 public sealed record PackageRules(IReadOnlyList<string> Include, IReadOnlyList<string> Exclude);
 
 /// <summary>
+/// The descriptor vocabulary a manifest's verb rows draw from: the category,
+/// parameter-kind, and output-kind names, each the lowercase spelling of the
+/// teamserver's own enumeration (<c>CapabilityCategory</c>,
+/// <c>VerbParameterKind</c>, <c>VerbOutputKind</c> in Rod.Capabilities).
+/// Closed sets stated independently on both sides -- the CLI validates
+/// manifests, the teamserver loads them -- and pinned equal by a test in
+/// Rod.Cli.Tests; they grow additively, and an unknown name is a refused
+/// manifest, never a silent mismatch.
+/// </summary>
+public static class ManifestVocabularies
+{
+    /// <summary>The capability categories a verb row may declare.</summary>
+    public static readonly IReadOnlyList<string> Categories =
+    [
+        "core", "recon", "lateral", "persist", "collect", "exfil",
+        "tunnel", "module", "browser", "evasion", "exploit",
+    ];
+
+    /// <summary>The parameter kinds a verb row's parameters may carry.</summary>
+    public static readonly IReadOnlyList<string> ParameterKinds =
+    [
+        "string", "text", "number", "boolean", "enum", "file", "array",
+    ];
+
+    /// <summary>The output taxonomy kinds a verb row may declare.</summary>
+    public static readonly IReadOnlyList<string> OutputKinds =
+    [
+        "text", "enumeration", "process-list", "file-list",
+        "credential", "file", "screenshot",
+    ];
+
+    public static bool IsCategory(string name) => Categories.Contains(name, StringComparer.Ordinal);
+    public static bool IsParameterKind(string name) => ParameterKinds.Contains(name, StringComparer.Ordinal);
+    public static bool IsOutputKind(string name) => OutputKinds.Contains(name, StringComparer.Ordinal);
+}
+
+/// <summary>
+/// One declared parameter of a verb row (architecture.md Sec 15.2, the
+/// contract trilogy's first contract as manifest data, ADR-018): the field
+/// the operator UI renders generically, in declaration order. The manifest
+/// spelling of the teamserver's <c>VerbParameter</c>; the serialization
+/// defaults (<c>required</c>, <c>trailing</c>, <c>inline</c> absent meaning
+/// false, false, true) normalize at parse so the canonical form is a
+/// function of the declared fields, not the syntax that carried them.
+/// </summary>
+public sealed record VerbParameterDeclaration(
+    string Name,
+    string Label,
+    string Kind,
+    bool Required = false,
+    string? Help = null,
+    string? Placeholder = null,
+    IReadOnlyList<string>? Choices = null,
+    bool Trailing = false,
+    bool Inline = true);
+
+/// <summary>
+/// A verb row's declared output (the trilogy's second contract as manifest
+/// data): the taxonomy kind that routes results to the generic panels plus
+/// one sentence on what they hold. The manifest spelling of the
+/// teamserver's <c>VerbOutput</c>.
+/// </summary>
+public sealed record VerbOutputDeclaration(string Kind, string? Help = null);
+
+/// <summary>
 /// One verb row of the manifest's version matrix (architecture.md Sec 15.2,
 /// the contract trilogy's third contract): the verb this module registers,
 /// its module-scoped version, an optional per-verb teamserver floor, and the
@@ -97,12 +162,30 @@ public sealed record PackageRules(IReadOnlyList<string> Include, IReadOnlyList<s
 /// semantics -- the row version is the iteration record the registry catalog
 /// reads and install checks.
 /// </summary>
+/// <remarks>
+/// A row that carries <see cref="Category"/> is a **descriptor row** (ADR-018):
+/// it declares the verb's whole server-side half as manifest data -- the
+/// category, the per-verb OPSEC attribute flags (<see cref="Opsec"/>), the
+/// parameter schema (<see cref="Parameters"/>), and the output declaration
+/// (<see cref="Output"/>) -- so a novel namespace opens its issuance gate
+/// with zero .NET code. A row without one is a version row only: the
+/// server-side half lives in an assembly the operator lists separately.
+/// The two shapes never mix their fields: descriptor fields without a
+/// category are a refused manifest, naming the row.
+/// </remarks>
 public sealed record VerbDeclaration(
     string Name,
     SemVer Version,
     SemVer? TeamserverMin,
-    IReadOnlyList<string>? Techniques = null)
+    IReadOnlyList<string>? Techniques = null,
+    string? Category = null,
+    IReadOnlyDictionary<string, bool>? Opsec = null,
+    IReadOnlyList<VerbParameterDeclaration>? Parameters = null,
+    VerbOutputDeclaration? Output = null)
 {
+    /// <summary>True when the row carries its server-side descriptor.</summary>
+    public bool IsDescriptor => Category is not null;
+
     public sealed override string ToString()
         => TeamserverMin is { } floor
             ? $"{Name}@{Version} (teamserver >= {floor})"
@@ -298,6 +381,8 @@ public sealed record ModuleManifest
                 if (!TechniquePattern.IsMatch(verb.Techniques![t]))
                     errors.Add($"verbs[{i}].techniques[{t}] '{verb.Techniques[t]}' is not an ATT&CK technique id (T#### or T####.###).");
             }
+
+            AppendDescriptorErrors(verb, i, errors);
         }
 
         // The asset rows (the module layer's content seam, Sec 15.1): logical
@@ -324,4 +409,99 @@ public sealed record ModuleManifest
 
         return errors;
     }
+
+    /// <summary>
+    /// Validates one verb row's descriptor half (ADR-018): a row that
+    /// declares a category is a descriptor row and its schema must be one
+    /// the operator UI can render -- the same invariants the teamserver's
+    /// registry enforces at registration, stated here so a bad manifest is
+    /// refused at publish, before it ships. A row carrying descriptor fields
+    /// without a category is the mixed shape the loading paths refuse:
+    /// named, so the author sees the anchor the row is missing.
+    /// </summary>
+    private void AppendDescriptorErrors(VerbDeclaration verb, int index, List<string> errors)
+    {
+        var hasDescriptorFields = verb.Opsec is not null || verb.Parameters is not null || verb.Output is not null;
+        if (verb.Category is null)
+        {
+            if (hasDescriptorFields)
+                errors.Add(
+                    $"verbs[{index}] '{verb.Name}' carries descriptor fields but no category; a row that declares its " +
+                    "server-side half names the category (the anchor that makes it a descriptor row).");
+            return;
+        }
+
+        if (!ManifestVocabularies.IsCategory(verb.Category))
+            errors.Add(
+                $"verbs[{index}] '{verb.Name}' category '{verb.Category}' is not a capability category; "
+                + $"the vocabulary is: {string.Join(", ", ManifestVocabularies.Categories)}.");
+
+        // The per-verb OPSEC attribute flags: free-form keys the operator UI
+        // badges, so the shape rules are the canonical form's own (single
+        // line, no commas), nothing more -- the vocabulary stays open the way
+        // the descriptor's attribute dictionary is.
+        foreach (var flag in verb.Opsec ?? EmptyFlags)
+        {
+            if (flag.Key.Length == 0 || flag.Key.Contains('\n') || flag.Key.Contains('\r') || flag.Key.Contains(','))
+                errors.Add($"verbs[{index}] '{verb.Name}' opsec flag '{flag.Key}' must be a single line with no commas.");
+        }
+
+        if (verb.Output is { } output)
+        {
+            if (!ManifestVocabularies.IsOutputKind(output.Kind))
+                errors.Add(
+                    $"verbs[{index}] '{verb.Name}' output-kind '{output.Kind}' is not an output kind; "
+                    + $"the vocabulary is: {string.Join(", ", ManifestVocabularies.OutputKinds)}.");
+            if ((output.Help ?? "").Contains('\n') || (output.Help ?? "").Contains('\r'))
+                errors.Add($"verbs[{index}] '{verb.Name}' output-help must be a single line (it participates in the signed canonical form).");
+        }
+
+        // The parameter schema: the UI renders it verbatim, so the registry's
+        // own rendering invariants (unique names, a label, a choice set on
+        // enums, trailing only last) refuse the manifest here, at publish,
+        // with the row named.
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        for (var p = 0; p < (verb.Parameters?.Count ?? 0); p++)
+        {
+            var parameter = verb.Parameters![p];
+            if (string.IsNullOrWhiteSpace(parameter.Name))
+                errors.Add($"verbs[{index}].parameters[{p}].name is required.");
+            else if (!names.Add(parameter.Name))
+                errors.Add($"verbs[{index}] declares the parameter '{parameter.Name}' twice.");
+            if (string.IsNullOrWhiteSpace(parameter.Label))
+                errors.Add($"verbs[{index}] parameter '{parameter.Name}' needs a label.");
+            if (!ManifestVocabularies.IsParameterKind(parameter.Kind))
+                errors.Add(
+                    $"verbs[{index}] parameter '{parameter.Name}' kind '{parameter.Kind}' is not a parameter kind; "
+                    + $"the vocabulary is: {string.Join(", ", ManifestVocabularies.ParameterKinds)}.");
+
+            foreach (var (field, value) in new[]
+                     {
+                         ("label", parameter.Label),
+                         ("help", parameter.Help ?? ""),
+                         ("placeholder", parameter.Placeholder ?? ""),
+                     })
+            {
+                if (value.Contains('\n') || value.Contains('\r'))
+                    errors.Add($"verbs[{index}] parameter '{parameter.Name}' {field} must be a single line (it participates in the signed canonical form).");
+            }
+
+            if (parameter.Kind == "enum" && (parameter.Choices is not { Count: > 0 }))
+                errors.Add($"verbs[{index}] parameter '{parameter.Name}' is an enum and needs at least one choice.");
+            var seenChoices = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var choice in parameter.Choices ?? [])
+            {
+                if (choice.Length == 0 || choice.Contains('\n') || choice.Contains('\r') || choice.Contains(','))
+                    errors.Add($"verbs[{index}] parameter '{parameter.Name}' choice '{choice}' must be a single line with no commas.");
+                else if (!seenChoices.Add(choice))
+                    errors.Add($"verbs[{index}] parameter '{parameter.Name}' carries the choice '{choice}' twice.");
+            }
+
+            if (parameter.Trailing && p != (verb.Parameters?.Count ?? 0) - 1)
+                errors.Add($"verbs[{index}] parameter '{parameter.Name}' is trailing but not last; only the final parameter may take the raw remainder.");
+        }
+    }
+
+    private static readonly IReadOnlyDictionary<string, bool> EmptyFlags =
+        new Dictionary<string, bool>();
 }

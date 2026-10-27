@@ -20,11 +20,12 @@ teamserver = "1.0.0"
 # runtime truth; this row is the store's static filter.
 requires = ["plugin-loader"]
 
-# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# The verb version matrix (architecture.md Sec 15.2), now the descriptor
+# row itself (ADR-018): the verb iterates
 # under its own module-scoped version, independently of the package
 # version. The row's techniques are the authoritative per-verb ATT&CK
-# declaration (ADR-007) -- the same ids the server-side descriptor
-# registers -- with the module-level [attack] list as their validated
+# declaration (ADR-007) -- the ids the descriptor row itself declares
+# -- with the module-level [attack] list as their validated
 # roll-up. T1574.001 is the seat itself; the kernel catalog carries no
 # T1574 parent (no compiled verb claims it), so the matrix renders this
 # row by id alone, the degradation path designed for module-carried
@@ -32,7 +33,39 @@ requires = ["plugin-loader"]
 [[verbs]]
 name = "persist.hijack"
 version = "1.0.0"
+category = "persist"
+opsec = { "writes-to-disk" = true, "persists" = true }
 techniques = ["T1574.001"]
+output-kind = "text"
+output-help = "One row per open slot on list (the DLL and where it stands in the loader's order), or the seat the install planted or the remove deleted."
+
+  [[verbs.parameters]]
+  name = "action"
+  label = "Action"
+  kind = "enum"
+  help = "Empty lists the binary's slots -- the read names the binary it inspects."
+  choices = ["install", "remove", "list"]
+
+  [[verbs.parameters]]
+  name = "binary"
+  label = "Host binary"
+  kind = "string"
+  help = "The host binary as a full path; its directory is the seat the loader reads first."
+  placeholder = "C:\\app\\app.exe"
+
+  [[verbs.parameters]]
+  name = "dll"
+  label = "DLL name"
+  kind = "string"
+  help = "The imported DLL name the seat claims; for list, a filter narrowing the report to it."
+  placeholder = "VERSION.DLL"
+
+  [[verbs.parameters]]
+  name = "source"
+  label = "Source file"
+  kind = "text"
+  help = "The already-pushed file to plant; install only."
+  trailing = true
 
 # The seat exists only on Windows: the manifest claims the two Windows
 # targets and no others, so the module loads nowhere the technique has
@@ -49,10 +82,10 @@ arch = "arm64"
 
 [opsec]
 lands-on-disk = true
-notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content -- the planted DLL itself is the family's first on-disk seat: a plain file in the host binary's directory, hashed by any scanner that walks the file system, loading every time the binary runs while it sits. Nothing in any system ledger names it -- the blue-team side of the footprint is file-system baselining, not service or registry enumeration. Install validates the slot before writing (the binary imports the DLL, it sits outside KnownDLLs, the seat is vacant) and the copy refuses to overwrite what is already there."
+notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content -- the planted DLL itself is the family's first on-disk seat: a plain file in the host binary's directory, hashed by any scanner that walks the file system, loading every time the binary runs while it sits. Nothing in any system ledger names it -- the blue-team side of the footprint is file-system baselining, not service or registry enumeration. Install validates the slot before writing (the binary imports the DLL, it sits outside KnownDLLs, the seat is vacant) and the copy refuses to overwrite what is already there."
 
 [attack]
 techniques = ["T1574.001"]
 
 [package]
-include = ["rod-module.toml", "*.cs", "*.csproj"]
+include = ["rod-module.toml"]

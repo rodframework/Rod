@@ -20,11 +20,12 @@ teamserver = "1.0.0"
 # runtime truth; this row is the store's static filter.
 requires = ["plugin-loader"]
 
-# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# The verb version matrix (architecture.md Sec 15.2), now the descriptor
+# row itself (ADR-018): the verb iterates
 # under its own module-scoped version, independently of the package
 # version. The row's techniques are the authoritative per-verb ATT&CK
-# declaration (ADR-007) -- the same ids the server-side descriptor
-# registers -- with the module-level [attack] list as their validated
+# declaration (ADR-007) -- the ids the descriptor row itself declares
+# -- with the module-level [attack] list as their validated
 # roll-up. T1562.001 (Impair Defenses: Disable or Modify Tools) is the
 # patch itself; the kernel catalog already carries the id under
 # evasion.unload, so this row renders beside a kernel carrier and the
@@ -32,7 +33,19 @@ requires = ["plugin-loader"]
 [[verbs]]
 name = "evasion.avoid"
 version = "1.0.0"
+category = "evasion"
+opsec = { "modifies-defenses" = true }
 techniques = ["T1562.001"]
+output-kind = "text"
+output-help = "One row per patched entry point (the function and what its callers now see), or already-patched rows under a second run."
+
+  [[verbs.parameters]]
+  name = "target"
+  label = "Target"
+  kind = "enum"
+  required = true
+  help = "What the task patches in this process: amsi, etw, or all."
+  choices = ["amsi", "etw", "all"]
 
 # The patch stubs are x64 code in v1.0: the manifest claims the amd64
 # Windows target alone, and the arm64 encodings are the module's later
@@ -45,10 +58,10 @@ arch = "amd64"
 
 [opsec]
 lands-on-disk = false
-notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content and the patch lands in the process's own memory -- nothing on disk. The scope is exactly that process: the effect dies with it, and a new process loads fresh libraries. AMSI failure telemetry and ETW inline-hook detection are live blue-team surfaces; the verb is sensitive (Evasion category, modifies-defenses attribute), held out of unattended firing by the registry-backed policy, and the plugin rides the per-engagement module load -- never a default profile."
+notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content and the patch lands in the process's own memory -- nothing on disk. The scope is exactly that process: the effect dies with it, and a new process loads fresh libraries. AMSI failure telemetry and ETW inline-hook detection are live blue-team surfaces; the verb is sensitive (Evasion category, modifies-defenses attribute), held out of unattended firing by the registry-backed policy, and the plugin rides the per-engagement module load -- never a default profile."
 
 [attack]
 techniques = ["T1562.001"]
 
 [package]
-include = ["rod-module.toml", "*.cs", "*.csproj"]
+include = ["rod-module.toml"]

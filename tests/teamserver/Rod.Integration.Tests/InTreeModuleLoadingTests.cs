@@ -1,84 +1,103 @@
 using Microsoft.Extensions.DependencyInjection;
 using Rod.Capabilities;
 using Rod.Capabilities.Coverage;
+using Rod.Capabilities.Modules;
 using Rod.Capabilities.Registry;
 using Rod.CoreState.Implants;
-using Rod.Modules.Domainenum;
-using Rod.Modules.Hostenum;
 
 namespace Rod.Integration.Tests;
 
 /// <summary>
-/// The in-tree module acceptance (architecture.md Sec 15.1): the reference
-/// modules under <c>modules/</c> load through exactly the path an external
-/// module takes -- a <c>Capabilities:Modules</c> config entry naming a type in
-/// an assembly the loader resolves by name, instantiated at startup and
-/// replacing the built-in placeholder for the verb. The test host references
-/// the module project only so its assembly lands in the test bin directory,
-/// the stand-in for the deployment step (the teamserver build copying the
-/// module dll beside the binary) -- no test or kernel code touches the
-/// module's types directly.
+/// The in-tree module acceptance (architecture.md Sec 15.1, ADR-018): the
+/// reference modules under <c>modules/</c> are pure descriptor manifests --
+/// their verb rows carry the whole server-side half -- and load through
+/// exactly the path an external module takes: a
+/// <c>Capabilities:DescriptorModules</c> config entry naming the directory.
+/// The test host configures the same section the shipped appsettings.json
+/// carries, resolved against the repository's own module trees (the stand-in
+/// for the deploy step, which copies each manifest under
+/// <c>modules/&lt;name&gt;/</c> beside the binary); no test or kernel code
+/// compiles against anything the modules ship.
 /// </summary>
 public class InTreeModuleLoadingTests
 {
-    [Fact]
-    public async Task InTreeModule_LoadsThroughTheConfigListedPath_AndReplacesThePlaceholder()
+    private static readonly string RepoRoot = FindRepoRoot(new DirectoryInfo(AppContext.BaseDirectory));
+
+    private static string FindRepoRoot(DirectoryInfo start)
     {
-        // The entry is the exact string the shipped appsettings.json carries:
-        // the same loader, the same config list, the same
-        // last-registration-wins replacement an operator's external module
-        // rides. Nothing about the module being in-tree changes the path.
-        var (client, host, _) = AuthenticatedHost.Create(
-            extendConfig: settings => settings["Capabilities:Modules:0"] =
-                "Rod.Modules.Hostenum.HostEnumCapabilityModule, Rod.Modules.Hostenum",
-            configureServicesWithConfig: (services, config) => services.AddRodCapabilities(config));
-        using (client)
-        using (host)
+        DirectoryInfo? dir = start;
+        while (dir is not null)
         {
-            var registry = host.Services.GetRequiredService<ICapabilityRegistry>();
-
-            var found = await registry.FindAsync("recon.hostenum");
-
-            // The in-tree module is the authority for the verb, not the
-            // built-in placeholder: the config-listed registration won.
-            Assert.NotNull(found);
-            Assert.IsType<HostEnumCapabilityModule>(found);
-            Assert.Equal("recon.hostenum", found!.Descriptor.Verb);
+            if (Directory.Exists(Path.Combine(dir.FullName, "src"))
+                && Directory.Exists(Path.Combine(dir.FullName, "tests")))
+                return dir.FullName;
+            dir = dir.Parent;
         }
+        throw new InvalidOperationException("Could not locate the repo root from the test assembly.");
     }
 
+    // Every in-tree descriptor module directory, discovered by shape: a
+    // manifest under modules/ whose entry kind is not "assets" (the asset
+    // modules ride their own section, Capabilities:AssetModules). The same
+    // recognition the architecture tests use, and the same set the shipped
+    // config lists.
+    private static IReadOnlyList<string> DescriptorModuleDirectories() =>
+        Directory.GetDirectories(Path.Combine(RepoRoot, "modules"))
+            .Where(d => File.Exists(Path.Combine(d, "rod-module.toml"))
+                && !File.ReadAllLines(Path.Combine(d, "rod-module.toml"))
+                    .Any(line => line.Trim().Equals("entry = \"assets\"", StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(d => d, StringComparer.Ordinal)
+            .ToArray();
+
     [Fact]
-    public async Task TheDomainDiscoveryModule_LoadsThroughTheConfigListedPath()
+    public async Task InTreeDescriptorModules_LoadThroughTheConfigListedPath()
     {
-        // The second in-tree module rides the identical acceptance: the
-        // config entry the shipped appsettings.json carries, the loader it
-        // names, and a verb no placeholder serves -- a new verb registered
-        // through the module seam, not a replacement of one. v1.1 widened
-        // the declaration to the authenticated half's account and group
-        // discovery techniques, so the pin covers both halves.
+        // The section the shipped appsettings.json carries, resolved at the
+        // repository trees: the same loader, the same config list, the same
+        // last-registration-wins replacement an operator's external module
+        // rides. Nothing about the modules being in-tree changes the path.
+        var directories = DescriptorModuleDirectories();
+        Assert.True(directories.Count >= 13, "the in-tree descriptor module set shrank below the thirteen shipped modules.");
+
+        var index = 0;
         var (client, host, _) = AuthenticatedHost.Create(
-            extendConfig: settings => settings["Capabilities:Modules:1"] =
-                "Rod.Modules.Domainenum.DomainEnumCapabilityModule, Rod.Modules.Domainenum",
+            extendConfig: settings =>
+            {
+                foreach (var directory in directories)
+                    settings[$"Capabilities:DescriptorModules:{index++}"] = directory;
+            },
             configureServicesWithConfig: (services, config) => services.AddRodCapabilities(config));
         using (client)
         using (host)
         {
             var registry = host.Services.GetRequiredService<ICapabilityRegistry>();
 
-            var found = await registry.FindAsync("recon.domainenum");
+            // hostenum replaces its verb's placeholder: the manifest-listed
+            // registration won, and the descriptor the row declared -- the
+            // output kind, the techniques -- is what the registry holds.
+            var hostenum = await registry.FindAsync("recon.hostenum");
+            Assert.NotNull(hostenum);
+            Assert.Equal("hostenum", hostenum!.Name);
+            Assert.Equal(["plugin-loader"], hostenum.Requires);
+            Assert.Equal(VerbOutputKind.Enumeration, hostenum.Descriptor.Output!.Kind);
+            Assert.Equal(["T1082"], hostenum.Descriptor.Techniques);
 
-            Assert.NotNull(found);
-            Assert.IsType<DomainEnumCapabilityModule>(found);
-            Assert.Equal("recon.domainenum", found!.Descriptor.Verb);
-            // The techniques the coverage matrix reads come from the
-            // module's declaration, not any kernel file.
+            // domainenum was a verb no placeholder served -- a new verb
+            // registered through the module seam, not a replacement of one.
+            // v1.1 widened the declaration to the authenticated half's
+            // account and group discovery techniques, so the pin covers
+            // both halves.
+            var domainenum = await registry.FindAsync("recon.domainenum");
+            Assert.NotNull(domainenum);
+            Assert.Equal("domainenum", domainenum!.Name);
             Assert.Equal(
                 new[] { "T1018", "T1482", "T1087.002", "T1069.002" },
-                found.Descriptor.Techniques);
+                domainenum.Descriptor.Techniques);
+            Assert.Equal(CapabilityCategory.Recon, domainenum.Descriptor.Category);
 
             // The widened declaration renders in the coverage matrix
-            // (ADR-007): the authenticated half's techniques appear as
-            // rows carried by this module's verb, not gaps -- the
+            // (ADR-007): the authenticated half's techniques appear as rows
+            // carried by this module's verb, not gaps -- the
             // registry-backed resolver is the same one the /capabilities
             // endpoint serves, so this is the shipped view.
             var techniques = host.Services.GetRequiredService<IVerbTechniqueResolver>();
@@ -91,6 +110,68 @@ public class InTreeModuleLoadingTests
                 Assert.Equal(CoverageStatus.Module, carrier.Status);
                 Assert.Equal("domainenum", carrier.Module);
             }
+        }
+    }
+
+    [Fact]
+    public async Task EveryInTreeDescriptorModule_IsWholeAndSensitiveRowsStillCarryTheirFlags()
+    {
+        // The whole set loads clean together -- every row carries its
+        // category (the loader's wholeness refusal never fired) -- and the
+        // sensitive family keeps the flags the registry-backed
+        // sensitive-verb policy keys on (Sec 10.4): the evasion rows carry
+        // modifies-defenses, so they stay out of unattended firing now that
+        // the .NET halves are gone.
+        var index = 0;
+        var (client, host, _) = AuthenticatedHost.Create(
+            extendConfig: settings =>
+            {
+                foreach (var directory in DescriptorModuleDirectories())
+                    settings[$"Capabilities:DescriptorModules:{index++}"] = directory;
+            },
+            configureServicesWithConfig: (services, config) => services.AddRodCapabilities(config));
+        using (client)
+        using (host)
+        {
+            var registry = host.Services.GetRequiredService<ICapabilityRegistry>();
+            var policy = new CapabilityRegistrySensitiveVerbPolicy(registry);
+
+            foreach (var verb in new[] { "evasion.avoid", "evasion.unload" })
+            {
+                var found = await registry.FindAsync(verb);
+                Assert.NotNull(found);
+                Assert.Equal("true", found!.Descriptor.Attributes["modifies-defenses"]);
+                Assert.True(policy.IsSensitive(verb));
+            }
+        }
+    }
+
+    // The assembly path's liveness: the loader for external .NET modules
+    // (Capabilities:Modules) stays the seam it always was, pinned with a
+    // fixture type this test assembly carries -- the in-tree set no longer
+    // rides it, so without a fixture the path would be dead weight.
+    private sealed class FixtureAssemblyModule : ICapabilityModule
+    {
+        public CapabilityDescriptor Descriptor { get; } = CapabilityDescriptor.Of(
+            "fixture.assembly", CapabilityCategory.Core, "0.1");
+    }
+
+    [Fact]
+    public async Task AnAssemblyModule_StillLoadsThroughItsOwnConfigListedPath()
+    {
+        var (client, host, _) = AuthenticatedHost.Create(
+            extendConfig: settings => settings["Capabilities:Modules:0"] =
+                "Rod.Integration.Tests.InTreeModuleLoadingTests+FixtureAssemblyModule, Rod.Integration.Tests",
+            configureServicesWithConfig: (services, config) => services.AddRodCapabilities(config));
+        using (client)
+        using (host)
+        {
+            var registry = host.Services.GetRequiredService<ICapabilityRegistry>();
+
+            var found = await registry.FindAsync("fixture.assembly");
+
+            Assert.NotNull(found);
+            Assert.IsType<FixtureAssemblyModule>(found);
         }
     }
 }

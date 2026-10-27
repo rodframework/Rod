@@ -20,11 +20,12 @@ teamserver = "1.0.0"
 # runtime truth; this row is the store's static filter.
 requires = ["plugin-loader"]
 
-# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# The verb version matrix (architecture.md Sec 15.2), now the descriptor
+# row itself (ADR-018): the verb iterates
 # under its own module-scoped version, independently of the package
 # version. The row's techniques are the authoritative per-verb ATT&CK
-# declaration (ADR-007) -- the same ids the server-side descriptor
-# registers -- with the module-level [attack] list as their validated
+# declaration (ADR-007) -- the ids the descriptor row itself declares
+# -- with the module-level [attack] list as their validated
 # roll-up. T1543.003 is the Windows service seat itself; the kernel
 # catalog carries its parent (T1543) under persist.install and the
 # matrix renders the sub-technique by id alone, the same way the
@@ -32,7 +33,32 @@ requires = ["plugin-loader"]
 [[verbs]]
 name = "persist.services"
 version = "1.0.0"
+category = "persist"
+opsec = { "writes-to-disk" = true, "persists" = true }
 techniques = ["T1543.003"]
+output-kind = "text"
+output-help = "One row per seat on list (service name, binary path, start kind), or the seat the install created or the remove marked for deletion."
+
+  [[verbs.parameters]]
+  name = "action"
+  label = "Action"
+  kind = "enum"
+  help = "Empty lists the seats -- a bare task is a read. Every write needs an elevated implant."
+  choices = ["install", "remove", "list"]
+
+  [[verbs.parameters]]
+  name = "name"
+  label = "Service name"
+  kind = "string"
+  help = "The seat's own name in the service database; for list, a filter narrowing the report to it."
+  placeholder = "UpdateCheck"
+
+  [[verbs.parameters]]
+  name = "command"
+  label = "Command"
+  kind = "text"
+  help = "The command line the SCM runs as the service's binary path; install only."
+  trailing = true
 
 # The seat exists only on Windows: the manifest claims the two Windows
 # targets and no others, so the module loads nowhere the technique has
@@ -49,10 +75,10 @@ arch = "arm64"
 
 [opsec]
 lands-on-disk = true
-notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content, mapped in memory on Windows -- nothing on disk itself. Every write needs an elevated implant: the SCM grants service creation and deletion to the administrator alone. The seat is one record in the SCM database (HKLM\\SYSTEM\\CurrentControlSet\\Services on disk) with its command line as plain text any blue-team reader sees, Windows logs the installation as Event 7045, and the service runs at every boot while it sits."
+notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content, mapped in memory on Windows -- nothing on disk itself. Every write needs an elevated implant: the SCM grants service creation and deletion to the administrator alone. The seat is one record in the SCM database (HKLM\\SYSTEM\\CurrentControlSet\\Services on disk) with its command line as plain text any blue-team reader sees, Windows logs the installation as Event 7045, and the service runs at every boot while it sits."
 
 [attack]
 techniques = ["T1543.003"]
 
 [package]
-include = ["rod-module.toml", "*.cs", "*.csproj"]
+include = ["rod-module.toml"]

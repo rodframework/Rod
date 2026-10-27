@@ -19,15 +19,19 @@ teamserver = "1.0.0"
 # runtime truth; this row is the store's static filter.
 requires = ["plugin-loader"]
 
-# The verb version matrix (architecture.md Sec 15.2): the verb iterates under
+# The verb version matrix (architecture.md Sec 15.2), now the descriptor
+# row itself (ADR-018): the verb iterates under
 # its own module-scoped version, independently of the package version. The
 # row's techniques are the authoritative per-verb ATT&CK declaration (ADR-007)
-# -- the same ids the server-side descriptor registers -- with the module-level
-# [attack] list as their validated roll-up.
+# -- the ids the descriptor row itself declares -- with the
+# module-level [attack] list as their validated roll-up.
 [[verbs]]
 name = "recon.hostenum"
 version = "1.1.0"
+category = "recon"
 techniques = ["T1082"]
+output-kind = "enumeration"
+output-help = "One JSON finding per line: host, os, arch, user, path."
 
 [[compatibility.targets]]
 implant-class = "implant"
@@ -41,10 +45,10 @@ arch = "amd64"
 
 [opsec]
 lands-on-disk = true
-notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content: through a memfd on Linux (nothing on disk), mapped in memory on Windows."
+notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content: through a memfd on Linux (nothing on disk), mapped in memory on Windows."
 
 [attack]
 techniques = ["T1082"]
 
 [package]
-include = ["rod-module.toml", "*.cs", "*.csproj"]
+include = ["rod-module.toml"]

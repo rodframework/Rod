@@ -20,11 +20,12 @@ teamserver = "1.0.0"
 # runtime truth; this row is the store's static filter.
 requires = ["plugin-loader"]
 
-# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# The verb version matrix (architecture.md Sec 15.2), now the descriptor
+# row itself (ADR-018): the verb iterates
 # under its own module-scoped version, independently of the package
 # version. The row's techniques are the authoritative per-verb ATT&CK
-# declaration (ADR-007) -- the same ids the server-side descriptor
-# registers -- with the module-level [attack] list as their validated
+# declaration (ADR-007) -- the ids the descriptor row itself declares
+# -- with the module-level [attack] list as their validated
 # roll-up. T1555.004 (Credentials from Password Stores: Windows
 # Credential Manager) is the in-place store read itself; the kernel
 # catalog carries the T1555 parent under collect.cred and the matrix
@@ -33,7 +34,26 @@ requires = ["plugin-loader"]
 [[verbs]]
 name = "collect.credman"
 version = "1.0.0"
+category = "collect"
+opsec = { "reads-credential" = true }
 techniques = ["T1555.004"]
+output-kind = "credential"
+output-help = "One credential row per line: the entry's kind, principal, source, and note (target, type, persistence, last write); the read adds the secret where the store handed its blob back -- the credentials board parses every row and masks the secret until revealed."
+
+  [[verbs.parameters]]
+  name = "action"
+  label = "Action"
+  kind = "enum"
+  help = "Empty reports the survey -- a bare task is a read. The read reaches the calling session's own store; no privilege asked."
+  choices = ["list", "read"]
+
+  [[verbs.parameters]]
+  name = "target"
+  label = "Target name"
+  kind = "text"
+  help = "The one entry read narrows to, matched against the entry's target name; absent reads the whole store. Read only."
+  placeholder = "TERMSRV/web01.corp.example"
+  trailing = true
 
 # The store exists only on Windows: the manifest claims the two Windows
 # targets and no others, so the module loads nowhere the technique has
@@ -50,10 +70,10 @@ arch = "arm64"
 
 [opsec]
 lands-on-disk = false
-notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content and nothing it does lands on disk: the store is enumerated through the credential API in the implant process's own logon session and the rows ride the task's channel back. The store the verb reaches is the session's own -- no privilege asked, no seat implied: an implant running as the desktop user reads that user's saved entries (generic passwords above all), while the domain-credential types the system hands back without their blobs render as the withholding they are. The credential rows' secret field renders masked in the credentials board and never enters the audit chain; everything else the rows carry reaches the audit log every dispatched action already enters. The verb rides the per-engagement module load -- never a default profile."
+notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content and nothing it does lands on disk: the store is enumerated through the credential API in the implant process's own logon session and the rows ride the task's channel back. The store the verb reaches is the session's own -- no privilege asked, no seat implied: an implant running as the desktop user reads that user's saved entries (generic passwords above all), while the domain-credential types the system hands back without their blobs render as the withholding they are. The credential rows' secret field renders masked in the credentials board and never enters the audit chain; everything else the rows carry reaches the audit log every dispatched action already enters. The verb rides the per-engagement module load -- never a default profile."
 
 [attack]
 techniques = ["T1555.004"]
 
 [package]
-include = ["rod-module.toml", "*.cs", "*.csproj"]
+include = ["rod-module.toml"]

@@ -103,6 +103,24 @@ public static class ManifestToml
         [TomlPropertyName("version")] public string? Version { get; set; }
         [TomlPropertyName("teamserver")] public string? Teamserver { get; set; }
         [TomlPropertyName("techniques")] public List<string>? Techniques { get; set; }
+        [TomlPropertyName("category")] public string? Category { get; set; }
+        [TomlPropertyName("opsec")] public Dictionary<string, bool>? Opsec { get; set; }
+        [TomlPropertyName("output-kind")] public string? OutputKind { get; set; }
+        [TomlPropertyName("output-help")] public string? OutputHelp { get; set; }
+        [TomlPropertyName("parameters")] public List<ParameterRow>? Parameters { get; set; }
+    }
+
+    private sealed class ParameterRow
+    {
+        [TomlPropertyName("name")] public string? Name { get; set; }
+        [TomlPropertyName("label")] public string? Label { get; set; }
+        [TomlPropertyName("kind")] public string? Kind { get; set; }
+        [TomlPropertyName("required")] public bool? Required { get; set; }
+        [TomlPropertyName("help")] public string? Help { get; set; }
+        [TomlPropertyName("placeholder")] public string? Placeholder { get; set; }
+        [TomlPropertyName("choices")] public List<string>? Choices { get; set; }
+        [TomlPropertyName("trailing")] public bool? Trailing { get; set; }
+        [TomlPropertyName("inline")] public bool? Inline { get; set; }
     }
 
     private sealed class AssetRow
@@ -258,7 +276,48 @@ public static class ManifestToml
                 .Select(t => t.Trim().ToUpperInvariant())
                 .ToList();
 
-            verbs.Add(new VerbDeclaration(verbName, verbVersion, verbFloor, verbTechniques));
+            // The descriptor half (ADR-018): category, per-verb OPSEC flags,
+            // the parameter schema, and the output declaration -- a row that
+            // carries a category is a descriptor row and its fields parse
+            // here; a row without one stays a version row. Defaults normalize
+            // (required/trailing false, inline true) so the canonical form is
+            // a function of the declared fields.
+            string? category = TrimOrNull(row.Category);
+            var rowOpsec = row.Opsec?
+                .Where(f => !string.IsNullOrWhiteSpace(f.Key))
+                .ToDictionary(f => f.Key.Trim(), f => f.Value);
+            var output = TrimOrNull(row.OutputKind) is { } outputKind
+                ? new VerbOutputDeclaration(outputKind, TrimOrNull(row.OutputHelp))
+                : null;
+            var parameters = new List<VerbParameterDeclaration>();
+            for (var p = 0; p < (row.Parameters?.Count ?? 0); p++)
+            {
+                var parameter = row.Parameters![p];
+                var parameterName = TrimOrNull(parameter.Name);
+                var parameterKind = TrimOrNull(parameter.Kind);
+                if (parameterName is null || parameterKind is null)
+                {
+                    errors.Add($"verbs[{i}] '{verbName}' has a parameters[{p}] without a name or a kind.");
+                    continue;
+                }
+
+                parameters.Add(new VerbParameterDeclaration(
+                    parameterName,
+                    TrimOrNull(parameter.Label) ?? "",
+                    parameterKind,
+                    parameter.Required ?? false,
+                    TrimOrNull(parameter.Help),
+                    TrimOrNull(parameter.Placeholder),
+                    (parameter.Choices ?? [])
+                        .Where(c => !string.IsNullOrWhiteSpace(c))
+                        .Select(c => c.Trim())
+                        .ToList(),
+                    parameter.Trailing ?? false,
+                    parameter.Inline ?? true));
+            }
+
+            verbs.Add(new VerbDeclaration(verbName, verbVersion, verbFloor, verbTechniques,
+                category, rowOpsec, parameters.Count > 0 ? parameters : null, output));
         }
 
         // The asset rows: logical name plus package-relative path. Like a
@@ -381,17 +440,32 @@ public static class ManifestToml
         }
         else
         {
-            sb.AppendLine("# The verb version matrix (one row per verb the module registers): the");
-            sb.AppendLine("# module-scoped version each verb iterates under, an optional per-verb");
-            sb.AppendLine("# teamserver floor, and the verb's ATT&CK techniques (ADR-007) -- the");
-            sb.AppendLine("# authoritative declaration the coverage matrix renders. The rows ride");
-            sb.AppendLine("# the signed canonical form.");
+            sb.AppendLine("# The verb rows: each carries its module-scoped version, an optional");
+            sb.AppendLine("# per-verb teamserver floor, and the verb's ATT&CK techniques (ADR-007).");
+            sb.AppendLine("# A row that names a category is a *descriptor row* (ADR-018): the verb's");
+            sb.AppendLine("# whole server-side half as manifest data -- the OPSEC attribute flags,");
+            sb.AppendLine("# the parameter schema the operator UI renders its task form from, and");
+            sb.AppendLine("# the output kind that routes results to the generic panels -- so a");
+            sb.AppendLine("# novel namespace opens its issuance gate with zero .NET code. The");
+            sb.AppendLine("# rows ride the signed canonical form.");
             sb.AppendLine();
             sb.AppendLine("[[verbs]]");
             sb.AppendLine($"name = \"{name}.run\"");
             sb.AppendLine("version = \"0.1.0\"");
+            sb.AppendLine("category = \"core\"  # core, recon, lateral, persist, collect, exfil, tunnel, module, browser, evasion, exploit");
+            sb.AppendLine("opsec = { \"touches-network\" = false }  # per-verb OPSEC attribute flags, free-form keys");
             sb.AppendLine("# teamserver = \"1.0.0\"  # optional per-verb floor");
             sb.AppendLine("# techniques = [\"T1082\"]  # this verb's ATT&CK techniques");
+            sb.AppendLine("output-kind = \"text\"  # text, enumeration, process-list, file-list, credential, file, screenshot");
+            sb.AppendLine("# output-help = \"One sentence on what the results hold.\"");
+            sb.AppendLine();
+            sb.AppendLine("  [[verbs.parameters]]  # one row per argument field, in the order the grammar joins them");
+            sb.AppendLine("  name = \"target\"");
+            sb.AppendLine("  label = \"Target\"");
+            sb.AppendLine("  kind = \"string\"  # string, text, number, boolean, enum, file, array");
+            sb.AppendLine("  required = true");
+            sb.AppendLine("  # help = \"One sentence of context under the field.\"");
+            sb.AppendLine("  # placeholder = \"10.0.0.7\"");
             sb.AppendLine();
         }
         sb.AppendLine("# Optional packaging rules; uncomment to narrow what publish packs.");

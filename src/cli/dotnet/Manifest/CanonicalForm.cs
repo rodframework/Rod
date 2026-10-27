@@ -16,10 +16,12 @@ namespace Rod.Cli.Manifest;
 /// </summary>
 public static class CanonicalForm
 {
-    // v2 adds the compatibility rows (requires, the conformance report)
-    // to the signed field set -- the form's identity names its own shape,
-    // so a field-set change is a version bump, never a silent mismatch.
-    public const string VersionLine = "rod-module-manifest-v2";
+    // v2 added the compatibility rows (requires, the conformance report)
+    // to the signed field set; v3 adds the verb rows' descriptor half
+    // (category, OPSEC flags, parameter schema, output declaration) -- the
+    // form's identity names its own shape, so a field-set change is a
+    // version bump, never a silent mismatch.
+    public const string VersionLine = "rod-module-manifest-v3";
 
     /// <summary>Builds the signed message: one line per field in fixed
     /// order, then one digest line per payload file sorted by path. Lines
@@ -62,10 +64,14 @@ public static class CanonicalForm
             ? string.Join(",", withClauses.Clauses.Distinct().OrderBy(c => c, StringComparer.Ordinal))
             : "-");
 
-        // The verb version matrix rides one line per verb, name-sorted, with
-        // a per-verb floor and the row's ATT&CK techniques folded in -- so a
-        // tampered verb version, floor, or technique list breaks the
-        // signature exactly like a tampered OPSEC mark.
+        // The verb rows ride one line per verb, name-sorted, with a per-verb
+        // floor and the row's ATT&CK techniques folded in -- so a tampered
+        // verb version, floor, or technique list breaks the signature
+        // exactly like a tampered OPSEC mark. A descriptor row's category
+        // and OPSEC flags ride the same line (ADR-018); its parameter
+        // schema and output declaration ride their own lines below, so a
+        // tampered choice set or output kind -- metadata that decides what
+        // the UI renders and where results land -- breaks verification too.
         foreach (var verb in manifest.Verbs
                      .GroupBy(v => v.Name, StringComparer.Ordinal)
                      .Select(g => g.OrderByDescending(v => v.Version).First())
@@ -80,7 +86,36 @@ public static class CanonicalForm
                     + string.Join(",", verb.Techniques.Select(t => t.ToUpperInvariant()).Distinct().OrderBy(t => t, StringComparer.Ordinal));
             }
 
+            if (verb.Category is { } category)
+                value += " category=" + category;
+            if (verb.Opsec is { Count: > 0 })
+            {
+                value += " opsec="
+                    + string.Join(",", verb.Opsec
+                        .Select(f => $"{f.Key}={Bool(f.Value)}")
+                        .OrderBy(f => f, StringComparer.Ordinal));
+            }
+
             Line("verb/" + verb.Name, value);
+
+            // Parameters in declaration order: the order is data (the form
+            // renders the fields in it), so the lines carry it -- reordering
+            // a schema rewrites the form and breaks the signature.
+            foreach (var parameter in verb.Parameters ?? NoParameters)
+            {
+                var parameterValue =
+                    $"kind={parameter.Kind} required={Bool(parameter.Required)} trailing={Bool(parameter.Trailing)} inline={Bool(parameter.Inline)}"
+                    + " choices=" + (parameter.Choices is { Count: > 0 }
+                        ? string.Join(",", parameter.Choices)
+                        : "-")
+                    + $" label={parameter.Label}"
+                    + $" placeholder={parameter.Placeholder ?? "-"}"
+                    + $" help={parameter.Help ?? "-"}";
+                Line($"param/{verb.Name}/{parameter.Name}", parameterValue);
+            }
+
+            if (verb.Output is { } output)
+                Line("output/" + verb.Name, $"kind={output.Kind} help={output.Help ?? "-"}");
         }
 
         // The asset rows ride one line per asset, name-sorted: the logical
@@ -115,4 +150,9 @@ public static class CanonicalForm
         }
         return digests;
     }
+
+    private static readonly IReadOnlyList<VerbParameterDeclaration> NoParameters = [];
+
+    // The form's booleans read lowercase, matching lands-on-disk above.
+    private static string Bool(bool value) => value ? "true" : "false";
 }

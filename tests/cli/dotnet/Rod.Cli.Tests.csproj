@@ -18,6 +18,11 @@
          the CLI itself taking an in-house reference; the vocabulary is a
          file contract the two sides state independently. -->
     <ProjectReference Include="..\..\..\src\teamserver\Rod.CoreState\Rod.CoreState.csproj" />
+    <!-- Test-only: pins the CLI's manifest descriptor vocabularies equal to
+         the teamserver's descriptor loader enumerations (Rod.Capabilities)
+         without the CLI itself taking an in-house reference; the closed
+         sets are file contracts the two sides state independently. -->
+    <ProjectReference Include="..\..\..\src\teamserver\Rod.Capabilities\Rod.Capabilities.csproj" />
   </ItemGroup>
 
   <ItemGroup>

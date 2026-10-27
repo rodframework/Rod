@@ -62,50 +62,26 @@
     <Exec Condition="'$(_RodNpmProbe)' == '0'" Command="npm run build" WorkingDirectory="Client" ConsoleToMSBuild="true" />
     <Message Condition="'$(_RodNpmProbe)' != '0'" Importance="high" Text="Operator UI bundle not found (wwwroot/index.html) and npm is not on PATH; the server will run API-only. Build it with npm ci &amp;&amp; npm run build in src/teamserver/Rod.TeamServer/Client." />
   </Target>
-  <!-- In-tree server-side modules (architecture.md Sec 15.1): the reference
-       modules under modules/ ship as loose assemblies beside the teamserver
-       binary and load through the same config-listed path
-       (Capabilities:Modules) an operator's external module takes. Nothing
-       compile-references them: that is the dogfood rule the architecture
-       tests enforce. This target therefore builds them out-of-band and
-       copies their outputs to where the loader resolves assemblies by name.
-       Publish gets the same copy into the publish directory, so an installed
-       teamserver carries its modules the same way a checkout's dotnet run
-       does. -->
+  <!-- In-tree module content (Sec 15.1): the server-side halves under
+       modules/ ship as pure descriptor manifests (ADR-018), so each
+       module's rod-module.toml lands under modules/[name] in the output,
+       the directory shape the Capabilities:DescriptorModules entries name
+       and the descriptor loader reads; the asset modules ship as the
+       manifest plus their assets trees, the shape the
+       Capabilities:AssetModules entries name. Only manifests and assets
+       travel: a module's tests and any build artifacts never deploy. -->
   <ItemGroup>
-    <RodServerModuleProject Include="$(MSBuildThisFileDirectory)..\..\..\modules\**\*.csproj" />
+    <RodModuleFile Include="$(MSBuildThisFileDirectory)..\..\..\modules\**\rod-module.toml" />
+    <RodModuleFile Include="$(MSBuildThisFileDirectory)..\..\..\modules\**\assets\**\*" />
   </ItemGroup>
-  <Target Name="DeployInTreeServerModules" AfterTargets="Build">
-    <!-- Restore first: the modules hang off no ProjectReference edge, so no
-         restore of this project covers them; each invocation re-restores
-         cheaply when nothing moved. -->
-    <MSBuild Projects="@(RodServerModuleProject)" Targets="Restore;Build" Properties="Configuration=$(Configuration)">
-      <Output TaskParameter="TargetOutputs" ItemName="RodServerModuleOutput" />
-    </MSBuild>
-    <Copy SourceFiles="@(RodServerModuleOutput)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
-  </Target>
-  <Target Name="PublishInTreeServerModules" AfterTargets="Publish">
-    <Copy SourceFiles="@(RodServerModuleOutput)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
-  </Target>
-
-  <!-- In-tree asset modules (Sec 15.1's content half): pure files beside the
-       assemblies. Each module's rod-module.toml and assets/ tree land under
-       modules/&lt;name&gt;/ in the output, the directory shape the
-       Capabilities:AssetModules entries name and the asset host loads. Only
-       the manifest and the assets travel: a module's tests/ and any build
-       artifacts never deploy. -->
-  <ItemGroup>
-    <RodAssetModuleFile Include="$(MSBuildThisFileDirectory)..\..\..\modules\**\rod-module.toml" />
-    <RodAssetModuleFile Include="$(MSBuildThisFileDirectory)..\..\..\modules\**\assets\**\*" />
-  </ItemGroup>
-  <Target Name="DeployInTreeAssetModules" AfterTargets="Build">
-    <Copy SourceFiles="@(RodAssetModuleFile)"
-          DestinationFiles="@(RodAssetModuleFile->'$(OutDir)modules\%(RecursiveDir)%(Filename)%(Extension)')"
+  <Target Name="DeployInTreeModules" AfterTargets="Build">
+    <Copy SourceFiles="@(RodModuleFile)"
+          DestinationFiles="@(RodModuleFile->'$(OutDir)modules\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
-  <Target Name="PublishInTreeAssetModules" AfterTargets="Publish">
-    <Copy SourceFiles="@(RodAssetModuleFile)"
-          DestinationFiles="@(RodAssetModuleFile->'$(PublishDir)modules\%(RecursiveDir)%(Filename)%(Extension)')"
+  <Target Name="PublishInTreeModules" AfterTargets="Publish">
+    <Copy SourceFiles="@(RodModuleFile)"
+          DestinationFiles="@(RodModuleFile->'$(PublishDir)modules\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
 

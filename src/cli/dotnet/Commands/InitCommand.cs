@@ -79,54 +79,15 @@ public static class InitCommand
         switch (entry)
         {
             case ModuleEntryKind.Server:
-                {
-                    var source = Path.Combine(directory, "src", $"{pascal}Module");
-                    Directory.CreateDirectory(source);
-                    File.WriteAllText(Path.Combine(source, $"{pascal}Module.csproj"), $"""
-                    <Project Sdk="Microsoft.NET.Sdk">
-
-                      <!-- A server-side capability module: a separate assembly the
-                           teamserver loads through its Capabilities:Modules config path;
-                           it never compile-references the kernel. Reference the Rod.Capabilities
-                           contract assembly shipped beside your teamserver binary. -->
-                      <PropertyGroup>
-                        <TargetFramework>net10.0</TargetFramework>
-                        <Nullable>enable</Nullable>
-                      </PropertyGroup>
-                      <ItemGroup>
-                        <Reference Include="Rod.Capabilities" HintPath="path/to/teamserver/Rod.Capabilities.dll" />
-                      </ItemGroup>
-
-                    </Project>
-                    """);
-                    File.WriteAllText(Path.Combine(source, $"{pascal}Module.cs"), $$"""
-                    using Rod.Capabilities;
-                    using Rod.Capabilities.Modules;
-
-                    /// <summary>The server-side half of {{name}}: the gate and catalog
-                    /// registration for one verb. The execution half lives on the implant.
-                    /// The parameter schema and the output declaration are the contract
-                    /// trilogy (architecture.md Sec 15.2): the operator UI renders the
-                    /// task form from the schema and routes the result to its panel from
-                    /// the output kind -- the module earns its UI through metadata alone.</summary>
-                    public sealed class {{pascal}}Module : ICapabilityModule
-                    {
-                        public CapabilityDescriptor Descriptor { get; } = CapabilityDescriptor.Of(
-                            "{{name}}.run",
-                            CapabilityCategory.Core,
-                            "0.1",
-                            parameters: new[]
-                            {
-                                // One VerbParameter per argument field, in the order the
-                                // verb's own grammar joins them (space-separated; the last
-                                // parameter may carry the raw remainder).
-                                new VerbParameter("target", "Target", VerbParameterKind.String, Required: true),
-                            },
-                            output: new VerbOutput(VerbOutputKind.Text));
-                    }
-                    """);
-                    break;
-                }
+                // Zero code by design (ADR-018): a server-entry module's
+                // whole half is the manifest's descriptor rows -- category,
+                // OPSEC flags, the parameter schema, the output kind -- so
+                // the scaffold carries no source to compile. An author who
+                // wants a .NET assembly instead writes it against the
+                // Rod.Capabilities contract and lists the type under
+                // Capabilities:Modules; the manifest rows stay the packaging
+                // truth either way.
+                break;
             case ModuleEntryKind.Implant:
                 {
                     var source = Path.Combine(directory, "src");

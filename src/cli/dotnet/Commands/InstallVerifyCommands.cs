@@ -182,7 +182,7 @@ public static class InstallCommand
 
             output.WriteLine($"installed {name}@{version.Version} -> {Path.Combine(InstallRoot.ModulesFolder, name, version.Version)}");
             if (manifest.Entry == ModuleEntryKind.Server)
-                output.WriteLine($"next: load it the config-listed way -- copy the assembly beside the teamserver binary and list the type under Capabilities:Modules.");
+                output.WriteLine($"next: load it the config-listed way -- list the installed directory under Capabilities:DescriptorModules so its verb rows register (an assembly module instead lists its type under Capabilities:Modules).");
             else if (manifest.Entry == ModuleEntryKind.Assets)
                 output.WriteLine($"next: point Capabilities:AssetModules at the installed directory so the teamserver serves its assets.");
             return RodCli.ExitOk;

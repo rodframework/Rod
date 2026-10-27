@@ -20,11 +20,12 @@ teamserver = "1.0.0"
 # runtime truth; this row is the store's static filter.
 requires = ["plugin-loader"]
 
-# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# The verb version matrix (architecture.md Sec 15.2), now the descriptor
+# row itself (ADR-018): the verb iterates
 # under its own module-scoped version, independently of the package
 # version. The row's techniques are the authoritative per-verb ATT&CK
-# declaration (ADR-007) -- the same ids the server-side descriptor
-# registers -- with the module-level [attack] list as their validated
+# declaration (ADR-007) -- the ids the descriptor row itself declares
+# -- with the module-level [attack] list as their validated
 # roll-up. T1003.002 is the SAM dump, T1003.005 the cached-domain
 # credential read the SECURITY hive carries (SYSTEM rides with both as
 # the boot key the offline cracking needs); the kernel catalog carries
@@ -33,7 +34,26 @@ requires = ["plugin-loader"]
 [[verbs]]
 name = "collect.hives"
 version = "1.0.0"
+category = "collect"
+opsec = { "reads-credential" = true, "writes-to-disk" = true }
 techniques = ["T1003.002", "T1003.005"]
+output-kind = "text"
+output-help = "The readiness rows on list (the backup privilege, each source hive), or one row per dump on save."
+
+  [[verbs.parameters]]
+  name = "action"
+  label = "Action"
+  kind = "enum"
+  help = "Empty reports the readiness facts -- a bare task is a read. The save needs an elevated implant."
+  choices = ["save", "list"]
+
+  [[verbs.parameters]]
+  name = "directory"
+  label = "Directory"
+  kind = "text"
+  help = "The directory the three dumps land in; save only."
+  placeholder = "C:\\loot"
+  trailing = true
 
 # The seat exists only on Windows: the manifest claims the two Windows
 # targets and no others, so the module loads nowhere the technique has
@@ -50,10 +70,10 @@ arch = "arm64"
 
 [opsec]
 lands-on-disk = true
-notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content -- the dumps themselves are the footprint: three on-disk files (sam.hiv, security.hiv, system.hiv) in the task-named directory, carrying account hashes and cached credentials in plain reach of any scanner until the operator pulls and deletes them. The save needs the backup privilege, which is the administrator's to hold; the refusal names elevation rather than pretending the save ran. The verb rides the per-engagement module load -- never a default profile."
+notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content -- the dumps themselves are the footprint: three on-disk files (sam.hiv, security.hiv, system.hiv) in the task-named directory, carrying account hashes and cached credentials in plain reach of any scanner until the operator pulls and deletes them. The save needs the backup privilege, which is the administrator's to hold; the refusal names elevation rather than pretending the save ran. The verb rides the per-engagement module load -- never a default profile."
 
 [attack]
 techniques = ["T1003.002", "T1003.005"]
 
 [package]
-include = ["rod-module.toml", "*.cs", "*.csproj"]
+include = ["rod-module.toml"]

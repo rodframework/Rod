@@ -45,7 +45,14 @@ public static class PublishCommand
             throw new CliError(
                 $"the packaging rules would include key material ({string.Join(", ", selection.Files.Where(f => f.EndsWith(".key", StringComparison.OrdinalIgnoreCase)))}); " +
                 "exclude it in rod-module.toml's [package].");
-        if (selection.Files.Count <= 1)
+        // A pure descriptor module (ADR-018) is the manifest alone: its verb
+        // rows are the whole module, so a payload-less package is legal for
+        // a server-entry module whose rows declare their descriptors. Any
+        // other entry kind carries real payload (an implant module's
+        // binaries, a build unit's sources, an assets module's files), and
+        // an empty selection there means the rules are wrong.
+        if (selection.Files.Count <= 1
+            && !(manifest.Entry == ModuleEntryKind.Server && manifest.Verbs.Any(v => v.IsDescriptor)))
             throw new CliError("the package would be empty beyond the manifest; check the [package] rules.");
 
         var distDirectory = Path.GetFullPath(parsed.Value("out") ?? Path.Combine(moduleDirectory, "dist"));
