@@ -60,10 +60,6 @@ shipped):
   (URI shapes, User-Agent, headers, envelope shape) as a standalone file
   contract any build unit consumes. _AC:_ one profile file drives both
   in-tree build units' bakes with no unit-specific parsing.
-- **In-tree `requires` sweep**: carry the honest requirement rows across
-  the remaining in-tree pairs (`modules/hostenum` already declares
-  `plugin-loader`). _AC:_ every server-entry module under `modules/`
-  whose execution half is a plugin declares it.
 
 The module layer's standing line: capability modules advancing the
 ATT&CK coverage matrix (architecture.md Sec 15.1, Sec 5.4), in family

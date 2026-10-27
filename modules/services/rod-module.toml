@@ -14,6 +14,12 @@ description = "Windows service seats: install, remove, and list the SCM database
 [compatibility]
 teamserver = "1.0.0"
 
+# The capability requirements (ADR-017): the pair's execution half is a
+# plugin the target loads through the module family, so the hosting implant
+# must advertise the loader. The implant's handshake advertisement is the
+# runtime truth; this row is the store's static filter.
+requires = ["plugin-loader"]
+
 # The verb version matrix (architecture.md Sec 15.2): the verb iterates
 # under its own module-scoped version, independently of the package
 # version. The row's techniques are the authoritative per-verb ATT&CK

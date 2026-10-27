@@ -70,6 +70,12 @@ public class InTreeModuleTests
         Assert.Equal(verbName, verb.Name);
         Assert.Equal(manifest.Version, verb.Version);
         Assert.NotEmpty(verb.Techniques!);
+
+        // ADR-017's sweep: every tree pair's execution half is a plugin the
+        // hosting implant loads through the module family, so every tree
+        // manifest declares the loader requirement -- a future module that
+        // forgets the row fails here rather than installing unfiltered.
+        Assert.Equal(new[] { "plugin-loader" }, manifest.Requires);
     }
 
     [Theory]
