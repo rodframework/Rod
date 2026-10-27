@@ -30,6 +30,7 @@ public class InTreeModuleTests
         { "hives", "collect.hives" },
         { "dpapi", "collect.dpapi" },
         { "avoid", "evasion.avoid" },
+        { "browser", "collect.browser" },
     };
 
     private static string RepoRoot()

@@ -1,0 +1,53 @@
+# The browser module manifest (architecture.md Sec 15.2): the
+# credential collection family's third entry rides the same package
+# format, canonical form, and signature chain the nine modules before
+# it ride, exercised by the CLI's end-to-end tests exactly like a
+# template-repository module.
+
+[module]
+name = "browser"
+version = "1.0.0"
+entry = "server"
+license = "Apache-2.0"
+description = "Chromium login stores: list the logins Chrome and Edge carry or export them with their passwords unsealed under the profile's DPAPI-fetched key -- collect.browser's execution half lives at src/implant/rust/modules/browser."
+
+[compatibility]
+teamserver = "1.0.0"
+
+# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# under its own module-scoped version, independently of the package
+# version. The row's techniques are the authoritative per-verb ATT&CK
+# declaration (ADR-007) -- the same ids the server-side descriptor
+# registers -- with the module-level [attack] list as their validated
+# roll-up. T1555.003 (Credentials from Password Stores: Credentials
+# from Web Browsers) is the store sweep itself; the kernel catalog
+# carries the technique with its name and the parent (T1555) under
+# collect.cred, so the matrix renders this row beside the family's
+# other carriers by id alone.
+[[verbs]]
+name = "collect.browser"
+version = "1.0.0"
+techniques = ["T1555.003"]
+
+# The stores exist only on Windows: the manifest claims the two Windows
+# targets and no others, so the module loads nowhere the technique has
+# nothing to read.
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "windows"
+arch = "amd64"
+
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "windows"
+arch = "arm64"
+
+[opsec]
+lands-on-disk = false
+notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content and nothing it does lands on disk: the stores and the key are read where they sit, the passwords unseal in the implant process's memory, and the rows ride the task's channel back (the secrets through the credential rows the board renders masked). The sweep reads the login stores of the user the implant runs as -- a store sealed under another user's masterkeys refuses naming the mismatch, a live browser's write-ahead log may hold rows newer than the main file this read answers for, and passwords under the newer app-bound (v20) form report named rather than forced. The verb rides the per-engagement module load -- never a default profile."
+
+[attack]
+techniques = ["T1555.003"]
+
+[package]
+include = ["rod-module.toml", "*.cs", "*.csproj"]
