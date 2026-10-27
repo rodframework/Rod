@@ -53,23 +53,11 @@ seat as wmi, and the DLL search-order seat as hijack):
   declaration, CI lane), plus sensitive rows ship disabled and enable
   per build profile (Sec 7).
 
-- **The unhooking breadth** (serves Sec 15.2, Sec 5.4; the
-  defense-evasion family's next version, unload v1.1): the fresh-copy
-  restore widens past ntdll's whole `.text` -- any loaded library the
-  task names (per-DLL), the named exports alone (per-function, each
-  function's extent its own RVA to the next export's, read out of the
-  mapped image's own export table), and the KnownDlls section-object
-  path as the freshness source the restore prefers (a copy no on-disk
-  tamper reaches, read through no file at all), the disk copy the
-  fallback the row names.
-  _AC:_ the standing module contract, plus the widened `[[verbs]]` row
-  keeps T1562.001 and the verb stays behind the sensitive policy.
-
 - **Defense-evasion family** (serves Sec 15.2; the evasion long tail
-  -- the AMSI and ETW patch module shipped as avoid and the ntdll
-  unhooking module as unload, the family's first two entries, and
-  the unhooking breadth is the entry above): whatever verb the matrix
-  and a real engagement name next.
+  -- the AMSI and ETW patch module shipped as avoid, and the ntdll
+  unhooking module as unload with its v1.1 breadth: per-DLL,
+  per-function, and the KnownDlls section-object freshness source):
+  whatever verb the matrix and a real engagement name next.
   _AC:_ the standing module contract, plus ships disabled, enabled per
   build profile (Sec 7).
 
