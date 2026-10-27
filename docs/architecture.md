@@ -202,7 +202,7 @@ under, and a note on its current state are listed.
 | `Rod.Transport` | Listeners that terminate C2 transports and map core-state use cases onto the operator HTTP API and the implant beacon stream. Owns endpoint routing, TLS termination, and the mapping of use-case failures to wire status codes. | Layer 2 -- may depend on `Rod.CoreState`, `Rod.Protocol`, `Rod.Audit`, `Rod.BuildPipeline`. | Implemented. HTTP(S), DNS, and raw-TCP listeners with the bind decoupled from the public endpoint (a repoint swaps a burned redirector without touching the socket); the full operator API (engagements, deploy tokens, implants with notes and retirement, tasks with queued-task cancellation, artifacts, audit, timeline/report, payloads) and the beacon stream with bounded frames, capped resumable exfil reassembly, and atomic task dispatch (Sec 8, Sec 10.3, Sec 11); the browser hook's mint and guid-gated serving edge with the Origin-only CORS posture (Sec 5.2, Sec 8); the delivery-campaign surface (Sec 11.5) -- per-recipient lure builds through the build pipeline, the SMTP send engine, and the lure-serving public edge. The task, audit, and artifact listings are paged (limit + opaque cursor, newest window first) so a long engagement never grows a listing response without bound; the operator UI walks pages. The operator API also carries the versioned `/api/v1` prefix alias, the first-party OpenAPI 3.1 contract over it, and the token-scope floor gate (Sec 15.3, ADR-006). |
 | `Rod.BuildPipeline` | Drives the external, per-language build units to compile polyglot implants on demand through the uniform build contract, fingerprinting and recording each artifact (Sec. 6). | Layer 3 -- may depend on `Rod.CoreState`. | Implemented. `RustBuildUnit` -- the sole in-tree unit (the .NET unit is deleted with the .NET implant) -- compiles the Rust reference implant in a per-build hermetic staging copy (the build target mapped onto a cargo triple; the retired stager class refused with the fix named at parse time), baking the profile (contact mode, beacon parameters, class verb set) without any key material; loader-tier requests compile the no_std loader crate beside it instead, baked with fetch constants and the delivery seal (Sec 6); the built bytes land in the payload store for operator download (Sec 6). |
 | `Rod.Operators` | Multiplayer operator sessions over the operator API: shared live engagement state, task ownership and attribution, and real-time push to the operator UI. | Layer 4 -- may depend on `Rod.CoreState`, `Rod.Audit`. | Implemented. Cookie-authenticated operator sessions (login/logout/me; the bootstrap-seeded admin of Sec 4.5; hash-only credential port) and the per-engagement SSE live-event bus, with the automation engine (Sec 10.4) and the webhook forwarder (Sec 4.4) beside it as the bus's engine-side consumers. Cookies were chosen over JWT (no client-side token store for a same-origin SPA); ASP.NET Core Identity was rejected (its own user/role tables conflict with the layered stores). Access is the membership model of Sec 4.5 (per-engagement reader/writer tiers granted by the owner) beside the deployment-role split of the account machinery (bootstrap admin, console-created members); the exclusive interaction claims and activity presence mark who drives what; a per-handle login throttle slows brute force. The layer also owns the two agent-facing surfaces the operator front carries: the MCP server (`/mcp`, Streamable HTTP, stateless -- the toolset an external agent client drives through an operator API token: reads at any scope, task-issuing tools behind their own deployment gate, the operate scope floor, and Sec 10.4's unattended red line; runbook [operations/mcp.md](operations/mcp.md)) and the opt-in OpenAI-compatible LLM triage client behind `Microsoft.Extensions.AI`'s `IChatClient` (Sec 11.3; runbook [operations/llm.md](operations/llm.md)), plus the external recon workbench (Sec 11.4; runbook [operations/recon.md](operations/recon.md)) -- the pre-foothold lookups and scan whose findings land as task-less engagement artifacts. |
-| `Rod.Capabilities` | Pluggable post-exploitation capability modules, including the evasion/exploit category contracts (Sec. 10, Sec. 13). Concrete implementations arrive as modules -- in-tree reference modules (`modules/`, loaded through the same path external modules take) or registry modules (Sec 15) -- over the contract, registration path, and gate this layer holds. | Layer 6 -- may depend on `Rod.CoreState`, `Rod.Audit`. | Implemented. The capability contract (`ICapabilityModule`, a registration-only contract: a descriptor, no execution surface -- Sec 10.2), the registry, and the registry-backed task-issuance resolver and sensitive-verb policy; every framework verb ships as a placeholder descriptor carrying its OPSEC attributes, and `GET /capabilities` exposes the catalog to the UI. The in-tree module host (Sec 15.1) is in place: reference modules deploy beside the binary by the teamserver build and load through the `Capabilities:Modules` config path exactly like external ones. Sensitive behavior arrives as modules and stays disabled by default (Sec 10.2, Sec 13, Sec 15). |
+| `Rod.Capabilities` | Pluggable post-exploitation capability modules, including the evasion/exploit category contracts (Sec. 10, Sec. 13). Concrete implementations arrive as modules -- in-tree reference modules (`modules/`, loaded through the same path external modules take) or registry modules (Sec 15) -- over the contract, registration path, and gate this layer holds. | Layer 6 -- may depend on `Rod.CoreState`, `Rod.Audit`. | Implemented. The capability contract (`ICapabilityModule`, a registration-only contract: a descriptor, no execution surface -- Sec 10.2), the registry, and the registry-backed task-issuance resolver and sensitive-verb policy; every framework verb ships as a placeholder descriptor carrying its OPSEC attributes, and `GET /capabilities` exposes the catalog to the UI. The in-tree module host (Sec 15.1) is in place: the reference modules deploy beside the binary by the teamserver build and load through the `Capabilities:DescriptorModules` config path exactly like external ones (ADR-018 -- pure manifests, no assemblies). Sensitive behavior arrives as modules and stays disabled by default (Sec 10.2, Sec 13, Sec 15). |
 | `Rod.Persistence` | **Not a layer.** The durable PostgreSQL adapters behind the core-state and audit ports (operators, operator credentials, engagements, implants, sessions, tasks, deploy tokens, audit, artifacts, and the collaboration stores -- comments, chat, credentials, and the tsvector search), swapped in at the composition root when `ConnectionStrings:Postgres` is set (Sec 12.1). | Not a layer -- may depend on `Rod.CoreState` and `Rod.Audit`; wired only at the composition root, never by transport. | Implemented. EF Core 10 over Npgsql behind a context factory (singleton-safe), migrations, and the full adapter pair; absent the connection string the in-memory adapters stay registered. |
 | `Rod.TeamServer` | **Not a layer.** The single runnable .NET process and composition root: it wires `Rod.Transport`'s services and endpoints, binds the listeners, and serves the built React operator UI same-origin with an SPA fallback. It is where the layers are assembled for `dotnet run`; the layer dependency tests do not constrain it. | Not a layer -- the composition root; depends inward on `Rod.Transport`, `Rod.Operators`, `Rod.Capabilities`, and `Rod.Persistence` (transport itself cannot reference the outer layers). | Implemented. Wires the layers, binds the configured listeners, and serves the built operator UI same-origin with hardening headers; the build runs the npm bundle first when it is missing (Sec 4.2). |
 
@@ -1961,15 +1961,19 @@ module registered for `evasion.avoid` or `exploit.invoke` replaces the
 placeholder (last-registration-wins) and is taskable through the same UI and
 gate as any built-in verb. [extending/modules.md](extending/modules.md)
 is the worked guide for module authors: both halves of a capability, the
-registration paths, and the seams' current limits. The one runtime loader is config-listed and narrowly
-bounded: the `Capabilities:Modules` section names each module as a
-`Namespace.Type, AssemblyName` string, the assembly is resolved by that name
-alone (already loaded, or a same-named dll in the application directory), and
-the type is instantiated at startup and registered against the DI-resolved
-registry (last-registration-wins). There is no directory scanning and no
-arbitrary plugin path -- a module reaches the process exactly when an operator
-built it, placed it next to the binary, and listed it, so adding one never
-edits the composition root; a misconfigured entry fails startup loudly. The
+registration paths, and the seams' current limits. The runtime loaders are
+config-listed and narrowly bounded. `Capabilities:DescriptorModules` names
+module directories whose verb rows declare their whole server-side half
+(ADR-018) -- the zero-.NET path the in-tree set rides. `Capabilities:Modules`
+names an assembly module as a `Namespace.Type, AssemblyName` string; the
+assembly is resolved by that name alone (already loaded, or a same-named dll
+in the application directory), and the type is instantiated at startup and
+registered against the DI-resolved registry (last-registration-wins, a
+manifest-listed module winning a verb listed under both). There is no
+directory scanning and no arbitrary plugin path -- a module reaches the
+process exactly when an operator built it, placed it next to the binary,
+and listed it, so adding one never edits the composition root; a
+misconfigured entry fails startup loudly. The
 capability contract is registration-only: `ICapabilityModule` carries its
 `Descriptor` and nothing else -- there is no server-side
 dispatcher surface to retire. The server only gates and forwards on the
@@ -2946,7 +2950,10 @@ clean rewrite -- delete, rename, restructure -- never as a compat shim,
 a deprecation layer, or a dual shape carried beside its replacement.
 The tree already practices this: the .NET implant and stager deleted
 whole, the QUIC/SMB/mTLS transports retired, the canonical form bumped
-v1 to v2 when the compatibility rows joined it. The clock starts at the
+v1 to v2 when the compatibility rows joined it and v2 to v3 when the
+verb rows' descriptor half did, and the in-tree server modules' .NET
+halves -- every one a pure descriptor -- deleted wholesale once the
+manifest could carry what they declared. The clock starts at the
 **freeze** -- the first semver-versioned release of `Rod.Protocol` and
 the module contracts, the same gate ADR-011's split ladder names. From
 that moment the wire protocol's evolution rules bind
@@ -2985,11 +2992,16 @@ property of that layer, never of the kernel.
 (ADR-001; the rename from `Rod.Tradecraft` shipped with the host). Reference
 modules live under `modules/` (server-side) and
 `src/implant/rust/modules/` (implant-side) and load through **exactly the
-path external modules load through** -- an assembly beside the binary plus
-an entry under `Capabilities:Modules` in the shipped configuration; nothing
-in the tree compile-references them, and the architecture tests hold that
-line. The seams stay the public, stable contract, and the tree eats its own
-dogfood. A kernel PR must answer *why it cannot be a module*.
+path external modules load through** -- the server halves are pure
+descriptor manifests (ADR-018), each a directory beside the binary listed
+under `Capabilities:DescriptorModules` in the shipped configuration; an
+external .NET module may instead ship an assembly under
+`Capabilities:Modules`, the seam the in-tree set rode before its halves
+migrated into their manifests. Nothing in the tree compile-references any
+module, and the architecture tests hold that line (the no-assemblies rule
+included: the tree ships no dual shape). The seams stay the public, stable
+contract, and the tree eats its own dogfood. A kernel PR must answer
+*why it cannot be a module*.
 
 The content half rides the same rule (**shipped**): the two asset families
 this section names -- browser-hook scripts and phishing templates -- load
@@ -3129,6 +3141,32 @@ topology, credentials, and loot panels, zero framework changes), and the
 client's vitest suite (the generic form builder and the taxonomy parsers
 over a novel schema).
 
+**Shipped too, the manifest-declared descriptor (ADR-018)**: a verb row
+that names its `category` declares the verb's whole server-side half as
+manifest data -- the per-verb `opsec` attribute flags, the
+`[[verbs.parameters]]` schema, and the `output-kind` declaration -- so a
+novel namespace opens its issuance gate with **zero .NET code**. The
+loading path is `Capabilities:DescriptorModules` (module directories, the
+same file shape asset modules ride): the host reads the manifest's name,
+requirement rows, and descriptor rows at startup, registers one module per
+row, and refuses loudly anything listed but broken -- a missing directory,
+a row without its category (a listed module must be whole), an unknown
+vocabulary name, or a schema the registry's own gate rejects. The rows'
+descriptor half rides the signed canonical form (v3: the category and
+flags fold into the verb line; the parameters, in declaration order
+because the order is data, and the output ride their own lines), the
+closed vocabularies (categories, parameter kinds, output kinds) are
+stated independently by the CLI's validator and the host's loader and
+pinned equal by a test, and `rod mod init --entry server` scaffolds the
+descriptor shape -- the manifest alone is the module, and publish accepts
+a manifest-only package for it. The in-tree reference set migrated whole:
+the thirteen server modules' .NET halves were pure descriptors and are
+deleted, their manifests carrying what they declared, no dual shape left.
+The acceptance: `ManifestDeclaredDescriptorTests` (a hand-written
+`probe.*` manifest in a temp directory opens its gate and renders its
+form from catalog data alone), the descriptor-loader unit suite, and the
+in-tree loading test over all thirteen trees.
+
 **The compatibility collapse (ADR-017; shipped).** The ecosystem's
 compatibility question is where Mythic's agent-per-plugin coupling lives:
 a plugin written against an agent's private message format serves that
@@ -3184,11 +3222,13 @@ language that links a static library writes `main` and a pump and gets
 the whole wire stack -- the middle rung between Tier 0 from scratch and
 the crate fork. The **standalone conformance runner** packages the
 harness so a community author points it at a candidate binary without
-the tree. The **manifest-declared descriptor** extends the verb rows
-with the parameter schema and output kind as manifest data, opening a
-novel namespace's gate with zero .NET code -- the server-side twin of
-the C-ABI seam's language freedom. The baked profile's presentation keys
-travel as a standalone profile file any build unit consumes.
+the tree. The baked profile's presentation keys
+travel as a standalone profile file any build unit consumes. (The
+manifest-declared descriptor this paragraph once carried shipped: the
+verb rows' descriptor half and the `Capabilities:DescriptorModules`
+loading path, with the in-tree set migrated onto it -- the server-side
+twin of the C-ABI seam's language freedom, now the default authoring
+path.)
 
 There is **no carry-over from existing ecosystems**: no BOF/COFF execution
 layer, no Armory migration. The ecosystem accumulates from zero, quality

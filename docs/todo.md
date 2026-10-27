@@ -35,7 +35,8 @@ Polyglot on-ramps first (serves architecture.md Sec 15.2, ADR-018 -- the
 designed last mile for any-language implants and plugins; ADR-017's CLI
 half -- the `requires` rows and the conformance report -- and its
 runtime half -- the issuance gate and the UI's loadable-set filter --
-shipped):
+shipped; the manifest-declared descriptor shipped too, and the in-tree
+thirteen server modules migrated onto it, their .NET halves deleted):
 
 - **Linkable core** (the shell contract): the crate's lib target as a
   documented C-ABI embedding surface -- init-with-profile, IO pump,
@@ -47,11 +48,6 @@ shipped):
   conform <candidate>` command against any process, no tree checkout.
   _AC:_ a candidate binary authored outside the repo runs the clause
   suite and gets the same pass/fail report the in-tree rig produces.
-- **Manifest-declared descriptors**: verb rows carrying the parameter
-  schema and output kind as manifest data, a pure-descriptor loading
-  path beside `Capabilities:Modules`. _AC:_ a novel-namespace module
-  opens its issuance gate with zero .NET code and the UI renders its
-  task form from the manifest schema -- zero framework changes.
 - **Presentation profile file**: the baked profile's presentation keys
   (URI shapes, User-Agent, headers, envelope shape) as a standalone file
   contract any build unit consumes. _AC:_ one profile file drives both

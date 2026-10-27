@@ -41,69 +41,83 @@ panels, and the manifest's **verb rows** carry the module-scoped version each
 verb iterates under. A module that declares all three is fully interactive on
 a teamserver that has never heard of it -- no UI change, no framework change:
 
-```csharp
-public CapabilityDescriptor Descriptor { get; } = CapabilityDescriptor.Of(
-    "sweep.discover",
-    CapabilityCategory.Recon,
-    "0.3",
-    parameters: new[]
-    {
-        new VerbParameter("host", "Host", VerbParameterKind.String, Required: true),
-        new VerbParameter("range", "Port range", VerbParameterKind.String, Required: true),
-    },
-    output: new VerbOutput(VerbOutputKind.Enumeration,
-        "One JSON finding per line: host, port, state, service."));
-```
-
-**The parameter schema.** One `VerbParameter` per argument field, in the
-order the verb's grammar joins them. The serialization rule is fixed and
-shared: values join with single spaces in declaration order, empty optionals
-drop out, a `Trailing` final parameter takes everything after as the raw
-remainder (the trailing-command shape -- a value with spaces belongs there),
-and a `File` parameter rides the content arm -- inline base64 under the 1 MiB
-ceiling when `Inline` is true (the default), staged bytes otherwise, where the
-server binds the sha256 into the signed arguments. Kinds: `String`, `Text`
-(free text, renders wide), `Number`, `Boolean`, `Enum` (carries `Choices`),
-`File`, `Array` (a comma list). The wire is untouched: the UI builds the
-opaque argument string and the verb's own handler stays the parser
-(architecture.md Sec 10). Registration refuses a schema the UI cannot render
-(trailing not last, a duplicate name, an enum without choices).
-
-**The output declaration.** `VerbOutput` names the taxonomy kind the results
-speak; the grammar behind each row kind is JSON lines (one object per line,
-required fields present, unknown fields ignored):
-
-| Kind | Grammar (one JSON object per line) | The panel it earns |
-|------|------------------------------------|--------------------|
-| `Enumeration` | `host` required; `port`, `state`, `service`, `addresses`, `os`, `arch` optional | the topology view and the task row's structure table |
-| `ProcessList` | `pid`, `image` required; `ppid`, `user` optional | the process table |
-| `FileList` | `name` required; `dir`, `size`, `mtime` optional | the file table |
-| `Credential` | `kind`, `principal` required; `secret`, `source`, `host`, `note` optional | the credentials board (Assets slot) and the task row's credential table |
-| `File` | no inline grammar -- the bulk rides the exfil chunk path into the artifact store | the loot board's file kind, the task row's artifact download |
-| `Screenshot` | a PNG artifact through the exfil chunk path | the loot board's screenshot kind, the inline preview |
-| `Text` | none | the transcript alone (the default and the degradation target) |
-
-A verb whose output does not parse against its declared kind degrades to
-plain text: the UI keeps working, the module just earns no panels. Secret
-material in `Credential` rows renders masked until revealed, and never enters
-the audit chain.
-
-**The version rows.** The manifest carries one `[[verbs]]` row per verb --
-its module-scoped version and an optional per-verb `teamserver` floor -- so a
-verb iterates independently of the package and install refuses a version
-whose verbs outrun the deployment, naming the verb:
-
 ```toml
 [[verbs]]
 name = "sweep.discover"
 version = "0.3.0"
-# teamserver = "1.4.0"   # optional per-verb floor
+category = "recon"
+opsec = { "touches-network" = true }
+techniques = ["T1046"]
+output-kind = "enumeration"
+output-help = "One JSON finding per line: host, port, state, service."
+
+  [[verbs.parameters]]
+  name = "host"
+  label = "Host"
+  kind = "string"
+  required = true
+  placeholder = "10.0.0.7"
+
+  [[verbs.parameters]]
+  name = "range"
+  label = "Port range"
+  kind = "string"
+  required = true
 ```
 
-The rows ride the signed canonical form (a tampered verb version breaks
-`rod mod verify` exactly like a tampered payload byte) and mirror into the
-registry entry, where `rod mod search` finds a module by verb name and
-`rod mod info` lists the rows.
+**The parameter schema.** One `[[verbs.parameters]]` row per argument
+field, in the order the verb's grammar joins them. The serialization rule
+is fixed and shared: values join with single spaces in declaration order,
+empty optionals drop out, a `trailing = true` final parameter takes
+everything after as the raw remainder (the trailing-command shape -- a
+value with spaces belongs there), and a `file` parameter rides the content
+arm -- inline base64 under the 1 MiB ceiling when `inline` is true (the
+default), staged bytes otherwise, where the server binds the sha256 into
+the signed arguments. Kinds: `string`, `text` (free text, renders wide),
+`number`, `boolean`, `enum` (carries `choices`), `file`, `array` (a comma
+list). The wire is untouched: the UI builds the opaque argument string and
+the verb's own handler stays the parser (architecture.md Sec 10).
+Validation refuses a schema the UI cannot render (trailing not last, a
+duplicate name, an enum without choices) -- at publish through the CLI, at
+startup through the registry's own gate.
+
+**The output declaration.** `output-kind` names the taxonomy kind the
+results speak; the grammar behind each row kind is JSON lines (one object
+per line, required fields present, unknown fields ignored):
+
+| Kind | Grammar (one JSON object per line) | The panel it earns |
+|------|------------------------------------|--------------------|
+| `enumeration` | `host` required; `port`, `state`, `service`, `addresses`, `os`, `arch` optional | the topology view and the task row's structure table |
+| `process-list` | `pid`, `image` required; `ppid`, `user` optional | the process table |
+| `file-list` | `name` required; `dir`, `size`, `mtime` optional | the file table |
+| `credential` | `kind`, `principal` required; `secret`, `source`, `host`, `note` optional | the credentials board (Assets slot) and the task row's credential table |
+| `file` | no inline grammar -- the bulk rides the exfil chunk path into the artifact store | the loot board's file kind, the task row's artifact download |
+| `screenshot` | a PNG artifact through the exfil chunk path | the loot board's screenshot kind, the inline preview |
+| `text` | none | the transcript alone (the default and the degradation target) |
+
+A verb whose output does not parse against its declared kind degrades to
+plain text: the UI keeps working, the module just earns no panels. Secret
+material in `credential` rows renders masked until revealed, and never
+enters the audit chain.
+
+**The verb rows.** The manifest carries one `[[verbs]]` row per verb --
+its module-scoped version and an optional per-verb `teamserver` floor -- so
+a verb iterates independently of the package and install refuses a version
+whose verbs outrun the deployment, naming the verb. A row that names a
+`category` is a **descriptor row** (ADR-018): the verb's whole server-side
+half as manifest data -- the category (one of `core`, `recon`, `lateral`,
+`persist`, `collect`, `exfil`, `tunnel`, `module`, `browser`, `evasion`,
+`exploit`), the per-verb OPSEC attribute flags (the `opsec` table, free-form
+keys the UI badges), the parameter schema, and the output declaration -- so
+a novel namespace opens its issuance gate with zero .NET code. A row
+without a category is a version row only: the server-side half lives in an
+assembly the operator lists separately, and the two shapes never mix their
+fields.
+
+The rows ride the signed canonical form (a tampered verb version, choice
+set, or output kind breaks `rod mod verify` exactly like a tampered payload
+byte) and mirror into the registry entry, where `rod mod search` finds a
+module by verb name and `rod mod info` lists the rows.
 
 ## Capability requirements and the conformance report
 
@@ -171,10 +185,47 @@ publisher's key breaks verification exactly like a tampered payload
 byte. Declare it honestly -- the operator comparing your implant's
 report against a plugin's requirements is the collapse doing its job.
 
-## Server-side half: register a module
+## Server-side half: declare the descriptors, or write an assembly
 
-Implement `ICapabilityModule` -- a registration-only contract carrying exactly
-one `CapabilityDescriptor`:
+**The manifest path (zero .NET, the default).** A server-entry module's
+whole server-side half is its verb rows: fill in each row's `category`,
+`opsec` flags, parameters, and output declaration (the grammar above), and
+list the module directory under `Capabilities:DescriptorModules` in
+`appsettings.json` -- paths are relative to the teamserver binary, and the
+build deploys the in-tree set under `modules/` beside the binary:
+
+```json
+{
+  "Capabilities": {
+    "DescriptorModules": [ "modules/hostenum", "/opt/rod/modules/sweep" ]
+  }
+}
+```
+
+That is the whole integration, and it is the path every in-tree reference
+module rides:
+
+- The host reads the manifest's name, requirement rows, and descriptor rows
+  at startup and registers one module per row. Registration is
+  **last-wins over the placeholder** -- every built-in verb (the
+  contract-only `evasion.*` / `exploit.*` included) is held by a
+  placeholder module precisely so your module replaces it by registration.
+- A registered module **widens the task gate**: the registry-backed resolver
+  admits the verb for task issuance even when no implant class's reduced set
+  lists it. This is the path a novel namespace depends on.
+- The module must be whole: every verb row carries its category. A listed
+  module with a version-only row would gate some of its verbs and silently
+  skip its own -- the host refuses it at startup, naming the row. A module
+  whose rows are version-only is an assembly module; it lists under
+  `Capabilities:Modules` instead.
+- Failures are loud: a listed directory that is missing, a manifest that
+  does not parse, an unknown category or kind, or a schema the UI cannot
+  render each aborts startup. A red team cannot afford "registered but not
+  what the operator deployed".
+
+**The assembly path (when you want server-side code).** The seam a .NET
+module rides is unchanged: implement `ICapabilityModule` -- a
+registration-only contract carrying exactly one `CapabilityDescriptor`:
 
 ```csharp
 using Rod.Capabilities;
@@ -195,7 +246,7 @@ public sealed class MyPingModule : ICapabilityModule
 ```
 
 Build it, drop `MyModules.dll` next to the teamserver binary, and list the
-type under `Capabilities:Modules` in `appsettings.json`:
+type under `Capabilities:Modules`:
 
 ```json
 {
@@ -205,28 +256,13 @@ type under `Capabilities:Modules` in `appsettings.json`:
 }
 ```
 
-The in-tree reference module `modules/hostenum` took this exact path: the
-teamserver's build deploys its assembly beside the binary and the shipped
-configuration names it, so it loads through the same config list your module
-lands in -- being in-tree changes nothing about the path.
-
-That is the whole server-side integration:
-
-- Registration is **last-wins over the placeholder** -- every built-in verb
-  (the contract-only `evasion.*` / `exploit.*` included) is held by a
-  placeholder module precisely so your module replaces it by registration.
-- A registered module **widens the task gate**: the registry-backed resolver
-  admits the verb for task issuance even when no implant class's reduced set
-  lists it. This is the path the sensitive categories depend on -- they are
-  deliberately not class-gated (architecture.md Sec 5.2, Sec 10.3).
-- Failures are loud: a wrong type name, a missing assembly, or a throwing
-  constructor aborts startup. A red team cannot afford "registered but not
-  what the operator deployed".
-
-The loader resolves assemblies **only** by that explicit list (already loaded,
-or a same-named dll in the application directory) -- it never scans
+The loader resolves assemblies **only** by that explicit list (already
+loaded, or a same-named dll in the application directory) -- it never scans
 directories. A module reaches the process exactly when an operator built it,
-placed it, and named it.
+placed it, and named it. The tree itself ships no assemblies this way: every
+in-tree module's half is descriptor data, and the assembly path is the
+escape hatch an operator's own .NET module takes when it wants code the
+manifest grammar cannot express.
 
 ## Asset modules: ship content, not code
 
@@ -375,9 +411,9 @@ from any artifact, the static musl fielded build included.
 **Pairing with the server half.** A module verb in a standard namespace
 (recon, lateral, persist, collect, exfil) is class-admissible for the
 Implant class already, so it tasks with no server-side ceremony. A module
-carrying a novel namespace pairs with a server-side descriptor module
-(the `ICapabilityModule` half above) that widens the issuance gate -- two
-halves, one verb string, nothing else shared.
+carrying a novel namespace pairs with a server-side descriptor -- the
+manifest's verb row (or the `ICapabilityModule` assembly above) that widens
+the issuance gate -- two halves, one verb string, nothing else shared.
 
 ## A plugin in C (the any-toolchain proof)
 
@@ -669,7 +705,7 @@ external module carries. What each part decides:
 | `[compatibility] teamserver` | the minimum platform generation the module runs on | install, per version |
 | `[compatibility] requires` | the wire capabilities the hosting implant must support (the closed vocabulary below) | install, plus the runtime gate: a module.load onto a session whose advertisement does not cover the rows is refused naming what is missing |
 | `[[compatibility.targets]]` | implant-class / platform / arch rows the module claims | surfaced at search and install |
-| `[[verbs]]` | each verb's module-scoped version, optional per-verb teamserver floor, and its ATT&CK techniques | floors at install; techniques feed every coverage face |
+| `[[verbs]]` | each verb's module-scoped version, optional per-verb teamserver floor, its ATT&CK techniques, and -- with a `category` -- the whole descriptor (OPSEC flags, parameter schema, output declaration; ADR-018) | floors at install; techniques feed every coverage face; the descriptor registers the verb at startup |
 | `[conformance]` (build units) | what the candidate proved against the conformance harness -- tier, harness generation, date, clauses | surfaced at info and install; rides the signed form |
 | `[opsec]` | `lands-on-disk` and the free-text note | shown at search and install -- an operator screens the target impact before fetching |
 | `[attack]` | the module-level technique roll-up | must be exactly the union of the verb rows' techniques (or omitted) |

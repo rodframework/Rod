@@ -67,8 +67,9 @@ construction.
   with an optional static mirror replaces it entirely.
 - **Container-per-module packaging** (Mythic's agents as compose
   services). A second deployment shape Rod will not carry: a module is
-  an assembly or a handler file the existing process loads through its
-  config-listed path, not a service fleet to orchestrate (Sec 15.1).
+  a manifest, an assembly, or a handler file the existing process loads
+  through its config-listed path, not a service fleet to orchestrate
+  (Sec 15.1).
 - **The in-tree monolithic module library** (Metasploit's thousands of
   modules shipping with the framework). Breadth grows in the module
   layer and the registry, quality before quantity, from zero with no
