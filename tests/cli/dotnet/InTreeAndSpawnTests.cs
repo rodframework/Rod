@@ -33,6 +33,7 @@ public class InTreeModuleTests
         { "browser", "collect.browser" },
         { "unload", "evasion.unload" },
         { "lsasecrets", "collect.lsasecrets" },
+        { "credman", "collect.credman" },
     };
 
     private static string RepoRoot()
