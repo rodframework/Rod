@@ -46,8 +46,9 @@ seat as wmi, and the DLL search-order seat as hijack):
 - **Credential collection family** (serves Sec 15.2, Sec 5.4; the
   collect long tail -- the account hive dump shipped as hives, the
   unsealing primitive as dpapi, the Chromium login stores as browser,
-  and the LSA secret store read as lsasecrets, the family's first
-  four entries): further dump paths -- Windows-gated, opsec notes
+  the LSA secret store read as lsasecrets, and the logon session's
+  credential manager store as credman, the family's first five
+  entries): further dump paths -- Windows-gated, opsec notes
   naming the on-target footprint.
   _AC:_ the standing module contract (manifest, paired halves, coverage
   declaration, CI lane), plus sensitive rows ship disabled and enable
