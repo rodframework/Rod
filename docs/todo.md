@@ -43,32 +43,12 @@ through sixth pairs carry the persist long tail: the registry run-key
 seat as runkeys, the service seat as services, the WMI subscription
 seat as wmi, and the DLL search-order seat as hijack):
 
-- **LSA secrets** (serves Sec 15.2, Sec 5.4; the credential
-  collection family's fourth module): `collect.lsasecrets`, the LSA
-  policy's secret store read in place -- the store's inventory
-  enumerated out of the registry's own SECURITY subtree and the
-  values asked back through the LSA's policy API, so the system
-  performs its own decryption and the module touches no crypto. The
-  bare task is the survey read: the SYSTEM seat held or not (the one
-  seat both halves answer to -- the subtree that enumerates the names
-  and the secret objects that hand back the values) and the
-  inventory, one secret name per row. `read` takes the values -- all
-  of them or the one a trailing name picks -- rendered as text where
-  the bytes decode cleanly and as hex where they do not, riding the
-  task's result frames with nothing landing on disk. The store is
-  the one hives mirrors offline: DPAPI_SYSTEM feeds dpapi's
-  unsealing, $MACHINE.ACC carries the machine-account password, and
-  the service-account seats ride `_SC_` rows.
-  _AC:_ the standing module contract, the credential-honest OPSEC
-  attributes, and the plugin rides the per-engagement module load,
-  never a default profile.
-
 - **Credential collection family** (serves Sec 15.2, Sec 5.4; the
   collect long tail -- the account hive dump shipped as hives, the
-  unsealing primitive as dpapi, and the Chromium login stores as
-  browser, the family's first three entries, and the LSA secrets
-  store read is the entry above): further dump paths -- Windows-gated,
-  opsec notes naming the on-target footprint.
+  unsealing primitive as dpapi, the Chromium login stores as browser,
+  and the LSA secret store read as lsasecrets, the family's first
+  four entries): further dump paths -- Windows-gated, opsec notes
+  naming the on-target footprint.
   _AC:_ the standing module contract (manifest, paired halves, coverage
   declaration, CI lane), plus sensitive rows ship disabled and enable
   per build profile (Sec 7).
