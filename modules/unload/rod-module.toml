@@ -1,0 +1,53 @@
+# The unload module manifest (architecture.md Sec 15.2): the
+# defense-evasion family's second entry rides the same package format,
+# canonical form, and signature chain the ten modules before it ride,
+# exercised by the CLI's end-to-end tests exactly like a
+# template-repository module.
+
+[module]
+name = "unload"
+version = "1.0.0"
+entry = "server"
+license = "Apache-2.0"
+description = "ntdll unhooking: compare the mapped .text against the disk copy's own bytes and restore it from them -- evasion.unload's execution half lives at src/implant/rust/modules/unload."
+
+[compatibility]
+teamserver = "1.0.0"
+
+# The verb version matrix (architecture.md Sec 15.2): the verb iterates
+# under its own module-scoped version, independently of the package
+# version. The row's techniques are the authoritative per-verb ATT&CK
+# declaration (ADR-007) -- the same ids the server-side descriptor
+# registers -- with the module-level [attack] list as their validated
+# roll-up. T1562.001 (Impair Defenses: Disable or Modify Tools) is the
+# restore itself; the kernel catalog maps this very verb to the id, so
+# the sweep renders the module's carrier beside the kernel's own row
+# for the same verb and folds both into the technique's carriers --
+# the same beside-a-kernel-carrier shape the avoid row rides.
+[[verbs]]
+name = "evasion.unload"
+version = "1.0.0"
+techniques = ["T1562.001"]
+
+# The compare and the copy are byte arithmetic no architecture owns:
+# the manifest claims both Windows targets, and no others -- the
+# module loads nowhere the mapped ntdll it addresses exists.
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "windows"
+arch = "amd64"
+
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "windows"
+arch = "arm64"
+
+[opsec]
+lands-on-disk = false
+notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content and nothing it does lands on disk: the disk ntdll is read where it sits and the restore rewrites pages of the implant process's own mapping -- copy-on-write makes them private, the effect dies with the process, and a new process maps fresh libraries. The bare task is the read (the differing-byte count); the restore is the write the operator names. The compare trusts the disk copy only as far as a build fingerprint carries (a patch-Tuesday drift refuses), and the KnownDlls section-object path is the module's later widening. Products that guard ntdll's .text (periodic re-hooking, guard-page telemetry) are a live blue-team surface; the verb is sensitive (Evasion category, modifies-defenses attribute), held out of unattended firing by the registry-backed policy, and the plugin rides the per-engagement module load -- never a default profile."
+
+[attack]
+techniques = ["T1562.001"]
+
+[package]
+include = ["rod-module.toml", "*.cs", "*.csproj"]

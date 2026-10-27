@@ -31,6 +31,7 @@ public class InTreeModuleTests
         { "dpapi", "collect.dpapi" },
         { "avoid", "evasion.avoid" },
         { "browser", "collect.browser" },
+        { "unload", "evasion.unload" },
     };
 
     private static string RepoRoot()
