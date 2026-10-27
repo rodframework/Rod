@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Rod.CoreState;
 using Rod.CoreState.Application;
 using Rod.CoreState.Engagements;
@@ -21,7 +22,7 @@ using Rod.Transport;
 using Rod.V1;
 using Task = System.Threading.Tasks.Task;
 
-namespace Rod.Conformance.Tests;
+namespace Rod.Conformance;
 
 // The Tier 0 conformance harness (architecture.md Sec 8, the implant-reach
 // contract): a rig that drives a candidate implant against a live teamserver
@@ -158,9 +159,13 @@ public sealed class ConformanceRig : IAsyncDisposable
         // The live teamserver: the transport core on a real Kestrel host --
         // plain HTTP carrying enroll, the envelope beacon, and the WebSocket
         // stream on one listener. The harness observes outcomes through the
-        // core services the operator API drives.
+        // core services the operator API drives. Both hosts here run with
+        // their console logging cleared: a rig run's observable is the
+        // per-clause report, and the standalone runner prints exactly that
+        // and nothing else on stdout.
         var host = TransportHost.CreateHostBuilder().ConfigureWebHost(web => web
                 .ConfigureKestrel(kestrel => kestrel.ListenLocalhost(enrollPort)))
+            .ConfigureLogging(logging => logging.ClearProviders())
             .Build();
 
         // The harness's operator identity: tasking must attribute to someone.
@@ -186,6 +191,7 @@ public sealed class ConformanceRig : IAsyncDisposable
         // shape a build bakes now) still runs the whole clause through it.
         var taskingProbe = new TaskingProbe(ca);
         var probe = Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder();
+        probe.Logging.ClearProviders();
         probe.Services.AddSingleton(taskingProbe);
         probe.WebHost.ConfigureKestrel(kestrel => kestrel.ListenLocalhost(probePort));
         var probeApp = probe.Build();

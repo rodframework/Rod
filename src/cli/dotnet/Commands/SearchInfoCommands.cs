@@ -15,7 +15,7 @@ public static class SearchCommand
         var parsed = ParsedArgs.Parse(args,
             valueOptions: new HashSet<string> { "registry" },
             flags: new HashSet<string> { "json" },
-            verb: "search");
+            command: "mod search");
 
         var registry = RegistrySource.Resolve(parsed, Environment.CurrentDirectory);
         var entries = RegistryStore.Open(registry).LoadAll()
@@ -92,7 +92,7 @@ public static class InfoCommand
         var parsed = ParsedArgs.Parse(args,
             valueOptions: new HashSet<string> { "registry" },
             flags: new HashSet<string>(),
-            verb: "info");
+            command: "mod info");
 
         if (parsed.Positional.Count != 1)
             throw new CliError("rod mod info needs <name>[@version].");

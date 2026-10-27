@@ -58,6 +58,11 @@ toolchain and language boundaries in Sec 12.2, capability surface in Sec 13.
   publish). It references nothing in-house: it couples to the platform
   only through the ecosystem's file contracts (`rod-module.toml`, the
   static git registry index, `rod.modules.lock.json`).
+- **Conformance harness: .NET, under `src/conformance/dotnet/`.** The
+  Tier 0 rig (`Rod.Conformance`) plus the executables that ship it: the
+  `rod-conform` runner (spawned by `rod conform` through a file
+  contract, keeping the CLI's zero-in-house-reference line) and the
+  `rod-minimal-implant` worked example.
 - Shared .NET build settings live in `Directory.Build.props` at the repo root
   (`Nullable` enabled, `TreatWarningsAsErrors` on, latest `LangVersion`). Do
   not duplicate these per-project.

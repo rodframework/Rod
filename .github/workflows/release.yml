@@ -83,12 +83,20 @@ jobs:
           tar -czf dist/rod-src.tar.gz \
             --exclude 'target' \
             src/implant/rust src/implant/go src/teamserver/Rod.Protocol/protos
-      - name: Build the operator CLI
+      - name: Build the operator CLI and the conformance runner
         # rod mod coverage (below) renders the release's ATT&CK section from
         # the module manifests and the kernel catalog -- the advancement
         # mechanism's promise: the notes' coverage claims are generated from
-        # the declarations, never hand-written.
-        run: dotnet publish src/cli/dotnet/Rod.Cli.csproj -c Release -o dist/cli
+        # the declarations, never hand-written. The conformance runner and
+        # the worked-example implant publish into the same tree so `rod
+        # conform` finds rod-conform beside rod: the file-contract resolution
+        # the CLI documents. The tarball is the community author's whole
+        # entry -- rod, rod-conform, rod-minimal-implant, no tree checkout.
+        run: |
+          dotnet publish src/cli/dotnet/Rod.Cli.csproj -c Release -o dist/cli
+          dotnet publish src/conformance/dotnet/Rod.Conformance.Runner/Rod.Conformance.Runner.csproj -c Release -o dist/cli
+          dotnet publish src/conformance/dotnet/Rod.Conformance.Minimal/Rod.Conformance.Minimal.csproj -c Release -o dist/cli
+          tar -czf dist/rod-cli-linux-x64.tar.gz -C dist/cli .
       - name: Compose the release notes
         # GitHub's generated changelog, then the coverage matrix appended as
         # its own section -- the generated markdown's heading is the section
@@ -120,4 +128,4 @@ jobs:
             --title "Rod ${GITHUB_REF_NAME#v}" \
             --notes-file dist/release-notes.md \
             "${flags[@]}" \
-            dist/rod-teamserver-linux-x64.tar.gz dist/rod-src.tar.gz scripts/install.sh
+            dist/rod-teamserver-linux-x64.tar.gz dist/rod-src.tar.gz dist/rod-cli-linux-x64.tar.gz scripts/install.sh

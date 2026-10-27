@@ -42,7 +42,7 @@ internal static class CoverageCommand
         var parsed = ParsedArgs.Parse(args,
             valueOptions: new HashSet<string> { "path", "catalog" },
             flags: new HashSet<string> { "json" },
-            verb: "coverage");
+            command: "mod coverage");
 
         var root = Path.GetFullPath(parsed.Value("path") ?? Environment.CurrentDirectory);
         if (!Directory.Exists(root))

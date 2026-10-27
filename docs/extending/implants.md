@@ -914,17 +914,50 @@ and rod.proto together, never as a compat shim.
 ## Conformance harness
 
 The Tier 0 contract is executable, not just documented: the conformance
-harness (`tests/teamserver/Rod.Conformance.Tests/`) drives a candidate
-implant against a live teamserver and reports pass/fail per clause --
-`enroll.public-key-and-token`, `handshake.first-frame-ok`, `task.round-trip`,
-`chunk.discipline`, `signature.verification` (against a hostile tasking probe
-that feeds unsigned, wrongly signed, cross-implant, and correctly signed
-control tasks), and `kill-date.refusal`. Pointing it at the reference implant
-passes every clause; pointing it at a deliberately broken one fails with the
-violated clause named. A community implant author reproduces the shape:
-implement `IImplantCandidate` (a process or an in-process loop) and hand it
-to `ConformanceRig.RunAsync` -- the rig's own `MinimalImplant` is a worked
+harness (the rig in `src/conformance/dotnet/Rod.Conformance/`, run by the
+in-tree acceptance in `tests/teamserver/Rod.Conformance.Tests/`) boots a
+real teamserver in-process and drives a candidate implant against it,
+reporting pass/fail per clause -- `enroll.public-key-and-token`,
+`handshake.first-frame-ok`, `task.round-trip`, `chunk.discipline`,
+`signature.verification` (against a hostile tasking probe that feeds
+unsigned, wrongly signed, cross-implant, and correctly signed control
+tasks), and `kill-date.refusal`. Pointing it at the reference implant
+passes every clause; pointing it at a deliberately broken one fails with
+the violated clause named. The rig's own `MinimalImplant` is a worked
 Tier 0/Tier 1 example with switchable defects.
+
+**The standalone runner.** A community author never touches the tree: the
+release's `rod-cli-linux-x64.tar.gz` ships `rod`, the `rod-conform`
+runner, and `rod-minimal-implant` (the worked example as a binary), and
+`rod conform <candidate>` drives the whole clause battery against any
+candidate process:
+
+```sh
+rod conform ./my-implant --env ROD_SLEEP=1
+rod conform --selftest    # the harness's own example, no candidate needed
+```
+
+The CLI couples to the runner by file contract only -- resolved beside
+the rod binary, on PATH, or named by `--runner` -- so the CLI keeps its
+zero-in-house-reference line; the runner is the side that boots the
+teamserver. Its stdout is the per-clause report, byte-identical to the
+in-tree rig's (one rig implementation serves both), and its exit code
+carries the verdict to a pipeline: 0 every clause passed, 1 usage, 2 a
+clause failed. In-tree, a candidate may also be driven directly:
+implement `IImplantCandidate` (a process or an in-process loop) and hand
+it to `ConformanceRig.RunAsync`.
+
+**The candidate process contract.** The runner launches the candidate
+once per phase -- a fresh front and credential each time -- with
+`ROD_ENROLL_URL`, `ROD_DEPLOY_TOKEN`, and, in the kill-date phase,
+`ROD_KILL_DATE` in its environment; the working directory is the
+candidate's own. The candidate enrolls through that front and runs its
+contact loop until terminated; it must contact at a cadence the harness's
+30-second observation deadlines accommodate (the reference implant runs
+with `ROD_SLEEP=1` passed through `--env`), and it must exit on its own
+when its baked kill date is past -- the refusal the kill-date clause
+observes. `--env KEY=VALUE` (repeatable) tunes the candidate's own knobs;
+the target variables above are set by the runner and win.
 
 ## Calibration note
 

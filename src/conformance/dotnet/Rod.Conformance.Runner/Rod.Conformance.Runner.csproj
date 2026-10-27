@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- rod-conform, the standalone conformance runner (architecture.md
+       Sec 15.2, ADR-018): the harness as one executable a community author
+       points at a candidate binary, no tree checkout. The rod CLI's
+       `rod conform` command spawns it by file contract, so the CLI itself
+       keeps its zero in-house-reference line; this is the side allowed to
+       reference the teamserver stack. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>rod-conform</AssemblyName>
+    <RootNamespace>Rod.Conformance.Runner</RootNamespace>
+    <RodStampBuildInfo>true</RodStampBuildInfo>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Rod.Conformance\Rod.Conformance.csproj" />
+  </ItemGroup>
+
+</Project>

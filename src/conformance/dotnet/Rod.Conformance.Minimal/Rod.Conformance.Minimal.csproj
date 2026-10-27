@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- rod-minimal-implant: the harness's worked example as a process
+       (extending/implants.md, "Conformance harness"): the minimal Tier 0
+       implant the rig also runs in-process, reading the documented candidate
+       environment. It is the sanity candidate for `rod conform` (a full
+       all-pass run with no candidate authored) and the reference shape a
+       community author reproduces in any language. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>rod-minimal-implant</AssemblyName>
+    <RootNamespace>Rod.Conformance.Minimal</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Rod.Conformance\Rod.Conformance.csproj" />
+  </ItemGroup>
+
+</Project>

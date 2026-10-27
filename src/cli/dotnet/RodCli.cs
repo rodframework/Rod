@@ -34,6 +34,9 @@ public static class RodCli
             if (args[0] == "mod")
                 return await ModCommand.RunAsync(args[1..], output, error);
 
+            if (args[0] == "conform")
+                return await ConformCommand.RunAsync(args[1..], output, error);
+
             error.WriteLine($"unknown command '{args[0]}'.");
             PrintUsage(error);
             return ExitUsage;
@@ -57,6 +60,7 @@ public static class RodCli
             rod -- the Rod operator CLI
 
             usage: rod mod <verb> [options]
+                   rod conform <candidate> [options]
 
             verbs:
               init <name>          scaffold a module repository (manifest, template, signing key)
@@ -67,12 +71,18 @@ public static class RodCli
               publish              package and sign the module in the current directory
               coverage             render the ATT&CK coverage matrix a module tree declares
 
+            commands:
+              conform <candidate>  run the Tier 0 conformance clauses against a candidate
+                                   implant binary (needs the rod-conform runner; --selftest
+                                   runs the harness's own example instead)
+
             common options:
               --registry <dir|url>   the registry to use (default: the lock file's)
               --dir <path>           install root (default: the working directory)
               --json                 machine-readable output (search)
 
-            'rod mod help <verb>' prints the verb's options.
+            'rod mod help <verb>' prints the verb's options; 'rod conform --help'
+            prints the conform command's.
             """);
     }
 }
@@ -84,18 +94,24 @@ public sealed class CliError(string message, int exitCode = RodCli.ExitUsage) : 
     public int ExitCode { get; } = exitCode;
 }
 
-/// <summary>Parses long options against a verb's declared option set:
-/// value options take <c>--opt value</c> or <c>--opt=value</c>, flags stand
-/// alone. Anything else is a usage error naming the offending token.</summary>
+/// <summary>Parses long options against a command's declared option set:
+/// value options take <c>--opt value</c> or <c>--opt=value</c>, repeatable
+/// options collect every occurrence, flags stand alone. Anything else is a
+/// usage error naming the offending token.</summary>
 internal sealed class ParsedArgs
 {
     private readonly Dictionary<string, string> _options = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<string>> _repeated = new(StringComparer.Ordinal);
 
     public List<string> Positional { get; } = [];
 
     public bool Has(string option) => _options.ContainsKey(option);
 
     public string? Value(string option) => _options.GetValueOrDefault(option);
+
+    /// <summary>Every occurrence of a repeatable option, in order.</summary>
+    public IReadOnlyList<string> Values(string option)
+        => _repeated.GetValueOrDefault(option) ?? [];
 
     public string Require(string option, string what)
         => _options.TryGetValue(option, out var value) && !string.IsNullOrWhiteSpace(value)
@@ -106,7 +122,8 @@ internal sealed class ParsedArgs
         string[] args,
         IReadOnlySet<string> valueOptions,
         IReadOnlySet<string> flags,
-        string verb)
+        string command,
+        IReadOnlySet<string>? repeatableOptions = null)
     {
         var parsed = new ParsedArgs();
         for (var i = 0; i < args.Length; i++)
@@ -132,14 +149,23 @@ internal sealed class ParsedArgs
                 name = body;
             }
             if (name.Length == 0)
-                throw new CliError($"'rod mod {verb}': bare '--' is not an option.");
+                throw new CliError($"'rod {command}': bare '--' is not an option.");
 
             if (valueOptions.Contains(name))
             {
                 var value = inlineValue ?? (i + 1 < args.Length ? args[++i] : null);
                 if (string.IsNullOrEmpty(value))
-                    throw new CliError($"'rod mod {verb}': --{name} needs a value.");
+                    throw new CliError($"'rod {command}': --{name} needs a value.");
                 parsed._options[name] = value;
+            }
+            else if (repeatableOptions?.Contains(name) == true)
+            {
+                var value = inlineValue ?? (i + 1 < args.Length ? args[++i] : null);
+                if (string.IsNullOrEmpty(value))
+                    throw new CliError($"'rod {command}': --{name} needs a value.");
+                if (!parsed._repeated.TryGetValue(name, out var occurrences))
+                    parsed._repeated[name] = occurrences = [];
+                occurrences.Add(value);
             }
             else if (flags.Contains(name) && inlineValue is null)
             {
@@ -147,7 +173,7 @@ internal sealed class ParsedArgs
             }
             else
             {
-                throw new CliError($"'rod mod {verb}': unknown option '--{name}'.");
+                throw new CliError($"'rod {command}': unknown option '--{name}'.");
             }
         }
         return parsed;

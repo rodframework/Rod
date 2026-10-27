@@ -4,34 +4,22 @@ using System.Security.Cryptography.X509Certificates;
 using Google.Protobuf;
 using Rod.V1;
 
-namespace Rod.Conformance.Tests;
+namespace Rod.Conformance;
 
 /// <summary>
-/// The deliberate defects the harness's in-process implant can carry. Each
-/// one breaks exactly one contract clause; the rest of the implementation
-/// stays conforming, so a failing clause is attributable to its defect and
-/// the harness names it.
+/// The minimal implant's wire behavior: enroll the generated key, then the
+/// envelope POST cycle until stopped -- the poll discipline the contract
+/// sets, with the tasking-signature gate, shell.exec execution, and chunked
+/// file.pull exfil inline. One instance is one candidate run: the
+/// in-process <see cref="MinimalImplant"/> starts one per phase, and the
+/// example implant binary runs it once from the environment until killed.
+/// A past kill date returns before any contact -- the refusal the kill-date
+/// clause observes.
 /// </summary>
-public sealed record ImplantDefects(
-    bool SkipSignatureVerification = false,
-    bool SpeakHandshakeSecond = false,
-    bool ScrambleChunkSequences = false);
-
-/// <summary>
-/// A minimal Tier 0/Tier 1 implant written straight from the contract doc,
-/// in-process so the harness can switch defects on and off: ECDSA P-256
-/// enroll, the plain-HTTP envelope contact (one POST per poll cycle, the
-/// plaintext lab posture), canonical tasking-signature verification,
-/// shell.exec execution, and chunked file.pull exfil. The deliberately
-/// broken candidates the acceptance criterion names are this implant with
-/// one defect flipped on.
-/// </summary>
-public sealed class MinimalImplant : IImplantCandidate
+public sealed class MinimalImplantLoop(ImplantDefects defects)
 {
-    private readonly ImplantDefects _defects;
+    private readonly ImplantDefects _defects = defects;
     private readonly HttpClient _http = new();
-    private CancellationTokenSource? _running;
-    private Task? _loop;
 
     // The replay-nonce state (architecture.md Sec 9), the reference posture:
     // advertise at every handshake, honor the echo, and keep the accepted
@@ -39,46 +27,7 @@ public sealed class MinimalImplant : IImplantCandidate
     private readonly TaskNonceFloor _nonces = new();
     private bool _negotiated;
 
-    public MinimalImplant(ImplantDefects defects)
-    {
-        _defects = defects;
-    }
-
-    public bool HasExited => _loop is null || _loop.IsCompleted;
-
-    public Task StartAsync(ConformanceTarget target)
-    {
-        if (_running is not null)
-            throw new InvalidOperationException("The candidate is already running.");
-        _running = new CancellationTokenSource();
-        _loop = Task.Run(() => RunAsync(target, _running.Token));
-        return Task.CompletedTask;
-    }
-
-    public async Task StopAsync()
-    {
-        _running?.Cancel();
-        if (_loop is not null)
-        {
-            try
-            {
-                await _loop;
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (HttpRequestException)
-            {
-                // A failed contact surfaces here; the stop is the intent.
-            }
-        }
-        _loop = null;
-        _running = null;
-    }
-
-    public void Dispose() => _http.Dispose();
-
-    private async Task RunAsync(ConformanceTarget target, CancellationToken cancellationToken)
+    public async Task RunAsync(ConformanceTarget target, CancellationToken cancellationToken)
     {
         // Tier 1: refuse to start past the baked kill date.
         if (target.KillDate is { } killDate && killDate < DateTimeOffset.UtcNow)
@@ -102,8 +51,7 @@ public sealed class MinimalImplant : IImplantCandidate
 
         // Tier 0, half two: the envelope POST cycle until stopped. The
         // response's tasking executes after the cycle; its results and chunks
-        // ride the next cycle's request -- the poll discipline the contract
-        // sets.
+        // ride the next cycle's request.
         var pending = new List<Frame>();
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -155,11 +103,11 @@ public sealed class MinimalImplant : IImplantCandidate
         });
         outbound.AddRange(pending);
 
-        using var response = await _http.PostAsync(
+        using var sent = await _http.PostAsync(
             target.BeaconUrl,
             new ByteArrayContent(Encode(outbound)), cancellationToken);
-        response.EnsureSuccessStatusCode();
-        var inbound = Parse(await response.Content.ReadAsByteArrayAsync(cancellationToken));
+        sent.EnsureSuccessStatusCode();
+        var inbound = Parse(await sent.Content.ReadAsByteArrayAsync(cancellationToken));
         if (inbound.Count == 0)
             return new List<Frame>();
         var handshake = HandshakeResponse.Parser.ParseFrom(inbound[0].Payload);

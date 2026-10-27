@@ -23,7 +23,7 @@ public static class PublishCommand
         var parsed = ParsedArgs.Parse(args,
             valueOptions: new HashSet<string> { "path", "registry", "key", "out" },
             flags: new HashSet<string>(),
-            verb: "publish");
+            command: "mod publish");
 
         var moduleDirectory = Path.GetFullPath(parsed.Value("path") ?? Environment.CurrentDirectory);
         var manifestPath = Path.Combine(moduleDirectory, ManifestToml.FileName);

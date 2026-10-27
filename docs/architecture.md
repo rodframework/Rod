@@ -182,6 +182,14 @@ in-house. The dependency rule is enforced by architecture tests.
   platform only through files (the manifest, the registry index, the lock
   file), so it builds and ships on its own and the contracts stay
   language-neutral.
+- **Conformance harness.** The Tier 0 rig as a shipped component
+  (`src/conformance/dotnet/`, .NET): the `Rod.Conformance` library both
+  the in-tree acceptance and the standalone `rod-conform` runner execute,
+  so the clause set and report format have exactly one implementation.
+  The runner boots the real teamserver in-process and drives any
+  candidate process through the documented environment contract; the rod
+  CLI reaches it by file contract (`rod conform`, Sec 15.2), never by
+  reference.
 - **Operator UI.** The web front end; lives in the teamserver project.
 
 ### 4.3 Source-tree map (`src/teamserver/`)
@@ -3220,9 +3228,13 @@ embedding surface (an init-with-profile, an IO pump, a state read -- a
 handful of symbols beside the plugin family's six), so a shell in any
 language that links a static library writes `main` and a pump and gets
 the whole wire stack -- the middle rung between Tier 0 from scratch and
-the crate fork. The **standalone conformance runner** packages the
+the crate fork. The **standalone conformance runner** packaged the
 harness so a community author points it at a candidate binary without
-the tree. The baked profile's presentation keys
+the tree (shipped: `rod conform <candidate>` spawns the `rod-conform`
+runner resolved beside rod, on PATH, or by `--runner` -- the rig lifted
+into a shipped harness under `src/conformance/dotnet/` whose report and
+clause set are the in-tree rig's own, while the CLI keeps its
+zero-in-house-reference line). The baked profile's presentation keys
 travel as a standalone profile file any build unit consumes. (The
 manifest-declared descriptor this paragraph once carried shipped: the
 verb rows' descriptor half and the `Capabilities:DescriptorModules`
@@ -3266,6 +3278,7 @@ Where the program touches the existing layers:
 | `Rod.Persistence` | `tsvector` full-text indexes; comment and chat tables (ADR-005; shipped, generated columns under GIN on tasks, comments, chat, credentials, and artifacts). |
 | `Rod.TeamServer` | Mounts the new components; the built-in diagnostics endpoint (ADR-008). |
 | `rod-cli` (shipped, `src/cli/dotnet/`) | `rod mod init/search/info/install/verify/publish` over the manifest, signature, registry, and lock contracts (ADR-002, ADR-009); no in-house references. |
+| `rod-conform` (shipped, `src/conformance/dotnet/`) | The conformance harness as the standalone runner `rod conform <candidate>` spawns by file contract (ADR-018): the same rig, clause set, and report the in-tree acceptance runs, against any candidate process -- no tree checkout. |
 
 - **Optional transports** (ADR-004; amended -- shipped). The
   `ITransportProvider` abstraction landed with the in-tree families as its

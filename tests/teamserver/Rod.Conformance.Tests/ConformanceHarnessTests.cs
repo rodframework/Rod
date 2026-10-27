@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Rod.Conformance;
 
 namespace Rod.Conformance.Tests;
 
@@ -86,7 +87,7 @@ public class ConformanceHarnessTests
     // The reference-implant candidate drives the real dotnet toolchain; skip
     // (not fail) where cargo is not reachable, the same rule the in-tree
     // build tests apply.
-    private static bool CargoAvailable()
+    internal static bool CargoAvailable()
     {
         try
         {

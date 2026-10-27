@@ -24,7 +24,7 @@ public static class InstallCommand
         var parsed = ParsedArgs.Parse(args,
             valueOptions: new HashSet<string> { "registry", "dir", "teamserver" },
             flags: new HashSet<string> { "force" },
-            verb: "install");
+            command: "mod install");
 
         if (parsed.Positional.Count != 1)
             throw new CliError("rod mod install needs <name>[@version].");
@@ -231,7 +231,7 @@ public static class VerifyCommand
         var parsed = ParsedArgs.Parse(args,
             valueOptions: new HashSet<string> { "dir" },
             flags: new HashSet<string>(),
-            verb: "verify");
+            command: "mod verify");
 
         var root = Path.GetFullPath(parsed.Value("dir") ?? Environment.CurrentDirectory);
         var lockFile = ModuleLock.Load(InstallRoot.LockPath(root));

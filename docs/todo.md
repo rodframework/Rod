@@ -36,7 +36,9 @@ designed last mile for any-language implants and plugins; ADR-017's CLI
 half -- the `requires` rows and the conformance report -- and its
 runtime half -- the issuance gate and the UI's loadable-set filter --
 shipped; the manifest-declared descriptor shipped too, and the in-tree
-thirteen server modules migrated onto it, their .NET halves deleted):
+thirteen server modules migrated onto it, their .NET halves deleted; the
+standalone conformance runner shipped as `rod conform <candidate>`, the
+same rig and report the in-tree acceptance runs):
 
 - **Linkable core** (the shell contract): the crate's lib target as a
   documented C-ABI embedding surface -- init-with-profile, IO pump,
@@ -44,10 +46,7 @@ thirteen server modules migrated onto it, their .NET halves deleted):
   `main`, not a wire stack. _AC:_ a non-Rust shell built against the
   static library passes the conformance harness's Tier 0 clauses end to
   end.
-- **Standalone conformance runner**: the harness packaged as a `rod
-  conform <candidate>` command against any process, no tree checkout.
-  _AC:_ a candidate binary authored outside the repo runs the clause
-  suite and gets the same pass/fail report the in-tree rig produces.
+
 - **Presentation profile file**: the baked profile's presentation keys
   (URI shapes, User-Agent, headers, envelope shape) as a standalone file
   contract any build unit consumes. _AC:_ one profile file drives both

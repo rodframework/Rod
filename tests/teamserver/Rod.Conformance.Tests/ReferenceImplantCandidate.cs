@@ -1,22 +1,45 @@
 using System.Diagnostics;
+using Rod.Conformance;
 
 namespace Rod.Conformance.Tests;
 
 /// <summary>
 /// The reference Rust implant as a harness candidate: compiled once from the
 /// source tree, then launched per phase as a real subprocess pointed at the
-/// rig's endpoints through its dev shape (ROD_* environment). This is the
-/// adapter that lets the harness's clause battery run against the implant an
-/// operator actually deploys.
+/// rig's endpoints through its dev shape (ROD_* environment) -- exactly the
+/// documented candidate contract the standalone runner drives, with the
+/// tuning knobs a poll candidate needs to fit the harness's observation
+/// deadlines. This is the adapter that lets the harness's clause battery run
+/// against the implant an operator actually deploys.
 /// </summary>
 public sealed class ReferenceImplantCandidate : IImplantCandidate
 {
-    private readonly string _binary;
-    private Process? _process;
+    /// <summary>
+    /// The dev-shape tuning every harness run of the reference implant
+    /// carries: a brisk poll cadence, the poll contact mode, the plaintext
+    /// lab envelope, and the verb set the battery tasks. Shared surface with
+    /// the standalone runner's tests, which pass the same knobs through
+    /// <c>--env</c> to prove the runner against the reference binary.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> DevEnvironment =
+        new Dictionary<string, string>
+        {
+            ["ROD_SLEEP"] = "1",
+            ["ROD_JITTER"] = "0",
+            ["ROD_MODE"] = "poll",
+            ["ROD_ENVELOPE"] = "none",
+            ["ROD_VERBS"] = "shell.exec,file.pull,fs.list,beacon.sleep,proc.kill",
+        };
+
+    /// <summary>The compiled reference implant binary, cargo's release output.</summary>
+    public string Binary { get; }
+
+    private readonly ProcessCandidate _candidate;
 
     private ReferenceImplantCandidate(string binary)
     {
-        _binary = binary;
+        Binary = binary;
+        _candidate = new ProcessCandidate(binary, DevEnvironment);
     }
 
     /// <summary>
@@ -52,55 +75,13 @@ public sealed class ReferenceImplantCandidate : IImplantCandidate
         return new ReferenceImplantCandidate(binary);
     }
 
-    public Task StartAsync(ConformanceTarget target)
-    {
-        if (_process is { HasExited: false })
-            throw new InvalidOperationException("The candidate is already running.");
+    public Task StartAsync(ConformanceTarget target) => _candidate.StartAsync(target);
 
-        var psi = new ProcessStartInfo
-        {
-            FileName = _binary,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        // The dev shape: the environment names the front and the credential,
-        // the contact route derives off the front, and the plaintext lab
-        // posture keeps the harness's frame reads simple.
-        psi.Environment["ROD_ENROLL_URL"] = target.EnrollUrl;
-        psi.Environment["ROD_DEPLOY_TOKEN"] = target.DeployToken;
-        psi.Environment["ROD_SLEEP"] = "1";
-        psi.Environment["ROD_JITTER"] = "0";
-        psi.Environment["ROD_MODE"] = "poll";
-        psi.Environment["ROD_ENVELOPE"] = "none";
-        psi.Environment["ROD_VERBS"] = "shell.exec,file.pull,fs.list,beacon.sleep,proc.kill";
-        if (target.KillDate is { } killDate)
-            psi.Environment["ROD_KILL_DATE"] = killDate.ToString("O");
-        _process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start the implant.");
-        // Drain stderr so a chatty candidate cannot stall on a full pipe;
-        // nothing consumes the lines -- a failed clause's verdict names the
-        // cause, and the candidate runs with ROD_VERBOSE off.
-        _process.ErrorDataReceived += (_, _) => { };
-        _process.BeginErrorReadLine();
-        return Task.CompletedTask;
-    }
+    public Task StopAsync() => _candidate.StopAsync();
 
-    public async Task StopAsync()
-    {
-        if (_process is null)
-            return;
-        if (!_process.HasExited)
-        {
-            try { _process.Kill(entireProcessTree: true); } catch { }
-            await _process.WaitForExitAsync(CancellationToken.None);
-        }
-        _process.Dispose();
-        _process = null;
-    }
+    public bool HasExited => _candidate.HasExited;
 
-    public bool HasExited => _process is null || _process.HasExited;
-
-    public void Dispose() => StopAsync().GetAwaiter().GetResult();
+    public void Dispose() => _candidate.Dispose();
 
     // Walks up from the test assembly to the repo root, the same resolution
     // the in-tree build unit uses.

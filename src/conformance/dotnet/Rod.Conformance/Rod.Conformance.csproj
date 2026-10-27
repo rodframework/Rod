@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Tier 0 conformance harness (architecture.md Sec 15.2, ADR-018):
+       the rig that boots a real teamserver in-process and drives a candidate
+       implant through the clause battery. It is the harness both the in-tree
+       tests and the standalone runner (rod-conform) run, so the clause set
+       and report format have exactly one implementation. It references the
+       teamserver stack like the composition root does, so it lives outside
+       src/teamserver's layer matrix and outside the CLI's zero-in-house-
+       reference zone. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The rig boots the real teamserver (transport core: enroll, beacon,
+         envelope) and reads its core-state services to observe what the
+         candidate implant did server-side. -->
+    <ProjectReference Include="..\..\..\teamserver\Rod.Transport\Rod.Transport.csproj" />
+  </ItemGroup>
+
+</Project>

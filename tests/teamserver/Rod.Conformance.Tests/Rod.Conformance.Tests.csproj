@@ -12,18 +12,17 @@
   </ItemGroup>
 
   <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The rig boots the real teamserver (transport core: enroll, beacon,
-         envelope) and reads its core-state services to observe what the
-         candidate implant did server-side. -->
-    <ProjectReference Include="..\..\..\src\teamserver\Rod.Transport\Rod.Transport.csproj" />
+    <!-- The harness (rig, minimal implant, process candidate) lives in the
+         conformance library; referencing the runner and example-implant
+         executables flows their assemblies in so the end-to-end tests spawn
+         them exactly as an author outside the tree would. -->
+    <ProjectReference Include="..\..\..\src\conformance\dotnet\Rod.Conformance\Rod.Conformance.csproj" />
+    <ProjectReference Include="..\..\..\src\conformance\dotnet\Rod.Conformance.Runner\Rod.Conformance.Runner.csproj" />
+    <ProjectReference Include="..\..\..\src\conformance\dotnet\Rod.Conformance.Minimal\Rod.Conformance.Minimal.csproj" />
   </ItemGroup>
 
 </Project>

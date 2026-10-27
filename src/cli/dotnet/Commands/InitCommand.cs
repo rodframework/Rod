@@ -17,7 +17,7 @@ public static class InitCommand
         var parsed = ParsedArgs.Parse(args,
             valueOptions: new HashSet<string> { "path", "entry", "license", "teamserver" },
             flags: new HashSet<string>(),
-            verb: "init");
+            command: "mod init");
 
         if (parsed.Positional.Count != 1)
             throw new CliError("rod mod init needs a module name.");
