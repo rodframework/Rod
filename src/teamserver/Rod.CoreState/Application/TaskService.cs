@@ -3,6 +3,7 @@ using Rod.CoreState.Engagements;
 using Rod.CoreState.Implants;
 using Rod.CoreState.Live;
 using Rod.CoreState.Operators;
+using Rod.CoreState.Sessions;
 using Rod.CoreState.Tasks;
 using Rod.CoreState.Transports;
 // The domain entity shares its name with System.Threading.Tasks.Task. Pin it
@@ -56,6 +57,7 @@ public sealed class TaskService
     private readonly ITaskDispatchWake? _wake;
     private readonly TaskReferenceService? _references;
     private readonly CredentialHarvester? _harvester;
+    private readonly ISessionRegistry? _sessions;
 
     public TaskService(
         ITaskRepository tasks,
@@ -115,12 +117,13 @@ public sealed class TaskService
     }
 
     /// <summary>
-    /// The fullest construction: the wake, plus the collaboration halves
+    /// The fullest construction: the wake, the collaboration halves
     /// (architecture.md Sec 15.3, ADR-005) -- the reference validator that
     /// keeps <c>@task-</c>/<c>$cred-</c> tokens in task input from dangling
     /// (checked at issuance, before the queue, so the refusal names the
     /// token), and the harvester that lands a credential-kind task's rows
-    /// when it completes. Both optional the same way the wake is: the
+    /// when it completes -- plus the session registry ADR-017's runtime
+    /// requirement gate reads. All optional the same way the wake is: the
     /// container selects this constructor only when the composition root
     /// registers them, and their absence skips the behavior exactly as a
     /// missing bus skips the publish.
@@ -134,7 +137,8 @@ public sealed class TaskService
         ITaskCapabilityResolver capabilities,
         ITaskDispatchWake? wake,
         TaskReferenceService? references,
-        CredentialHarvester? harvester)
+        CredentialHarvester? harvester,
+        ISessionRegistry? sessions = null)
     {
         _tasks = tasks;
         _implants = implants;
@@ -145,6 +149,7 @@ public sealed class TaskService
         _wake = wake;
         _references = references;
         _harvester = harvester;
+        _sessions = sessions;
     }
 
     /// <summary>
@@ -212,6 +217,43 @@ public sealed class TaskService
                 TaskRejectionReason.UnsupportedVerbForClass,
                 $"Verb '{command.Verb}' is not in the {implant.Class} reduced verb set " +
                 "and no capability module is registered for it.");
+        }
+
+        // The runtime half of the compatibility collapse (architecture.md
+        // Sec 15.2, ADR-017): a module.load naming a registered module checks
+        // the module's requirement rows against the live session's handshake
+        // advertisement -- the truth the store's install-time rows only
+        // approximate. Refused here with the missing capability named, before
+        // the queue, because the load's only other outcome is failing on the
+        // target after a round trip. The module name is the arguments' first
+        // token (the staged-content hash the transport appends never leads);
+        // a name no registered module carries has no rows to check, and an
+        // implant with no active session has no advertisement to check
+        // against -- its queued tasking keeps the store-advisory posture and
+        // the gate re-arms on the next session.
+        if (_sessions is not null
+            && string.Equals(command.Verb, WireCapabilities.ModuleLoadVerb, StringComparison.OrdinalIgnoreCase))
+        {
+            var moduleName = command.Arguments.Split(' ', 2)[0].Trim();
+            var requires = moduleName.Length > 0 ? _capabilities.ModuleRequires(moduleName) : null;
+            if (requires is { Count: > 0 })
+            {
+                var session = await _sessions.GetActiveAsync(implant.Id, cancellationToken);
+                if (session is not null)
+                {
+                    var missing = requires
+                        .Where(name => !WireCapabilities.Covers(session.Capabilities, name))
+                        .ToArray();
+                    if (missing.Length > 0)
+                    {
+                        throw new TaskRejectedException(
+                            TaskRejectionReason.ModuleRequirementNotMet,
+                            $"Module '{moduleName}' requires {string.Join(", ", missing)}; " +
+                            $"implant {implant.Id}'s session does not advertise the covering verb, " +
+                            "so it cannot host the module's execution half.");
+                    }
+                }
+            }
         }
 
         // The carrier gate (architecture.md Sec 8, Sec 10.3): a channel verb

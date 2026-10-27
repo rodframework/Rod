@@ -1015,6 +1015,12 @@ export interface CapabilityDescriptor {
   parameters: VerbParameter[] | null
   output: VerbOutput | null
   techniques: string[]
+  // The module-level metadata (ADR-017): the published name a module.load
+  // names, and the wire capabilities the hosting implant must advertise for
+  // the module's execution half to run. Null on a placeholder -- the server
+  // pairs both with the verb's registered module.
+  module?: string | null
+  requires?: string[] | null
 }
 
 export async function listCapabilities(): Promise<CapabilityDescriptor[]> {

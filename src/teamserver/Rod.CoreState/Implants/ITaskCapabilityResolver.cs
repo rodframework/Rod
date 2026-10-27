@@ -38,4 +38,16 @@ public interface ITaskCapabilityResolver
     /// class set does not (architecture.md Sec 10.2).
     /// </summary>
     bool IsDispatchable(ImplantClass @class, string verb);
+
+    /// <summary>
+    /// The requirement rows the module named <paramref name="moduleName"/>
+    /// declares against the wire-capability vocabulary (architecture.md
+    /// Sec 15.2, ADR-017), or null when no such module is registered or it
+    /// declares none. The runtime half of the compatibility collapse: a
+    /// <c>module.load</c> issuance checks these rows against the session's
+    /// handshake advertisement and refuses naming what it lacks. The
+    /// class-table default answers null -- without a module registry there
+    /// are no rows to check, and the store's install-time advisory stands.
+    /// </summary>
+    IReadOnlyList<string>? ModuleRequires(string moduleName);
 }

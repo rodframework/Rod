@@ -41,9 +41,12 @@ public static class CapabilityEndpoints
         CancellationToken cancellationToken)
     {
         // Registration order is stable (the registry preserves it), so the catalog
-        // reads in a predictable category order for the UI's grouping.
-        var descriptors = await registry.ListAsync(cancellationToken);
-        var body = descriptors.Select(d => CapabilityDescriptorResponse.Of(d, techniques)).ToArray();
+        // reads in a predictable category order for the UI's grouping. The module
+        // view carries each verb's module-level metadata beside the descriptor:
+        // the published name and the requirement rows (ADR-017) the operator
+        // UI's loadable-set filter matches against a session's advertisement.
+        var modules = await registry.ListModulesAsync(cancellationToken);
+        var body = modules.Select(m => CapabilityDescriptorResponse.Of(m, techniques)).ToArray();
         return Results.Ok(body);
     }
 
@@ -115,7 +118,10 @@ public static class CapabilityEndpoints
     /// <see cref="Techniques"/> is the verb's resolved ATT&CK mapping
     /// (ADR-007): the module's declaration when it carries one, else the
     /// kernel data file's entry -- the same answer the coverage matrix and
-    /// the report's Navigator layer read.
+    /// the report's Navigator layer read. <see cref="Module"/> and
+    /// <see cref="Requires"/> are the module-level metadata (ADR-017): the
+    /// published name a <c>module.load</c> names and the wire capabilities
+    /// the hosting implant must advertise, both null for a placeholder.
     /// </summary>
     public sealed record CapabilityDescriptorResponse(
         string Verb,
@@ -124,19 +130,26 @@ public static class CapabilityEndpoints
         IReadOnlyDictionary<string, string> Attributes,
         IReadOnlyList<VerbParameterResponse>? Parameters,
         VerbOutputResponse? Output,
-        IReadOnlyList<string> Techniques)
+        IReadOnlyList<string> Techniques,
+        string? Module = null,
+        IReadOnlyList<string>? Requires = null)
     {
         public static CapabilityDescriptorResponse Of(
-            CapabilityDescriptor d,
+            Modules.ICapabilityModule module,
             Rod.CoreState.Implants.IVerbTechniqueResolver techniques)
-            => new(
+        {
+            var d = module.Descriptor;
+            return new(
                 d.Verb,
                 d.Category.ToString(),
                 d.Version,
                 d.Attributes,
                 d.Parameters?.Select(VerbParameterResponse.Of).ToArray(),
                 VerbOutputResponse.Of(d.Output),
-                techniques.Techniques(d.Verb) ?? Array.Empty<string>());
+                techniques.Techniques(d.Verb) ?? Array.Empty<string>(),
+                module.Name,
+                module.Requires);
+        }
     }
 
     // --- The coverage matrix (ADR-007): one projection, DTOs kept lean. ---

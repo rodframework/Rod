@@ -2,6 +2,7 @@ using Rod.CoreState.Application;
 using Rod.CoreState.Engagements;
 using Rod.CoreState.Implants;
 using Rod.CoreState.Operators;
+using Rod.CoreState.Sessions;
 using Rod.CoreState.Tasks;
 using Task = System.Threading.Tasks.Task;
 
@@ -286,6 +287,123 @@ public class TaskServiceGatingTests
         Assert.Equal("evasion.avoid", issued.Verb);
     }
 
+    // The runtime half of the compatibility collapse (architecture.md
+    // Sec 15.2, ADR-017): a module.load naming a registered module checks the
+    // module's requirement rows against the live session's handshake
+    // advertisement. The staged-content hash the transport appends rides the
+    // arguments' tail, exactly as a real issuance carries it.
+    private static TaskService NewRequiringService(
+        InMemoryImplantRepository implants,
+        ISessionRegistry sessions,
+        string moduleName,
+        params string[] requires)
+        => new(
+            new InMemoryTaskRepository(),
+            implants,
+            new InMemoryEngagementRepository(),
+            TimeProvider.System,
+            bus: null,
+            capabilities: new RequiringResolver(moduleName, requires),
+            wake: null,
+            references: null,
+            harvester: null,
+            sessions: sessions);
+
+    private static async Task<InMemorySessionRegistry> SessionAdvertisingAsync(
+        Implant implant, params string[] capabilities)
+    {
+        var sessions = new InMemorySessionRegistry();
+        await sessions.OpenAsync(implant, capabilities, Now);
+        return sessions;
+    }
+
+    [Fact]
+    public async Task IssueAsync_RefusesAModuleLoadTheSessionAdvertisementDoesNotCover()
+    {
+        var implants = new InMemoryImplantRepository();
+        var engagement = EngagementId.New();
+        var implant = await EnrollAsync(implants, engagement, ImplantClass.Implant);
+        var sessions = await SessionAdvertisingAsync(implant, "shell.exec", "file.pull");
+        var service = NewRequiringService(implants, sessions, "hives", "plugin-loader");
+
+        var ex = await Assert.ThrowsAsync<TaskRejectedException>(
+            () => service.IssueAsync(new IssueTaskCommand(
+                engagement, implant.Id, OperatorId.New(), "module.load", "hives sha256:00")));
+
+        Assert.Equal(TaskRejectionReason.ModuleRequirementNotMet, ex.Reason);
+        Assert.Contains("plugin-loader", ex.Message);
+        Assert.Contains("hives", ex.Message);
+    }
+
+    [Fact]
+    public async Task IssueAsync_AdmitsAModuleLoadTheSessionAdvertisementCovers()
+    {
+        var implants = new InMemoryImplantRepository();
+        var engagement = EngagementId.New();
+        var implant = await EnrollAsync(implants, engagement, ImplantClass.Implant);
+        var sessions = await SessionAdvertisingAsync(implant, "shell.exec", "module.load", "file.pull");
+        var service = NewRequiringService(implants, sessions, "hives", "plugin-loader", "exfil-chunks");
+
+        var issued = await service.IssueAsync(new IssueTaskCommand(
+            engagement, implant.Id, OperatorId.New(), "module.load", "hives sha256:00"));
+
+        Assert.Equal("module.load", issued.Verb);
+    }
+
+    [Fact]
+    public async Task IssueAsync_QueueSAModuleLoadWithNoActiveSession_UnderTheStoreAdvisory()
+    {
+        // An offline implant has no advertisement to check against: the queued
+        // task keeps the store's install-time advisory posture, and the gate
+        // re-arms when a session opens.
+        var implants = new InMemoryImplantRepository();
+        var engagement = EngagementId.New();
+        var implant = await EnrollAsync(implants, engagement, ImplantClass.Implant);
+        var service = NewRequiringService(implants, new InMemorySessionRegistry(), "hives", "plugin-loader");
+
+        var issued = await service.IssueAsync(new IssueTaskCommand(
+            engagement, implant.Id, OperatorId.New(), "module.load", "hives sha256:00"));
+
+        Assert.Equal("module.load", issued.Verb);
+    }
+
+    [Fact]
+    public async Task IssueAsync_AModuleLoadNamingNoRegisteredModuleIsUngated()
+    {
+        // A handle no registered module carries has no rows to check -- the
+        // gate reads requirements, not names.
+        var implants = new InMemoryImplantRepository();
+        var engagement = EngagementId.New();
+        var implant = await EnrollAsync(implants, engagement, ImplantClass.Implant);
+        var sessions = await SessionAdvertisingAsync(implant, "shell.exec");
+        var service = NewRequiringService(implants, sessions, "hives", "plugin-loader");
+
+        var issued = await service.IssueAsync(new IssueTaskCommand(
+            engagement, implant.Id, OperatorId.New(), "module.load", "operator-binary sha256:00"));
+
+        Assert.Equal("module.load", issued.Verb);
+    }
+
+    // A resolver standing in for the registry-backed one: the class table plus
+    // one named module's requirement rows.
+    private sealed class RequiringResolver : ITaskCapabilityResolver
+    {
+        private readonly string _moduleName;
+        private readonly IReadOnlyList<string> _requires;
+
+        public RequiringResolver(string moduleName, string[] requires)
+        {
+            _moduleName = moduleName;
+            _requires = requires;
+        }
+
+        public bool IsDispatchable(ImplantClass @class, string verb)
+            => ImplantClassCapabilities.Allows(@class, verb);
+
+        public IReadOnlyList<string>? ModuleRequires(string moduleName)
+            => string.Equals(moduleName, _moduleName, StringComparison.OrdinalIgnoreCase) ? _requires : null;
+    }
+
     // A resolver that admits exactly one verb regardless of class -- the
     // stand-in for the registry-backed resolver the capabilities layer supplies
     // when a module is registered for a no-class-gate verb.
@@ -297,5 +415,7 @@ public class TaskServiceGatingTests
 
         public bool IsDispatchable(ImplantClass @class, string verb)
             => string.Equals(verb, _verb, StringComparison.OrdinalIgnoreCase);
+
+        public IReadOnlyList<string>? ModuleRequires(string moduleName) => null;
     }
 }

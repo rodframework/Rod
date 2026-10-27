@@ -114,3 +114,45 @@ export function verbAttributes(groups: readonly CapabilityGroup[]): Map<string, 
   }
   return map
 }
+
+// The wire-capability coverage mirror (ADR-017's runtime half): each tier's
+// task-path face is the verb whose reference handler carries its frames, so
+// advertising the verb claims the capability. The server's WireCapabilities
+// (Rod.CoreState) is the authority this mirrors -- the server still refuses
+// anything this table gets wrong, exactly like the class-verb mirror above.
+const COVERING_VERB: Record<string, string> = {
+  'plugin-loader': 'module.load',
+  'exfil-chunks': 'file.pull',
+  'staged-uploads': 'file.push',
+}
+
+export function coversRequirement(advertised: readonly string[], name: string): boolean {
+  const verb = COVERING_VERB[name]
+  return !!verb && advertised.some((held) => held.toLowerCase() === verb)
+}
+
+// A session's loadable plugin set: the catalog's named modules whose
+// requirement rows the session's handshake advertisement covers. A module
+// that declares nothing loads anywhere; an unnamed catalog entry is a
+// placeholder, not a plugin, and never lists.
+export interface LoadableModule {
+  module: string
+  verb: string
+  requires: string[]
+  covered: boolean
+  missing: string[]
+}
+
+export function loadableModules(
+  descriptors: readonly CapabilityDescriptor[],
+  advertised: readonly string[],
+): LoadableModule[] {
+  const modules: LoadableModule[] = []
+  for (const descriptor of descriptors) {
+    if (!descriptor.module) continue
+    const requires = descriptor.requires ?? []
+    const missing = requires.filter((name) => !coversRequirement(advertised, name))
+    modules.push({ module: descriptor.module, verb: descriptor.verb, requires, covered: missing.length === 0, missing })
+  }
+  return modules.sort((a, b) => a.module.localeCompare(b.module))
+}

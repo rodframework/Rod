@@ -138,6 +138,19 @@ filter. The vocabulary grows additively with the wire tiers. The runtime
 truth is the implant's own handshake advertisement; the rows are the
 store's static filter and the operator's install-time screen.
 
+A server-side module mirrors its rows onto the `Requires` property of
+its `ICapabilityModule` (validated at registration against the same
+vocabulary): the manifest is the packaging truth the store and CLI
+read, the property is what the live task path sees. The runtime gate
+reads it -- a `module.load` naming a registered module is refused at
+issuance when the implant's active session did not advertise what the
+rows cover, the missing capability named in the refusal. Coverage is
+the advertisement's verb set: the loader family is `module.load`, bulk
+output rides `file.pull` past its inline cap, downstream bulk rides
+`file.push` through the staged arm. An implant with no active session
+(a task queued ahead of the next contact) keeps the store-advisory
+posture; the gate re-arms on the next handshake.
+
 **The conformance report.** A build unit (a community implant
 distribution) carries `[conformance]` instead: what its candidate proved
 against the conformance harness
@@ -654,7 +667,7 @@ external module carries. What each part decides:
 |------|---------|-------------|
 | `[module]` | name (kebab-case), version, entry kind, license, description | publish refuses `UNLICENSED`; the name is what a lock pins a key to |
 | `[compatibility] teamserver` | the minimum platform generation the module runs on | install, per version |
-| `[compatibility] requires` | the wire capabilities the hosting implant must support (the closed vocabulary below) | surfaced at search and install; the implant's advertisement is the runtime truth |
+| `[compatibility] requires` | the wire capabilities the hosting implant must support (the closed vocabulary below) | install, plus the runtime gate: a module.load onto a session whose advertisement does not cover the rows is refused naming what is missing |
 | `[[compatibility.targets]]` | implant-class / platform / arch rows the module claims | surfaced at search and install |
 | `[[verbs]]` | each verb's module-scoped version, optional per-verb teamserver floor, and its ATT&CK techniques | floors at install; techniques feed every coverage face |
 | `[conformance]` (build units) | what the candidate proved against the conformance harness -- tier, harness generation, date, clauses | surfaced at info and install; rides the signed form |

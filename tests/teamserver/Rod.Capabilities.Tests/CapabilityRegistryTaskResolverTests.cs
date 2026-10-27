@@ -115,11 +115,30 @@ public class CapabilityRegistryTaskResolverTests
         Assert.True(resolver.IsDispatchable(ImplantClass.Implant, "recon.portscan"));
     }
 
+    [Fact]
+    public async Task ModuleRequires_AnswersTheNamedModuleSRows()
+    {
+        // ADR-017's runtime half: the resolver is the task path's one look at
+        // the requirement rows -- the named module's declaration, null for an
+        // unknown name or a module that declares none.
+        var registry = new InMemoryCapabilityRegistry();
+        await registry.RegisterAsync(new FixedModule("collect.hives") { Name = "hives", Requires = ["plugin-loader"] });
+        var resolver = new CapabilityRegistryTaskResolver(registry);
+
+        Assert.Equal(new[] { "plugin-loader" }, resolver.ModuleRequires("hives"));
+        Assert.Null(resolver.ModuleRequires("nothing"));
+        Assert.Null(resolver.ModuleRequires("shell.exec"));
+    }
+
     // A module whose descriptor is fixed, standing in for an operator-supplied
     // out-of-tree exploit module without writing real tradecraft.
     private sealed class FixedModule : ICapabilityModule
     {
         public CapabilityDescriptor Descriptor { get; }
+
+        public string? Name { get; init; }
+
+        public IReadOnlyList<string>? Requires { get; init; }
 
         public FixedModule(string verb)
             => Descriptor = CapabilityDescriptor.Of(verb, CapabilityCategory.Exploit, "1.0");

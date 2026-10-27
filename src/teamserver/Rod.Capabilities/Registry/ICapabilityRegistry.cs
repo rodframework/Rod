@@ -31,9 +31,28 @@ public interface ICapabilityRegistry
     Task<ICapabilityModule?> FindAsync(string verb, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The module registered under the published <paramref name="name"/> (the
+    /// manifest name a <c>module.load</c> task names), or null when no named
+    /// module matches. Case-insensitive on <paramref name="name"/>; last
+    /// registration wins, mirroring <see cref="FindAsync"/>'s authority rule.
+    /// The runtime requirement gate's lookup (architecture.md Sec 15.2,
+    /// ADR-017).
+    /// </summary>
+    Task<ICapabilityModule?> FindByNameAsync(string name, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Every registered capability descriptor, in registration order. The
     /// composition root uses this to confirm the core verbs loaded; a future
     /// read surface (operator discovery) consumes the same view.
     /// </summary>
     Task<IReadOnlyList<CapabilityDescriptor>> ListAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every registered module, in registration order -- the descriptor plus
+    /// the module-level metadata (published name, requirement rows) the
+    /// catalog and the operator UI's loadable-set filter read. Same
+    /// registration-order view <see cref="ListAsync"/> carries, with the
+    /// module object beside its descriptor.
+    /// </summary>
+    Task<IReadOnlyList<ICapabilityModule>> ListModulesAsync(CancellationToken cancellationToken = default);
 }

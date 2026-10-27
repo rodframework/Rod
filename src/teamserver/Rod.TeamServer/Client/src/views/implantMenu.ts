@@ -68,10 +68,22 @@ export interface ImplantMenuActions {
   onRetire?: () => void
 }
 
-export function implantMenuEntries(implant: Implant, actions: ImplantMenuActions): MenuEntry[] {
+export function implantMenuEntries(
+  implant: Implant,
+  actions: ImplantMenuActions,
+  advertised?: readonly string[],
+): MenuEntry[] {
   const verbs = classVerbs(implant.class)
-  const push = (entry: MenuItem, verb: string) => {
-    entry.disabled = !verbs.has(verb) || !!implant.retiredAt
+  // ADR-017's runtime half, mirrored client-side: the session's handshake
+  // advertisement decides whether the module family is loadable here at all.
+  // Undefined (no live session known to the caller) stays permissive -- the
+  // server's issuance gate remains the authority, and an offline implant's
+  // queued tasking keeps the store-advisory posture.
+  const moduleFamilyHeld =
+    advertised === undefined || advertised.some((verb) => verb.toLowerCase() === 'module.load')
+  const push = (entry: MenuItem, verb: string, requiresModuleFamily = false) => {
+    entry.disabled =
+      !verbs.has(verb) || !!implant.retiredAt || (requiresModuleFamily && !moduleFamilyHeld)
     return entry
   }
 
@@ -276,6 +288,7 @@ export function implantMenuEntries(implant: Implant, actions: ImplantMenuActions
         onSelect: () => actions.onDialog('module.load'),
       },
       'module.load',
+      true,
     ),
     push(
       {
@@ -286,6 +299,7 @@ export function implantMenuEntries(implant: Implant, actions: ImplantMenuActions
         onSelect: () => actions.onIssue('module.list'),
       },
       'module.list',
+      true,
     ),
     push(
       {
@@ -297,6 +311,7 @@ export function implantMenuEntries(implant: Implant, actions: ImplantMenuActions
         onSelect: () => actions.onDialog('module.unload'),
       },
       'module.unload',
+      true,
     ),
     { kind: 'label', label: 'Browser' },
     push(

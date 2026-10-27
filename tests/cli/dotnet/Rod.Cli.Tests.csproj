@@ -13,6 +13,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\cli\dotnet\Rod.Cli.csproj" />
+    <!-- Test-only: pins the CLI's manifest vocabulary equal to the
+         teamserver's runtime copy (Rod.CoreState's WireCapabilities) without
+         the CLI itself taking an in-house reference; the vocabulary is a
+         file contract the two sides state independently. -->
+    <ProjectReference Include="..\..\..\src\teamserver\Rod.CoreState\Rod.CoreState.csproj" />
   </ItemGroup>
 
   <ItemGroup>

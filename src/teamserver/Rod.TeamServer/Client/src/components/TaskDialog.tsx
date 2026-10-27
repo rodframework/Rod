@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { issueTask, type Task } from '../api'
+import { type LoadableModule } from '../capabilities'
 import { readSelectedFile, type SelectedFile, type VerbForm } from '../verbForms'
 import { OpsecBadges } from './OpsecBadges'
 
@@ -17,6 +18,8 @@ export function TaskDialog({
   verb,
   form,
   attributes,
+  loadable,
+  nameField,
   onIssued,
   onClose,
 }: {
@@ -25,6 +28,13 @@ export function TaskDialog({
   verb: string
   form: VerbForm
   attributes: Record<string, string>
+  // The session's loadable plugin set (ADR-017's runtime half, mirrored
+  // client-side): when the caller supplies it for a module.load, the dialog
+  // offers the covered modules as one-click names and names what an uncovered
+  // one is missing. The server's issuance gate stays the authority.
+  loadable?: readonly LoadableModule[]
+  // The form field the picked module name lands in (module.load's `name`).
+  nameField?: string
   onIssued?: (task: Task) => void
   onClose: () => void
 }) {
@@ -138,6 +148,34 @@ export function TaskDialog({
             {field.help && <span className="field-help">{field.help}</span>}
           </label>
         ))}
+        {loadable && loadable.length > 0 && nameField && (
+          <div className="module-picker">
+            <span className="field-help">
+              This session's loadable plugins (what its advertisement covers)
+            </span>
+            <div className="inline-form">
+              {loadable.map((entry) => (
+                <button
+                  key={entry.module}
+                  type="button"
+                  className="ghost sm"
+                  disabled={!entry.covered}
+                  title={
+                    entry.covered
+                      ? `${entry.module} -- requires ${entry.requires.join(', ') || 'nothing'}`
+                      : `${entry.module} -- missing ${entry.missing.join(', ')}`
+                  }
+                  onClick={() =>
+                    setValues((current) => ({ ...current, [nameField]: entry.module }))
+                  }
+                >
+                  {entry.module}
+                  {entry.covered ? '' : ` (needs ${entry.missing.join(', ')})`}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="task-meta">
           <OpsecBadges attributes={attributes} />
         </div>

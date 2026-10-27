@@ -85,11 +85,61 @@ public class CapabilityRegistryTests
         Assert.Single(listed);
     }
 
+    [Fact]
+    public async Task Register_AnUnknownRequirementName_IsRefusedWithTheVocabulary()
+    {
+        // ADR-017: the requirement rows match against a closed vocabulary, so
+        // a typo is a loud registration failure -- never a silent mismatch the
+        // runtime gate would skip.
+        var registry = new InMemoryCapabilityRegistry();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => registry.RegisterAsync(new Stub("recon.sweep") { Requires = ["plugin-loaders"] }));
+
+        Assert.Contains("plugin-loaders", ex.Message);
+        Assert.Contains("plugin-loader", ex.Message);
+    }
+
+    [Fact]
+    public async Task FindByName_MatchesThePublishedName_CaseInsensitively_LastWins()
+    {
+        var registry = new InMemoryCapabilityRegistry();
+        var named = new Stub("collect.hives") { Name = "hives", Requires = ["plugin-loader"] };
+        await registry.RegisterAsync(named);
+        await registry.RegisterAsync(new Stub("shell.exec"));
+
+        var found = await registry.FindByNameAsync("HIVES");
+
+        Assert.Same(named, found);
+        Assert.Equal(new[] { "plugin-loader" }, found!.Requires);
+        Assert.Null(await registry.FindByNameAsync("nothing"));
+    }
+
+    [Fact]
+    public async Task ListModules_CarriesTheModuleLevelMetadata()
+    {
+        var registry = new InMemoryCapabilityRegistry();
+        var named = new Stub("collect.hives") { Name = "hives", Requires = ["plugin-loader"] };
+        await registry.RegisterAsync(named);
+        await registry.RegisterAsync(new Stub("shell.exec"));
+
+        var modules = await registry.ListModulesAsync();
+
+        Assert.Equal(2, modules.Count);
+        var hives = Assert.Single(modules, m => m.Name == "hives");
+        Assert.Equal(new[] { "plugin-loader" }, hives.Requires);
+        Assert.Null(Assert.Single(modules, m => m.Descriptor.Verb == "shell.exec").Requires);
+    }
+
     // A tiny module whose descriptor is fixed at construction, so the tests above
     // can register arbitrary verbs without pulling in real tradecraft.
     private sealed class Stub : ICapabilityModule
     {
         public CapabilityDescriptor Descriptor { get; }
+
+        public string? Name { get; init; }
+
+        public IReadOnlyList<string>? Requires { get; init; }
 
         public Stub(string verb)
             => Descriptor = CapabilityDescriptor.Of(verb, CapabilityCategory.Core, "1.0");

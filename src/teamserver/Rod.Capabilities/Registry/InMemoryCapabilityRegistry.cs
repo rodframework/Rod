@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Rod.Capabilities.Modules;
+using Rod.CoreState.Implants;
 
 namespace Rod.Capabilities.Registry;
 
@@ -54,6 +55,24 @@ public sealed class InMemoryCapabilityRegistry : ICapabilityRegistry
                 + string.Join(" ", techniqueErrors));
         }
 
+        // The requirement rows ride it too (ADR-017): the runtime gate matches
+        // these names against the closed vocabulary, so an unknown one is a
+        // registration failure -- a typo must never silently skip the gate the
+        // way the manifest loader refuses the same typo at publish.
+        if (module.Requires is { } requires)
+        {
+            foreach (var name in requires)
+            {
+                if (!WireCapabilities.IsRequirable(name))
+                {
+                    throw new InvalidOperationException(
+                        $"capability module for '{module.Descriptor.Verb}' requires '{name}', which is not "
+                        + "a wire capability a module may require; the vocabulary is: "
+                        + string.Join(", ", WireCapabilities.Requirable) + ".");
+                }
+            }
+        }
+
         var verb = module.Descriptor.Verb;
         _byVerb[verb] = module;
 
@@ -75,12 +94,45 @@ public sealed class InMemoryCapabilityRegistry : ICapabilityRegistry
     public Task<ICapabilityModule?> FindAsync(string verb, CancellationToken cancellationToken = default)
         => Task.FromResult(_byVerb.TryGetValue(verb, out var module) ? module : null);
 
+    public Task<ICapabilityModule?> FindByNameAsync(string name, CancellationToken cancellationToken = default)
+    {
+        // The name index is a scan, not a dictionary: names are display
+        // metadata most modules do not carry, so a second concurrent map for
+        // the handful that do costs more than the rare module.load-time scan
+        // through the ordered list.
+        if (string.IsNullOrWhiteSpace(name))
+            return Task.FromResult<ICapabilityModule?>(null);
+
+        lock (_orderLock)
+        {
+            ICapabilityModule? found = null;
+            foreach (var module in _ordered)
+            {
+                if (string.Equals(module.Name, name, StringComparison.OrdinalIgnoreCase))
+                    found = module;
+            }
+
+            // Last registration wins here too, mirroring the verb index's
+            // authority rule: a module re-registered under the same name is
+            // the one the runtime gate should read.
+            return Task.FromResult(found);
+        }
+    }
+
     public Task<IReadOnlyList<CapabilityDescriptor>> ListAsync(CancellationToken cancellationToken = default)
     {
         lock (_orderLock)
         {
             return Task.FromResult<IReadOnlyList<CapabilityDescriptor>>(
                 _ordered.Select(m => m.Descriptor).ToArray());
+        }
+    }
+
+    public Task<IReadOnlyList<ICapabilityModule>> ListModulesAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_orderLock)
+        {
+            return Task.FromResult<IReadOnlyList<ICapabilityModule>>(_ordered.ToArray());
         }
     }
 }

@@ -3157,6 +3157,23 @@ canonical-form participation, and the end-to-end run from scaffold
 through publish, mirror, info, and install to a tampered requirement
 reading as a trust failure.
 
+The **runtime half** ships with it: a `module.load` naming a registered
+module is refused at issuance when the implant's active session did not
+advertise what the module's rows cover -- the missing capability named,
+`TaskRejectionReason.ModuleRequirementNotMet` on the refusal
+(`Rod.CoreState`'s `WireCapabilities` holds the vocabulary and the
+coverage rule, mirrored by the CLI's copy and pinned equal by a test; the
+`Requires` property on `ICapabilityModule` is the manifest row's runtime
+mirror, validated at registration). Each tier's task-path face is the
+verb whose reference handler carries its frames -- the loader family is
+`module.load`, bulk output rides `file.pull`, downstream bulk rides
+`file.push` -- so the advertisement's verb set decides coverage; an
+implant with no active session keeps the store-advisory posture (queued
+tasking for an offline implant stands, and the gate re-arms on the next
+session). The operator UI reads the same rule: the catalog carries each
+module's name and rows, the session console's module menu and
+module-load picker filter what the live advertisement covers.
+
 **The polyglot on-ramps (ADR-018) _(future)_.** The wire contract is the
 language boundary; three designed on-ramps drop the remaining
 per-language cost without widening the kernel or the wire. The
@@ -3170,11 +3187,8 @@ harness so a community author points it at a candidate binary without
 the tree. The **manifest-declared descriptor** extends the verb rows
 with the parameter schema and output kind as manifest data, opening a
 novel namespace's gate with zero .NET code -- the server-side twin of
-the C-ABI seam's language freedom. Two smaller contracts ride the same
-item: the server refuses a `module.load` for a session whose
-advertisement does not cover the module's requirements (the runtime
-half of ADR-017), and the baked profile's presentation keys travel as a
-standalone profile file any build unit consumes.
+the C-ABI seam's language freedom. The baked profile's presentation keys
+travel as a standalone profile file any build unit consumes.
 
 There is **no carry-over from existing ecosystems**: no BOF/COFF execution
 layer, no Armory migration. The ecosystem accumulates from zero, quality

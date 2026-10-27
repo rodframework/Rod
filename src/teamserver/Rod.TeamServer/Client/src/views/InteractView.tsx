@@ -10,7 +10,7 @@ import {
   listImplantTasks,
   listImplants,
 } from '../api'
-import { loadCapabilityGroups, type CapabilityGroup } from '../capabilities'
+import { loadCapabilityGroups, loadableModules, type CapabilityGroup } from '../capabilities'
 import { osIconFor } from '../osKind'
 import { CommentsPanel } from '../components/CommentsPanel'
 import { ContextMenu } from '../components/ContextMenu'
@@ -312,7 +312,7 @@ export function InteractView({
         onProcesses: () => setProcesses(true),
         onFiles: () => setFilesOpen(true),
         onSaveSnippet: () => setSaveSnippet(true),
-      })
+      }, presence?.capabilities)
     : []
 
   const hostLabel = implant?.hostname ?? 'unknown host'
@@ -490,6 +490,18 @@ export function InteractView({
           verb={dialogVerb}
           form={formForDescriptor(descriptorByVerb.get(dialogVerb))}
           attributes={descriptorByVerb.get(dialogVerb)?.attributes ?? {}}
+          loadable={
+            dialogVerb === 'module.load' && presence
+              ? loadableModules(
+                  capabilityGroups.flatMap((group) => group.descriptors),
+                  presence.capabilities,
+                )
+              : undefined
+          }
+          nameField={
+            formForDescriptor(descriptorByVerb.get(dialogVerb)).fields.find((f) => f.key === 'name')
+              ?.key
+          }
           onClose={() => setDialogVerb(null)}
           onIssued={() => void refresh()}
         />

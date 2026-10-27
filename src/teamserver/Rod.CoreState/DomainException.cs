@@ -208,6 +208,17 @@ public enum TaskRejectionReason
     /// mysterious failure there instead.
     /// </summary>
     UnknownTaskReference,
+
+    /// <summary>
+    /// A <c>module.load</c> names a registered module whose requirement rows
+    /// (architecture.md Sec 15.2, ADR-017 -- the runtime half of the
+    /// compatibility collapse) are not covered by the implant's session
+    /// advertisement: the hosting implant cannot run what the module's
+    /// execution half needs. Refused at issuance with the missing capability
+    /// named, before the queue -- the load would only fail on the target
+    /// after a round trip.
+    /// </summary>
+    ModuleRequirementNotMet,
 }
 
 /// <summary>

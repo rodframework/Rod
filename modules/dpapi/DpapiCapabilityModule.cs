@@ -36,6 +36,14 @@ public sealed class DpapiCapabilityModule : ICapabilityModule
     public string? Name => "dpapi";
 
     /// <summary>
+    /// The requirement rows (ADR-017), the runtime mirror of the manifest's
+    /// compatibility.requires: the pair's execution half is a plugin the
+    /// target loads through the module family, so the hosting implant must
+    /// advertise the loader.
+    /// </summary>
+    public IReadOnlyList<string>? Requires => ["plugin-loader"];
+
+    /// <summary>
     /// The verb string both halves declare independently: the implant
     /// plugin registers <c>collect.dpapi</c> against the plugin SDK, and
     /// this descriptor registers the same verb with the server-side

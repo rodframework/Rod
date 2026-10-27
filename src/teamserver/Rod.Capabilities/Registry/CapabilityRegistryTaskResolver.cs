@@ -53,4 +53,13 @@ public sealed class CapabilityRegistryTaskResolver : ITaskCapabilityResolver
         => ImplantClassCapabilities.Allows(@class, verb)
             || (!ImplantClassCapabilities.GatedToAnyClass(verb)
                 && _registry.FindAsync(verb).GetAwaiter().GetResult() is not null);
+
+    /// <summary>
+    /// The named module's requirement rows (ADR-017's runtime half): the
+    /// registry's by-name lookup, answered null for an unknown name or a
+    /// module that declares none -- both mean no rows to check, exactly what
+    /// the class-table default answers.
+    /// </summary>
+    public IReadOnlyList<string>? ModuleRequires(string moduleName)
+        => _registry.FindByNameAsync(moduleName).GetAwaiter().GetResult()?.Requires;
 }

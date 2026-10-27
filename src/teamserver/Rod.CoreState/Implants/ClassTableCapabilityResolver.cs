@@ -25,4 +25,11 @@ public sealed class ClassTableCapabilityResolver : ITaskCapabilityResolver
     /// </summary>
     public bool IsDispatchable(ImplantClass @class, string verb)
         => ImplantClassCapabilities.Allows(@class, verb);
+
+    /// <summary>
+    /// Always null: the class table holds no module registry, so no requirement
+    /// rows exist to check and the runtime gate stands down (the store's
+    /// install-time advisory is the only screen).
+    /// </summary>
+    public IReadOnlyList<string>? ModuleRequires(string moduleName) => null;
 }

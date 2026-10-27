@@ -33,7 +33,8 @@ promotes it ahead of the standing order.
 
 Polyglot on-ramps first (serves architecture.md Sec 15.2, ADR-018 -- the
 designed last mile for any-language implants and plugins; ADR-017's CLI
-half -- the `requires` rows and the conformance report -- already
+half -- the `requires` rows and the conformance report -- and its
+runtime half -- the issuance gate and the UI's loadable-set filter --
 shipped):
 
 - **Linkable core** (the shell contract): the crate's lib target as a
@@ -51,11 +52,6 @@ shipped):
   path beside `Capabilities:Modules`. _AC:_ a novel-namespace module
   opens its issuance gate with zero .NET code and the UI renders its
   task form from the manifest schema -- zero framework changes.
-- **Runtime requirement matching** (ADR-017's runtime half): the server
-  refuses `module.load` for a session whose handshake advertisement does
-  not cover the module's `requires` rows, and the operator UI filters a
-  session's loadable plugin set the same way. _AC:_ a load onto a
-  non-covering implant is refused naming the missing capability.
 - **Presentation profile file**: the baked profile's presentation keys
   (URI shapes, User-Agent, headers, envelope shape) as a standalone file
   contract any build unit consumes. _AC:_ one profile file drives both
