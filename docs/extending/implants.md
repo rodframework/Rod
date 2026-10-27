@@ -904,6 +904,13 @@ from quietly growing:
    the tradecraft modules, and the build pipeline -- not in the minimum an
    implant must carry (architecture.md Sec 14).
 
+**When they bind.** These rules govern the frozen contract. Until the
+first semver release of `Rod.Protocol` -- the freeze ADR-011's split
+ladder names -- the platform holds the pre-freeze posture
+([architecture.md Sec 15](architecture.md), ADR-019): the protocol
+iterates freely, and a breaking change lands as a rewrite of this file
+and rod.proto together, never as a compat shim.
+
 ## Conformance harness
 
 The Tier 0 contract is executable, not just documented: the conformance

@@ -2913,7 +2913,7 @@ outright, whatever it adds (see [extending/implants.md](extending/implants.md)).
 ## 15. Open capabilities and the module ecosystem
 
 > **Status:** Decided direction; [todo.md](https://github.com/rodframework/Rod/blob/main/docs/todo.md) holds the queue. This
-> section records the program decisions (ADR-001 through ADR-015), absorbed
+> section records the program decisions (ADR-001 onward), absorbed
 > from the retired plan that first carried them. Unshipped pieces read as
 > _(future)_.
 
@@ -2936,6 +2936,27 @@ may sit in the tree, not what a build carries: sensitive capabilities stay
 disabled by default and are enabled explicitly at build through profiles
 (Sec 7's posture), and trust moves from physical separation (separate
 repositories) to module signatures and registry governance.
+
+**The pre-freeze posture (ADR-019).** The ecosystem has not
+cold-started: nothing outside this repository consumes the contracts yet
+-- no external rod-registry entries, no community modules, no
+independent implant or SDK authors. Until that changes, iteration
+carries **no compatibility obligations**: a breaking change lands as a
+clean rewrite -- delete, rename, restructure -- never as a compat shim,
+a deprecation layer, or a dual shape carried beside its replacement.
+The tree already practices this: the .NET implant and stager deleted
+whole, the QUIC/SMB/mTLS transports retired, the canonical form bumped
+v1 to v2 when the compatibility rows joined it. The clock starts at the
+**freeze** -- the first semver-versioned release of `Rod.Protocol` and
+the module contracts, the same gate ADR-011's split ladder names. From
+that moment the wire protocol's evolution rules bind
+([extending/implants.md](extending/implants.md)), published packages
+must keep verifying across canonical-form growth (the version line is
+the mechanism), and manifest compatibility floors guard real
+deployments. The compatibility affordances already shipped -- the
+floors, the `requires` rows, the conformance report -- are machinery
+the tree proves on its own modules; obligation accrues only at the
+freeze, and the freedom is spent deliberately, not hoarded.
 
 ### 15.1 Kernel narrow, module layer wide (ADR-001)
 
@@ -3443,3 +3464,4 @@ Where the program touches the existing layers:
 | 016 | Range mode: scripted beacons over the real protocol, default off | Sec 15.3 |
 | 017 | Compatibility collapse: capability `requires` + conformance report in the module contract | Sec 15.2 |
 | 018 | Polyglot on-ramps: linkable core, standalone conformance runner, manifest-declared descriptors | Sec 15.2 |
+| 019 | Pre-freeze posture: contracts iterate freely, breaking changes land as rewrites, until the first semver release | Sec 15 |
