@@ -1,6 +1,6 @@
 [package]
 name = "rod-module-unload"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 
 # The defense-evasion family's second module (architecture.md Sec 5.4):
