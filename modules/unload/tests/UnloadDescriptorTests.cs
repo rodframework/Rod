@@ -21,7 +21,7 @@ public class UnloadDescriptorTests
     {
         Assert.Equal("evasion.unload", Descriptor.Verb);
         Assert.Equal(CapabilityCategory.Evasion, Descriptor.Category);
-        Assert.Equal("1.0", Descriptor.Version);
+        Assert.Equal("1.1", Descriptor.Version);
         Assert.Equal("unload", new UnloadCapabilityModule().Name);
     }
 
@@ -30,26 +30,41 @@ public class UnloadDescriptorTests
     {
         // The loader's own schema gate passes clean; the choices are the
         // action words the implant-side plugin's grammar answers (its
-        // unknown-word refusal quotes the same set), and the action is
-        // optional -- the bare task is the read, the write a word the
-        // operator speaks. The two halves drift together or fail here.
+        // unknown-word refusal quotes the same set), and the two
+        // widening slots sit in the grammar's own order -- the library
+        // the task names, then the comma-joined export list as the
+        // positional tail. The two halves drift together or fail here.
         Assert.Empty(Descriptor.ValidateParameters());
-        var action = Assert.Single(Descriptor.Parameters!);
+        Assert.Equal(3, Descriptor.Parameters!.Count);
 
+        var action = Descriptor.Parameters[0];
         Assert.Equal("action", action.Name);
         Assert.Equal(VerbParameterKind.Enum, action.Kind);
         Assert.False(action.Required);
         Assert.Equal(new[] { "list", "restore" }, action.Choices);
+
+        var dll = Descriptor.Parameters[1];
+        Assert.Equal("dll", dll.Name);
+        Assert.Equal(VerbParameterKind.Text, dll.Kind);
+        Assert.False(dll.Required);
+        Assert.False(dll.Trailing);
+
+        var functions = Descriptor.Parameters[2];
+        Assert.Equal("functions", functions.Name);
+        Assert.Equal(VerbParameterKind.Text, functions.Kind);
+        Assert.False(functions.Required);
+        Assert.True(functions.Trailing);
     }
 
     [Fact]
     public void TheTechniqueDeclarationValidatesAndNamesTheRestore()
     {
         // T1562.001 (Impair Defenses: Disable or Modify Tools) is the
-        // restore itself; the kernel catalog maps this very verb to the
-        // id, so the sweep renders this row beside the kernel's own
-        // carrier for the same verb. The coverage matrix follows the
-        // declaration, not any kernel file.
+        // restore itself, whole-text or per-function alike; the kernel
+        // catalog maps this very verb to the id, so the sweep renders
+        // this row beside the kernel's own carrier for the same verb.
+        // The coverage matrix follows the declaration, not any kernel
+        // file.
         Assert.Empty(Descriptor.ValidateTechniques());
         Assert.Equal(new[] { "T1562.001" }, Descriptor.Techniques);
     }

@@ -6,10 +6,10 @@
 
 [module]
 name = "unload"
-version = "1.0.0"
+version = "1.1.0"
 entry = "server"
 license = "Apache-2.0"
-description = "ntdll unhooking: compare the mapped .text against the disk copy's own bytes and restore it from them -- evasion.unload's execution half lives at src/implant/rust/modules/unload."
+description = "The fresh-copy unhook at breadth: compare any loaded library's mapped .text against a fresh copy and restore it -- the KnownDlls section object the preferred source, the System32 disk file the fallback the row names, the named exports alone or the whole .text -- evasion.unload's execution half lives at src/implant/rust/modules/unload."
 
 [compatibility]
 teamserver = "1.0.0"
@@ -20,18 +20,19 @@ teamserver = "1.0.0"
 # declaration (ADR-007) -- the same ids the server-side descriptor
 # registers -- with the module-level [attack] list as their validated
 # roll-up. T1562.001 (Impair Defenses: Disable or Modify Tools) is the
-# restore itself; the kernel catalog maps this very verb to the id, so
-# the sweep renders the module's carrier beside the kernel's own row
-# for the same verb and folds both into the technique's carriers --
-# the same beside-a-kernel-carrier shape the avoid row rides.
+# restore itself, whole-text or per-function alike; the kernel catalog
+# maps this very verb to the id, so the sweep renders the module's
+# carrier beside the kernel's own row for the same verb and folds both
+# into the technique's carriers -- the same beside-a-kernel-carrier
+# shape the avoid row rides.
 [[verbs]]
 name = "evasion.unload"
-version = "1.0.0"
+version = "1.1.0"
 techniques = ["T1562.001"]
 
 # The compare and the copy are byte arithmetic no architecture owns:
 # the manifest claims both Windows targets, and no others -- the
-# module loads nowhere the mapped ntdll it addresses exists.
+# module loads nowhere the mapped libraries it addresses exist.
 [[compatibility.targets]]
 implant-class = "implant"
 platform = "windows"
@@ -44,7 +45,7 @@ arch = "arm64"
 
 [opsec]
 lands-on-disk = false
-notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content and nothing it does lands on disk: the disk ntdll is read where it sits and the restore rewrites pages of the implant process's own mapping -- copy-on-write makes them private, the effect dies with the process, and a new process maps fresh libraries. The bare task is the read (the differing-byte count); the restore is the write the operator names. The compare trusts the disk copy only as far as a build fingerprint carries (a patch-Tuesday drift refuses), and the KnownDlls section-object path is the module's later widening. Products that guard ntdll's .text (periodic re-hooking, guard-page telemetry) are a live blue-team surface; the verb is sensitive (Evasion category, modifies-defenses attribute), held out of unattended firing by the registry-backed policy, and the plugin rides the per-engagement module load -- never a default profile."
+notes = "Server-side assembly installs on operator infrastructure only. On the target, the implant half loads from staged task content and nothing it does lands on disk: the fresh copy is read where it sits (the KnownDlls section object preferred -- the loader's own clean copy, read through no file at all; the System32 disk file the fallback the row names) and the restore rewrites pages of the implant process's own mapping -- copy-on-write makes them private, the effect dies with the process, and a new process maps fresh libraries. The bare task is the read (the differing-byte count, whole-text or per-function); the restore is the write the operator names. The compare trusts the fresh copy only as far as a build fingerprint carries (a patch-Tuesday drift refuses). Products that guard the mapped .text (periodic re-hooking, guard-page telemetry) are a live blue-team surface -- the wider the library list and the narrower the function list, the smaller the rewrite window a re-hook needs to notice; the verb is sensitive (Evasion category, modifies-defenses attribute), held out of unattended firing by the registry-backed policy, and the plugin rides the per-engagement module load -- never a default profile."
 
 [attack]
 techniques = ["T1562.001"]

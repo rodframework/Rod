@@ -20,9 +20,12 @@ namespace Rod.Modules.Unload;
 /// policy holds it out of unattended firing and behind the operator
 /// approval the sensitive queue carries (architecture.md Sec 10.4).
 /// The parameter form keeps the bare task a read: an empty action
-/// compares ntdll's mapped <c>.text</c> against the disk copy and
+/// compares ntdll's mapped <c>.text</c> against the fresh copy and
 /// reports the differing bytes -- the restore is the write the
-/// operator names, never a default.
+/// operator names, never a default. The v1.1 slots scope the same act:
+/// the library the task names and the exports it narrows to, with the
+/// fresh copy served from the KnownDlls section object first and the
+/// disk file the fallback the row names.
 /// </remarks>
 public sealed class UnloadCapabilityModule : ICapabilityModule
 {
@@ -36,10 +39,10 @@ public sealed class UnloadCapabilityModule : ICapabilityModule
     /// <summary>
     /// The verb string both halves declare independently: the implant
     /// plugin registers <c>evasion.unload</c> against the plugin SDK,
-    /// and this descriptor registers the same verb with the
-    /// server-side registry -- the string, never a shared type, is the
-    /// contract between them (architecture.md Sec 10). The attributes
-    /// carry the verb's OPSEC flag (Sec 7): the restore rewrites the
+    /// and this descriptor registers the same verb with the server-side
+    /// registry -- the string, never a shared type, is the contract
+    /// between them (architecture.md Sec 10). The attributes carry the
+    /// verb's OPSEC flag (Sec 7): the restore rewrites the
     /// target process's defensive posture, the flag the sensitive-verb
     /// policy keys on -- the same flag the kernel's placeholder
     /// carried, now behind an implementation.
@@ -47,7 +50,7 @@ public sealed class UnloadCapabilityModule : ICapabilityModule
     public CapabilityDescriptor Descriptor { get; } = CapabilityDescriptor.Of(
         "evasion.unload",
         CapabilityCategory.Evasion,
-        "1.0",
+        "1.1",
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["modifies-defenses"] = "true",
@@ -59,11 +62,26 @@ public sealed class UnloadCapabilityModule : ICapabilityModule
                 "Action",
                 VerbParameterKind.Enum,
                 Required: false,
-                Help: "Empty compares ntdll's in-memory .text against the disk copy -- a bare task is a read.",
+                Help: "Empty compares the named library's in-memory .text against the fresh copy -- a bare task is a read.",
                 Choices: ["list", "restore"]),
+            new VerbParameter(
+                "dll",
+                "Library",
+                VerbParameterKind.Text,
+                Required: false,
+                Help: "The library the verb addresses -- a name, never a path; ntdll.dll the default.",
+                Placeholder: "kernel32.dll"),
+            new VerbParameter(
+                "functions",
+                "Exports",
+                VerbParameterKind.Text,
+                Required: false,
+                Help: "The comma-joined exports to narrow to; empty addresses the whole .text.",
+                Placeholder: "NtAllocateVirtualMemory,NtProtectVirtualMemory",
+                Trailing: true),
         ],
         output: new VerbOutput(
             VerbOutputKind.Text,
-            "One row: how many .text bytes differ from the disk copy, or how many the restore rewrote."),
+            "One row for the whole .text, or one row per named export: how many bytes differ from the fresh copy or how many the restore rewrote, the row naming the source that served (KnownDlls section object or disk copy)."),
         techniques: ["T1562.001"]);
 }
