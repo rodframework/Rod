@@ -74,6 +74,10 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.26.x'
+          # The module cache setup-go keys on go.sum is dead weight here:
+          # the Go unit vendors its dependencies, so no build consults the
+          # module cache and the runner-root go.sum probe only warns.
+          cache: false
       - name: Build operator UI
         # Emits the React bundle into src/teamserver/Rod.TeamServer/wwwroot so
         # the .NET build packages it. The output is gitignored. The test run
@@ -103,6 +107,19 @@ jobs:
           sudo apt-get update && sudo apt-get install -y protobuf-compiler musl-tools mingw-w64
           rustup target add x86_64-unknown-linux-musl x86_64-pc-windows-gnu i686-pc-windows-gnu aarch64-unknown-linux-musl
           echo "ROD_RUST_TARGET_DIR=${RUNNER_TEMP}/rod-rust-target" >> "$GITHUB_ENV"
+      - name: Cache the shared Rust target dir
+        # The warm-up below compiles the same three crosses in both feature
+        # configurations on every run; with the target dir cached they land
+        # as incremental no-ops, and the core lane's in-test cargo builds
+        # start warm too. Keyed on the lock alone -- a source-only change
+        # keeps the dependency layer, and the restore-key prefix rides a
+        # dependency bump -- because a toolchain roll invalidates inside
+        # cargo's fingerprints, not the key.
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/rod-rust-target
+          key: rust-targets-${{ hashFiles('src/implant/rust/Cargo.lock') }}
+          restore-keys: rust-targets-
       - name: Warm the shared Rust target dir
         # One full compile per exercised target up front, outside any test,
         # so no single test pays the cold-build minutes (a cold mingw build
@@ -238,6 +255,22 @@ jobs:
         run: |
           rustup component add clippy rustfmt
           rustup target add x86_64-unknown-linux-musl x86_64-pc-windows-gnu
+      - name: Cache the Rust build trees
+        # Every manifest here owns its target dir (the tree is a loose set
+        # of crates, not a workspace), and the job's clippy, test, and
+        # shape builds are cold compiles of them all on every run. The
+        # cache makes them incremental; keyed on the tree's lockfiles --
+        # a source-only change keeps the compiled dependency layer, and
+        # the restore-key prefix rides a dependency bump -- because a
+        # toolchain roll invalidates inside cargo's fingerprints, not the
+        # key.
+        uses: actions/cache@v6
+        with:
+          path: |
+            src/implant/rust/**/target
+            src/native/wireguard/target
+          key: rust-implant-${{ hashFiles('src/implant/rust/**/Cargo.lock', 'src/native/wireguard/Cargo.lock') }}
+          restore-keys: rust-implant-
       - name: Format check
         # The plugin modules join by directory shape (every manifest under
         # modules/), the same zero-touch rule the module lanes hold.
@@ -318,9 +351,12 @@ jobs:
       - name: Setup Go
         # Pinned like the .NET SDK and Node above: an unpinned 'stable'
         # lets a runner image roll the toolchain under an unchanged tree.
+        # The module cache is off for the same reason the build-and-test
+        # job turns it off: the unit vendors its dependencies.
         uses: actions/setup-go@v5
         with:
           go-version: '1.26.x'
+          cache: false
       - name: Format check
         working-directory: src/implant/go
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
