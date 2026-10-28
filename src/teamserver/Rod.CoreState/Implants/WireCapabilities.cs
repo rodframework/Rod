@@ -83,15 +83,16 @@ public static class WireCapabilities
 
     /// <summary>
     /// Whether <paramref name="advertised"/> -- a session's handshake
-    /// advertisement, the verb strings the implant claims -- covers the
-    /// capability <paramref name="name"/>. Each tier's task-path face is the
-    /// verb whose reference handler carries its frames, so advertising the
-    /// verb claims its wire shape: every loader ABI is covered by the
-    /// family's loading verb, bulk output rides the pull verb past its
-    /// inline cap, and downstream bulk rides the push verb through the
-    /// staged arm. A Tier 0 build that degrades a verb's bulk arm still
-    /// passes this check, and the module degrades with it at run time --
-    /// visibly, never silently.
+    /// advertisement, the capability strings the implant claims -- covers the
+    /// capability <paramref name="name"/>. The bulk tiers' task-path face is
+    /// the verb whose reference handler carries their frames (advertising the
+    /// verb claims the wire shape); the loader ABIs are covered by the
+    /// advertisement carrying the ABI name itself (ADR-020): the implant
+    /// states which loaders this build hosts -- <c>plugin-loader/exec-v1</c>
+    /// beside the verbs -- so the runtime gate checks the loader a plugin
+    /// needs, not merely that some loader exists. A Tier 0 build that
+    /// degrades a bulk arm still passes its check, and the module degrades
+    /// with it at run time -- visibly, never silently.
     /// </summary>
     public static bool Covers(IEnumerable<string> advertised, string name)
     {
@@ -99,7 +100,7 @@ public static class WireCapabilities
         {
             ExfilChunks => FilePullVerb,
             StagedUploads => FilePushVerb,
-            _ when IsPluginLoaderAbi(name) => ModuleLoadVerb,
+            _ when IsPluginLoaderAbi(name) => name,
             _ => null,
         };
         return coveringVerb is not null

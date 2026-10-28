@@ -14,11 +14,12 @@ namespace Rod.CoreState.Tests;
 public class WireCapabilitiesTests
 {
     [Theory]
-    [InlineData("module.load,shell.exec", WireCapabilities.PluginLoaderExec, true)]
-    [InlineData("module.load,shell.exec", WireCapabilities.PluginLoaderNative, true)]
-    [InlineData("module.load,shell.exec", WireCapabilities.PluginLoaderCoff, true)]
+    [InlineData("plugin-loader/exec-v1,shell.exec", WireCapabilities.PluginLoaderExec, true)]
+    [InlineData("plugin-loader/native-v1,module.load", WireCapabilities.PluginLoaderNative, true)]
+    [InlineData("plugin-loader/coff-v1", WireCapabilities.PluginLoaderCoff, true)]
+    [InlineData("module.load,shell.exec", WireCapabilities.PluginLoaderExec, false)]
     [InlineData("shell.exec", WireCapabilities.PluginLoaderExec, false)]
-    [InlineData("MODULE.LOAD", WireCapabilities.PluginLoaderNative, true)]
+    [InlineData("PLUGIN-LOADER/EXEC-V1", WireCapabilities.PluginLoaderExec, true)]
     [InlineData("file.pull", WireCapabilities.ExfilChunks, true)]
     [InlineData("shell.exec", WireCapabilities.ExfilChunks, false)]
     [InlineData("file.push", WireCapabilities.StagedUploads, true)]

@@ -323,7 +323,7 @@ public class TaskServiceGatingTests
         var implants = new InMemoryImplantRepository();
         var engagement = EngagementId.New();
         var implant = await EnrollAsync(implants, engagement, ImplantClass.Implant);
-        var sessions = await SessionAdvertisingAsync(implant, "shell.exec", "file.pull");
+        var sessions = await SessionAdvertisingAsync(implant, "shell.exec", "file.pull", "module.load");
         var service = NewRequiringService(implants, sessions, "hives", "plugin-loader/exec-v1");
 
         var ex = await Assert.ThrowsAsync<TaskRejectedException>(
@@ -341,7 +341,7 @@ public class TaskServiceGatingTests
         var implants = new InMemoryImplantRepository();
         var engagement = EngagementId.New();
         var implant = await EnrollAsync(implants, engagement, ImplantClass.Implant);
-        var sessions = await SessionAdvertisingAsync(implant, "shell.exec", "module.load", "file.pull");
+        var sessions = await SessionAdvertisingAsync(implant, "shell.exec", "module.load", "file.pull", "plugin-loader/exec-v1");
         var service = NewRequiringService(implants, sessions, "hives", "plugin-loader/exec-v1", "exfil-chunks");
 
         var issued = await service.IssueAsync(new IssueTaskCommand(

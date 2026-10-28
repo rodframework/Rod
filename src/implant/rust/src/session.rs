@@ -170,6 +170,15 @@ impl Session {
             })
             .cloned()
             .collect::<Vec<_>>();
+        // The loader ABI advertisement (ADR-020): the session states which
+        // loading contracts this build hosts, beside the verbs --
+        // the runtime gate checks the loader a plugin needs, not merely that
+        // some loader exists. The floors without a loader advertise none.
+        #[cfg(all(unix, not(target_os = "android"), not(target_os = "macos")))]
+        advertised.push("plugin-loader/exec-v1".to_string());
+        #[cfg(windows)]
+        advertised.push("plugin-loader/native-v1".to_string());
+
         if poll_carriage && advertised.iter().any(|verb| channel::is_channel_verb(verb)) {
             advertised.push("channels.poll".to_string());
         }
@@ -931,6 +940,18 @@ mod tests {
     fn the_advertisement_intersects_the_compiled_handlers() {
         let baked = ["shell.exec".to_string(), "no.such.verb".to_string()];
         let mut session = Session::new("i".into(), &baked, cadence(), Vec::new(), None, None, true);
+        // The baked verbs intersect the compiled set, and the loader ABI
+        // this build hosts rides beside them (ADR-020): the runtime gate
+        // checks the loader a plugin needs, not merely that one exists.
+        #[cfg(all(unix, not(target_os = "android"), not(target_os = "macos")))]
+        assert_eq!(
+            advertised_of(&mut session),
+            vec![
+                "shell.exec".to_string(),
+                "plugin-loader/exec-v1".to_string()
+            ]
+        );
+        #[cfg(not(all(unix, not(target_os = "android"), not(target_os = "macos"))))]
         assert_eq!(advertised_of(&mut session), vec!["shell.exec".to_string()]);
     }
 
