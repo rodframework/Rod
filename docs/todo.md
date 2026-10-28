@@ -38,14 +38,9 @@ runtime half -- the issuance gate and the UI's loadable-set filter --
 shipped; the manifest-declared descriptor shipped too, and the in-tree
 thirteen server modules migrated onto it, their .NET halves deleted; the
 standalone conformance runner shipped as `rod conform <candidate>`, the
-same rig and report the in-tree acceptance runs):
-
-- **Linkable core** (the shell contract): the crate's lib target as a
-  documented C-ABI embedding surface -- init-with-profile, IO pump,
-  state read -- so a Nim/Zig/C shell links the static core and writes
-  `main`, not a wire stack. _AC:_ a non-Rust shell built against the
-  static library passes the conformance harness's Tier 0 clauses end to
-  end.
+same rig and report the in-tree acceptance runs; the linkable core
+shipped as the crate's `rod_core_*` C-ABI family, with the worked C
+shell passing the harness's every clause):
 
 - **Presentation profile file**: the baked profile's presentation keys
   (URI shapes, User-Agent, headers, envelope shape) as a standalone file

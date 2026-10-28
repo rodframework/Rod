@@ -911,6 +911,67 @@ ladder names -- the platform holds the pre-freeze posture
 iterates freely, and a breaking change lands as a rewrite of this file
 and rod.proto together, never as a compat shim.
 
+## The linkable core (the C-ABI embedding surface)
+
+Tier 0 from scratch is a floor, not a requirement: the reference crate's
+lib target also builds as a C-ABI static library (architecture.md
+Sec 15.2, ADR-018), so a shell in any language that can link one writes
+`main` and a pump loop and gets the whole wire stack -- enrollment, the
+sealed contact cycle, tasking verification, the compiled handlers --
+without implementing this document's byte-level shapes and without
+forking the crate. The middle rung between writing Tier 0 and forking.
+
+The surface is five symbols, named `rod_core_*` to stand beside (never
+inside) the plugin family's `rod_plugin_*` set; the C contract is
+`src/implant/rust/include/rod_core.h`:
+
+| Symbol | Purpose |
+|--------|---------|
+| `rod_core_abi_version` | the ABI number; a shell refuses a core that answers another |
+| `rod_core_init_with_profile` | build a core from explicit profile fields |
+| `rod_core_pump` | perform the machine's next due action |
+| `rod_core_state` | read the phase, the exit code, the wait, the implant id |
+| `rod_core_free` | release the handle |
+
+The drive is cooperative and single-threaded. One pump performs one due
+action -- an enroll attempt, or a whole contact cycle (network IO bounded
+by the request timeout) -- or answers that nothing is due yet, and the
+state read carries the wait the shell owes before pumping again. The
+shell does the sleeping, owns the process and the exit code, and reads
+the machine's terminal state (the exit codes are the standalone Rust
+binary's own: 0 clean terminations, 1 definitive failures, 2 the init
+gates). The core never exits the process, never spawns a thread, and
+writes nothing to stdout; diagnostics follow the crate's ROD_VERBOSE
+gate.
+
+The profile is the dev shape as explicit fields: the enroll URL and
+deploy token are required; kill date, verb list, CA, TLS posture,
+envelope key, mode, and cadence default exactly as the ROD_*
+environment does. An empty verb list advertises everything the linked
+build compiled -- the embedding default is the whole stack, where a bake
+narrows per build profile. A baked envelope key seals the contact
+carriage exactly as it does on the standalone binary; the fielded bake
+itself still rides the Rust entries, which read it before the machine
+exists.
+
+The worked shell is `src/implant/rust/shell/main.c` (C because it adds
+no toolchain to the worked example; the same shape in Nim, Zig, or any
+other static-library-capable language is the community's to certify).
+Linux build:
+
+```sh
+cargo build --release                    # in src/implant/rust
+cc -O2 -o rod-shell shell/main.c \
+   target/release/librod_implant.a -lpthread -lm -ldl
+```
+
+The shell that falls out is an ordinary candidate process: it reads
+`ROD_ENROLL_URL` / `ROD_DEPLOY_TOKEN` / `ROD_KILL_DATE` and its own
+knobs (`ROD_SLEEP`, `ROD_JITTER`, `ROD_VERBS`, `ROD_MODE`) from the
+environment, so the harness below drives it like any other candidate
+(`rod conform ./rod-shell --env ROD_SLEEP=1`) -- and the in-tree
+acceptance runs exactly that, end to end, against every clause.
+
 ## Conformance harness
 
 The Tier 0 contract is executable, not just documented: the conformance

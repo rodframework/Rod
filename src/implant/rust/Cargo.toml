@@ -16,6 +16,14 @@ edition = "2021"
 name = "rod-implant"
 path = "src/main.rs"
 
+# The lib target ships two shapes: the rlib the in-tree entries consume
+# (the bin, the Android carrier), and the static library a non-Rust shell
+# links -- the linkable core (architecture.md Sec 15.2, ADR-018). The C
+# contract is include/rod_core.h; the worked shell is shell/main.c.
+[lib]
+name = "rod_implant"
+crate-type = ["rlib", "staticlib"]
+
 [dependencies]
 aes-gcm = "0.10"
 base64 = "0.22"

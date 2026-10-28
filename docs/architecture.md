@@ -3220,27 +3220,30 @@ session). The operator UI reads the same rule: the catalog carries each
 module's name and rows, the session console's module menu and
 module-load picker filter what the live advertisement covers.
 
-**The polyglot on-ramps (ADR-018) _(future)_.** The wire contract is the
+**The polyglot on-ramps (ADR-018).** The wire contract is the
 language boundary; three designed on-ramps drop the remaining
 per-language cost without widening the kernel or the wire. The
-**linkable core** formalizes the crate's existing lib target as a C-ABI
-embedding surface (an init-with-profile, an IO pump, a state read -- a
-handful of symbols beside the plugin family's six), so a shell in any
-language that links a static library writes `main` and a pump and gets
-the whole wire stack -- the middle rung between Tier 0 from scratch and
-the crate fork. The **standalone conformance runner** packaged the
-harness so a community author points it at a candidate binary without
-the tree (shipped: `rod conform <candidate>` spawns the `rod-conform`
-runner resolved beside rod, on PATH, or by `--runner` -- the rig lifted
-into a shipped harness under `src/conformance/dotnet/` whose report and
-clause set are the in-tree rig's own, while the CLI keeps its
-zero-in-house-reference line). The baked profile's presentation keys
-travel as a standalone profile file any build unit consumes. (The
-manifest-declared descriptor this paragraph once carried shipped: the
-verb rows' descriptor half and the `Capabilities:DescriptorModules`
-loading path, with the in-tree set migrated onto it -- the server-side
-twin of the C-ABI seam's language freedom, now the default authoring
-path.)
+**linkable core** (shipped: the `rod_core_*` C-ABI family in the crate's
+lib target, the C contract in `src/implant/rust/include/rod_core.h`, and
+the worked C shell under `src/implant/rust/shell/` passing the
+conformance harness's every clause end to end) formalizes the lib target
+as a C-ABI embedding surface -- an init-with-profile, an IO pump, a
+state read, a handful of symbols beside the plugin family's six -- so a
+shell in any language that links a static library writes `main` and a
+pump and gets the whole wire stack: the middle rung between Tier 0 from
+scratch and the crate fork. The **standalone conformance runner**
+packaged the harness so a community author points it at a candidate
+binary without the tree (shipped: `rod conform <candidate>` spawns the
+`rod-conform` runner resolved beside rod, on PATH, or by `--runner` --
+the rig lifted into a shipped harness under `src/conformance/dotnet/`
+whose report and clause set are the in-tree rig's own, while the CLI
+keeps its zero-in-house-reference line). The baked profile's
+presentation keys travel as a standalone profile file any build unit
+consumes. (The manifest-declared descriptor this paragraph once carried
+shipped: the verb rows' descriptor half and the
+`Capabilities:DescriptorModules` loading path, with the in-tree set
+migrated onto it -- the server-side twin of the C-ABI seam's language
+freedom, now the default authoring path.)
 
 There is **no carry-over from existing ecosystems**: no BOF/COFF execution
 layer, no Armory migration. The ecosystem accumulates from zero, quality

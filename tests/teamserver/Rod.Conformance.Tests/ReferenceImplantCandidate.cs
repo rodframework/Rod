@@ -84,8 +84,9 @@ public sealed class ReferenceImplantCandidate : IImplantCandidate
     public void Dispose() => _candidate.Dispose();
 
     // Walks up from the test assembly to the repo root, the same resolution
-    // the in-tree build unit uses.
-    private static string? LocateRustTree()
+    // the in-tree build unit uses. Shared with the linkable-core tests, which
+    // build the static library out of the same tree.
+    internal static string? LocateRustTree()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null)

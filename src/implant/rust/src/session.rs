@@ -210,9 +210,11 @@ impl Session {
             .unwrap_or(false)
     }
 
-    /// The jittered inter-cycle sleep, widened by consecutive failures --
-    /// the exponential reconnect backoff the low-and-slow posture calls for.
-    pub fn backoff_sleep(&self, failures: u32) {
+    /// The jittered inter-cycle wait, widened by consecutive failures --
+    /// the exponential reconnect backoff the low-and-slow posture calls
+    /// for. The driver sleeps it; the machine hands the wait to whatever
+    /// shell drives it.
+    pub fn backoff_wait(&self, failures: u32) -> std::time::Duration {
         let (base, jitter) = *self.cadence.lock().expect("cadence");
         let widened = (base.max(1.0) * 2f64.powi(failures.min(5) as i32)).min(600.0);
         let slack = if jitter > 0.0 {
@@ -220,9 +222,7 @@ impl Session {
         } else {
             0.0
         };
-        std::thread::sleep(std::time::Duration::from_secs_f64(
-            (widened + slack).max(0.1),
-        ));
+        std::time::Duration::from_secs_f64((widened + slack).max(0.1))
     }
 
     /// The handshake this run opens every contact with: identity, protocol
