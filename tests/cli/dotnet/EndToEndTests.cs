@@ -219,10 +219,23 @@ public class EndToEndTests
         // A license but packaging rules that select nothing: an empty
         // package is a mistake, not a module. The manifest-alone exemption
         // belongs to server-entry descriptor rows (ADR-018 -- the rows are
-        // the whole module); an implant module carries its plugin as
+        // the whole module); an extension module carries its crate as
         // payload, so rules that select nothing stay a refusal.
         Author(module, "1.0.0", payload: null);
-        var toml = File.ReadAllText(Path.Combine(module, "rod-module.toml")).Replace("entry = \"server\"", "entry = \"implant\"")
+        var toml = File.ReadAllText(Path.Combine(module, "rod-module.toml"))
+            .Replace("entry = \"server\"", "entry = \"extension\"")
+            .Replace("""
+                # [[compatibility.targets]]
+                # implant-class = "implant"
+                # platform = "linux"
+                # arch = "amd64"
+                """, """
+                [[compatibility.targets]]
+                implant-class = "implant"
+                build-unit = "rod-rust"
+                platform = "linux"
+                arch = "amd64"
+                """)
             + "\n[package]\ninclude = [\"nothing/**\"]\n";
         File.WriteAllText(Path.Combine(module, "rod-module.toml"), toml);
         var empty = CliRun.Run("mod", "publish", "--path", module, "--registry", registry);
@@ -374,7 +387,7 @@ public class EndToEndTests
         CliRun.Run("mod", "init", "demo-sweep", "--path", plugin);
         Author(plugin, "1.0.0", "payload-v1");
         var pluginToml = File.ReadAllText(Path.Combine(plugin, "rod-module.toml"))
-            .Replace("# requires = [\"plugin-loader\"]", "requires = [\"plugin-loader\", \"exfil-chunks\"]");
+            .Replace("# requires = [\"plugin-loader/exec-v1\"]", "requires = [\"plugin-loader/exec-v1\", \"exfil-chunks\"]");
         File.WriteAllText(Path.Combine(plugin, "rod-module.toml"), pluginToml);
         var publish = CliRun.Run("mod", "publish", "--path", plugin, "--registry", registry);
         Assert.True(publish.Code == 0, publish.Error);
@@ -382,19 +395,19 @@ public class EndToEndTests
         // The index mirrors the requirement set beside the target matrix.
         var entry = Rod.Packaging.RegistryJson.LoadEntry(
             Path.Combine(registry, "modules", "demo-sweep.json"));
-        Assert.Equal(["plugin-loader", "exfil-chunks"],
+        Assert.Equal(["plugin-loader/exec-v1", "exfil-chunks"],
             entry!.Versions.Single(v => v.Version == "1.0.0").Compatibility.Requires);
 
         // The catalog surfaces it, and install repeats it as the advisory it
         // is (the target's handshake advertisement is the runtime truth).
         var info = CliRun.Run("mod", "info", "demo-sweep", "--registry", registry);
-        Assert.Contains("requires on the target: plugin-loader exfil-chunks", info.Output);
-        Assert.Contains("plugin-loader", CliRun.Run("mod", "search", "exfil-chunks", "--registry", registry).Output);
+        Assert.Contains("requires on the target: plugin-loader/exec-v1 exfil-chunks", info.Output);
+        Assert.Contains("plugin-loader/exec-v1", CliRun.Run("mod", "search", "exfil-chunks", "--registry", registry).Output);
 
         var pluginInstall = CliRun.Run("mod", "install", "demo-sweep", "--registry", registry,
             "--dir", install, "--teamserver", "1.0.0");
         Assert.True(pluginInstall.Code == 0, pluginInstall.Error);
-        Assert.Contains("requires on the target implant: plugin-loader, exfil-chunks", pluginInstall.Output);
+        Assert.Contains("requires on the target implant: plugin-loader/exec-v1, exfil-chunks", pluginInstall.Output);
 
         // A build unit carries the conformance report instead: what its
         // candidate proved against the harness.
@@ -432,7 +445,7 @@ public class EndToEndTests
         // signature: exit 2, the trust failure.
         var installedManifest = Path.Combine(install, "modules", "demo-sweep", "1.0.0", "rod-module.toml");
         File.WriteAllText(installedManifest,
-            File.ReadAllText(installedManifest).Replace("requires = [\"plugin-loader\", \"exfil-chunks\"]", "requires = []"));
+            File.ReadAllText(installedManifest).Replace("requires = [\"plugin-loader/exec-v1\", \"exfil-chunks\"]", "requires = []"));
         var tampered = CliRun.Run("mod", "verify", "--dir", install);
         Assert.Equal(RodCli.ExitTrustFailure, tampered.Code);
         Assert.Contains("FAIL demo-sweep@1.0.0", tampered.Output);

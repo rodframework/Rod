@@ -78,7 +78,7 @@ public class InTreeModuleLoadingTests
             var hostenum = await registry.FindAsync("recon.hostenum");
             Assert.NotNull(hostenum);
             Assert.Equal("hostenum", hostenum!.Name);
-            Assert.Equal(["plugin-loader"], hostenum.Requires);
+            Assert.Equal(["plugin-loader/exec-v1", "plugin-loader/native-v1"], hostenum.Requires);
             Assert.Equal(VerbOutputKind.Enumeration, hostenum.Descriptor.Output!.Kind);
             Assert.Equal(["T1082"], hostenum.Descriptor.Techniques);
 

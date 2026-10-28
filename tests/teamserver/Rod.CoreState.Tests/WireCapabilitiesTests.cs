@@ -8,14 +8,17 @@ namespace Rod.CoreState.Tests;
 /// coverage rule the runtime requirement gate matches against a session's
 /// handshake advertisement. Each tier's task-path face is the verb whose
 /// reference handler carries its frames, so advertising the verb claims the
-/// capability.
+/// capability. The loader family is ABI-suffixed (ADR-020): every ABI of the
+/// family shares the loading verb as its task-path face.
 /// </summary>
 public class WireCapabilitiesTests
 {
     [Theory]
-    [InlineData("module.load,shell.exec", WireCapabilities.PluginLoader, true)]
-    [InlineData("shell.exec", WireCapabilities.PluginLoader, false)]
-    [InlineData("MODULE.LOAD", WireCapabilities.PluginLoader, true)]
+    [InlineData("module.load,shell.exec", WireCapabilities.PluginLoaderExec, true)]
+    [InlineData("module.load,shell.exec", WireCapabilities.PluginLoaderNative, true)]
+    [InlineData("module.load,shell.exec", WireCapabilities.PluginLoaderCoff, true)]
+    [InlineData("shell.exec", WireCapabilities.PluginLoaderExec, false)]
+    [InlineData("MODULE.LOAD", WireCapabilities.PluginLoaderNative, true)]
     [InlineData("file.pull", WireCapabilities.ExfilChunks, true)]
     [InlineData("shell.exec", WireCapabilities.ExfilChunks, false)]
     [InlineData("file.push", WireCapabilities.StagedUploads, true)]
@@ -30,9 +33,24 @@ public class WireCapabilitiesTests
     public void Requirable_IsTheClosedVocabulary()
     {
         Assert.Equal(
-            new[] { "plugin-loader", "exfil-chunks", "staged-uploads" },
+            new[]
+            {
+                "plugin-loader/exec-v1", "plugin-loader/native-v1",
+                "plugin-loader/coff-v1", "plugin-loader/wasm-v1",
+                "exfil-chunks", "staged-uploads",
+            },
             WireCapabilities.Requirable);
-        Assert.True(WireCapabilities.IsRequirable("plugin-loader"));
+        Assert.True(WireCapabilities.IsRequirable("plugin-loader/exec-v1"));
+        Assert.False(WireCapabilities.IsRequirable("plugin-loader"));
         Assert.False(WireCapabilities.IsRequirable("channels"));
+    }
+
+    [Fact]
+    public void TheLoaderAbis_AreTheFamilySSuffixedNames()
+    {
+        Assert.True(WireCapabilities.IsPluginLoaderAbi(WireCapabilities.PluginLoaderExec));
+        Assert.True(WireCapabilities.IsPluginLoaderAbi("plugin-loader/native-v9"));
+        Assert.False(WireCapabilities.IsPluginLoaderAbi("plugin-loader"));
+        Assert.False(WireCapabilities.IsPluginLoaderAbi("exfil-chunks"));
     }
 }

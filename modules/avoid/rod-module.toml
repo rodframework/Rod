@@ -18,7 +18,7 @@ teamserver = "1.0.0"
 # plugin the target loads through the module family, so the hosting implant
 # must advertise the loader. The implant's handshake advertisement is the
 # runtime truth; this row is the store's static filter.
-requires = ["plugin-loader"]
+requires = ["plugin-loader/exec-v1", "plugin-loader/native-v1"]
 
 # The verb version matrix (architecture.md Sec 15.2), now the descriptor
 # row itself (ADR-018): the verb iterates

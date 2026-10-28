@@ -194,9 +194,15 @@ public class CampaignTemplateModuleTests
         File.WriteAllText(Path.Combine(module, "rod-module.toml"), """
             [module]
             name = "broken-templates"
+            version = "1.0.0"
+            entry = "assets"
+            license = "Apache-2.0"
 
             [compatibility]
             teamserver = "1.0.0"
+
+            [opsec]
+            lands-on-disk = false
 
             [[assets]]
             name = "not-a-template"

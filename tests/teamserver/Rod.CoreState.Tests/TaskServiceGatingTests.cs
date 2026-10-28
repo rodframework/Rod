@@ -324,7 +324,7 @@ public class TaskServiceGatingTests
         var engagement = EngagementId.New();
         var implant = await EnrollAsync(implants, engagement, ImplantClass.Implant);
         var sessions = await SessionAdvertisingAsync(implant, "shell.exec", "file.pull");
-        var service = NewRequiringService(implants, sessions, "hives", "plugin-loader");
+        var service = NewRequiringService(implants, sessions, "hives", "plugin-loader/exec-v1");
 
         var ex = await Assert.ThrowsAsync<TaskRejectedException>(
             () => service.IssueAsync(new IssueTaskCommand(
@@ -342,7 +342,7 @@ public class TaskServiceGatingTests
         var engagement = EngagementId.New();
         var implant = await EnrollAsync(implants, engagement, ImplantClass.Implant);
         var sessions = await SessionAdvertisingAsync(implant, "shell.exec", "module.load", "file.pull");
-        var service = NewRequiringService(implants, sessions, "hives", "plugin-loader", "exfil-chunks");
+        var service = NewRequiringService(implants, sessions, "hives", "plugin-loader/exec-v1", "exfil-chunks");
 
         var issued = await service.IssueAsync(new IssueTaskCommand(
             engagement, implant.Id, OperatorId.New(), "module.load", "hives sha256:00"));
@@ -359,7 +359,7 @@ public class TaskServiceGatingTests
         var implants = new InMemoryImplantRepository();
         var engagement = EngagementId.New();
         var implant = await EnrollAsync(implants, engagement, ImplantClass.Implant);
-        var service = NewRequiringService(implants, new InMemorySessionRegistry(), "hives", "plugin-loader");
+        var service = NewRequiringService(implants, new InMemorySessionRegistry(), "hives", "plugin-loader/exec-v1");
 
         var issued = await service.IssueAsync(new IssueTaskCommand(
             engagement, implant.Id, OperatorId.New(), "module.load", "hives sha256:00"));
@@ -376,7 +376,7 @@ public class TaskServiceGatingTests
         var engagement = EngagementId.New();
         var implant = await EnrollAsync(implants, engagement, ImplantClass.Implant);
         var sessions = await SessionAdvertisingAsync(implant, "shell.exec");
-        var service = NewRequiringService(implants, sessions, "hives", "plugin-loader");
+        var service = NewRequiringService(implants, sessions, "hives", "plugin-loader/exec-v1");
 
         var issued = await service.IssueAsync(new IssueTaskCommand(
             engagement, implant.Id, OperatorId.New(), "module.load", "operator-binary sha256:00"));

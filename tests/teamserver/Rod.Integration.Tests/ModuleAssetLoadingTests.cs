@@ -25,9 +25,15 @@ public class ModuleAssetLoadingTests
         File.WriteAllText(Path.Combine(module, "rod-module.toml"), """
             [module]
             name = "browser-hook"
+            version = "1.0.0"
+            entry = "assets"
+            license = "Apache-2.0"
 
             [compatibility]
             teamserver = "1.0.0"
+
+            [opsec]
+            lands-on-disk = false
 
             [[assets]]
             name = "hook"

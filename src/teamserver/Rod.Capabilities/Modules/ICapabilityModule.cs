@@ -46,11 +46,12 @@ public interface ICapabilityModule
     /// <summary>
     /// The wire capabilities the hosting implant must support for this
     /// module's execution half to run (architecture.md Sec 15.2, ADR-017):
-    /// names from the closed vocabulary (<c>plugin-loader</c>,
-    /// <c>exfil-chunks</c>, <c>staged-uploads</c>). The runtime mirror of the
-    /// manifest's <c>compatibility.requires</c> row -- the manifest is the
-    /// packaging truth the store and the CLI read; this property is what the
-    /// live task path sees. Optional: a module that declares none requires
+    /// names from the closed vocabulary (the loader ABI family
+    /// <c>plugin-loader/exec-v1</c> and its kin, <c>exfil-chunks</c>,
+    /// <c>staged-uploads</c>). The runtime mirror of the manifest's
+    /// <c>compatibility.requires</c> row -- the manifest is the packaging
+    /// truth the store and the CLI read; this property is what the live
+    /// task path sees. Optional: a module that declares none requires
     /// nothing of its host. Registration refuses an unknown name, so a typo
     /// never silently mismatches the runtime gate.
     /// </summary>

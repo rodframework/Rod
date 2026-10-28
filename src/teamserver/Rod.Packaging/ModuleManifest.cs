@@ -4,15 +4,17 @@ namespace Rod.Packaging;
 
 /// <summary>
 /// The entry kind a module ships as (architecture.md Sec 15.2): a
-/// server-side capability module, an implant-side handler module, a build
-/// unit, or a pure asset module (script and template files the teamserver
-/// serves, no code). The kind decides how an installed package is consumed,
-/// not how it travels -- one manifest shape, one registry, one CLI.
+/// server-side capability module, a portable implant-side plugin package, an
+/// implant-native extension compiled into a build, a build unit, or a pure
+/// asset module (script and template files the teamserver serves, no code).
+/// The kind decides how an installed package is consumed, not how it
+/// travels -- one manifest shape, one registry, one CLI.
 /// </summary>
 public enum ModuleEntryKind
 {
     Server,
-    Implant,
+    Plugin,
+    Extension,
     BuildUnit,
     Assets,
 }
@@ -24,7 +26,8 @@ public static class ModuleEntryKindNames
         switch (text)
         {
             case "server": kind = ModuleEntryKind.Server; return true;
-            case "implant": kind = ModuleEntryKind.Implant; return true;
+            case "plugin": kind = ModuleEntryKind.Plugin; return true;
+            case "extension": kind = ModuleEntryKind.Extension; return true;
             case "build-unit": kind = ModuleEntryKind.BuildUnit; return true;
             case "assets": kind = ModuleEntryKind.Assets; return true;
             default: kind = default; return false;
@@ -34,11 +37,44 @@ public static class ModuleEntryKindNames
     public static string ToString(ModuleEntryKind kind) => kind switch
     {
         ModuleEntryKind.Server => "server",
-        ModuleEntryKind.Implant => "implant",
+        ModuleEntryKind.Plugin => "plugin",
+        ModuleEntryKind.Extension => "extension",
         ModuleEntryKind.BuildUnit => "build-unit",
         ModuleEntryKind.Assets => "assets",
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
+}
+
+/// <summary>
+/// The loader ABI names a plugin artifact may declare (ADR-020): the loading
+/// contract the artifact was built against, not the implant that hosts it.
+/// <c>exec-v1</c> is the out-of-process stdio loader (a self-contained
+/// executable run per exchange), <c>native-v1</c> the in-process
+/// <c>rod_plugin_*</c> C ABI (a library the implant maps and calls);
+/// <c>coff-v1</c> and <c>wasm-v1</c> are reserved -- the names exist so the
+/// manifests, the registry, and the catalog can speak about the tiers
+/// before any reference implant ships their loaders. <see cref="Loadable"/>
+/// names the ABIs the in-tree reference loaders accept today; publishing an
+/// artifact under a reserved ABI is refused until its loader lands.
+/// </summary>
+public static class PluginAbis
+{
+    public const string Exec = "exec-v1";
+    public const string Native = "native-v1";
+    public const string Coff = "coff-v1";
+    public const string Wasm = "wasm-v1";
+
+    /// <summary>Every ABI name the grammar knows, loadable or reserved.</summary>
+    public static readonly IReadOnlyList<string> Known = [Exec, Native, Coff, Wasm];
+
+    /// <summary>The ABIs with a reference loader shipped today.</summary>
+    public static readonly IReadOnlyList<string> Loadable = [Exec, Native];
+
+    public static bool IsKnown(string name)
+        => Known.Contains(name, StringComparer.Ordinal);
+
+    public static bool IsLoadable(string name)
+        => Loadable.Contains(name, StringComparer.Ordinal);
 }
 
 /// <summary>
@@ -48,12 +84,29 @@ public static class ModuleEntryKindNames
 /// what its candidate passed. The names are the wire tiers' own features
 /// (extending/implants.md), a closed vocabulary so a store filter compares
 /// like against like -- it grows additively with the tiers, and an unknown
-/// name is a refused manifest, never a silent mismatch.
+/// name is a refused manifest, never a silent mismatch. This copy and the
+/// runtime gate in Rod.CoreState state the set independently (the contract
+/// library cannot take a kernel reference); a test pins them equal.
 /// </summary>
 public static class WireCapabilities
 {
-    /// <summary>The module.load family: the implant half can host plugins.</summary>
-    public const string PluginLoader = "plugin-loader";
+    /// <summary>The ABI family prefix: every loader capability name starts
+    /// with this and an ABI id.</summary>
+    public const string PluginLoaderPrefix = "plugin-loader/";
+
+    /// <summary>The out-of-process loader ABI (self-contained executable,
+    /// stdio protocol).</summary>
+    public const string PluginLoaderExec = PluginLoaderPrefix + "exec-v1";
+
+    /// <summary>The in-process loader ABI (<c>rod_plugin_*</c> C symbol
+    /// family).</summary>
+    public const string PluginLoaderNative = PluginLoaderPrefix + "native-v1";
+
+    /// <summary>The COFF/BOF loader ABI. Reserved.</summary>
+    public const string PluginLoaderCoff = PluginLoaderPrefix + "coff-v1";
+
+    /// <summary>The wasm loader ABI. Reserved.</summary>
+    public const string PluginLoaderWasm = PluginLoaderPrefix + "wasm-v1";
 
     /// <summary>Bulk output through ExfilChunk frames (Tier 2).</summary>
     public const string ExfilChunks = "exfil-chunks";
@@ -66,16 +119,31 @@ public static class WireCapabilities
     /// cannot own a live channel (the loader refuses channel verbs), so
     /// the interactive-channel tier is deliberately absent.</summary>
     public static readonly IReadOnlyList<string> Requirable =
-        [PluginLoader, ExfilChunks, StagedUploads];
+        [PluginLoaderExec, PluginLoaderNative, PluginLoaderCoff, PluginLoaderWasm, ExfilChunks, StagedUploads];
 
     public static bool IsRequirable(string name)
         => Requirable.Contains(name, StringComparer.Ordinal);
+
+    /// <summary>Whether <paramref name="name"/> names a loader ABI (any
+    /// generation): the loader family's requirement rows.</summary>
+    public static bool IsPluginLoaderAbi(string name)
+        => name.StartsWith(PluginLoaderPrefix, StringComparison.Ordinal);
 }
 
 /// <summary>
-/// One row of the manifest's compatibility matrix: which implant
-/// class, on which platform and arch, the module's execution half serves.</summary>
-public sealed record TargetMatrix(string ImplantClass, string Platform, string Arch);
+/// One row of the manifest's compatibility matrix: which implant class, on
+/// which platform and arch, the module's execution half serves. The optional
+/// <see cref="BuildUnit"/> row names the build unit an extension targets
+/// (with <see cref="UnitRange"/> as its version floor) -- the declaration an
+/// extension's targeting hangs on, absent for portable plugins and
+/// server-entry modules whose halves carry no build-time coupling.
+/// </summary>
+public sealed record TargetMatrix(
+    string ImplantClass,
+    string Platform,
+    string Arch,
+    string? BuildUnit = null,
+    SemVer? UnitRange = null);
 
 /// <summary>The manifest's OPSEC metadata: what running the module leaves on
 /// the target (architecture.md Sec 15.2 -- "lands on disk" / "memory only"
@@ -205,6 +273,28 @@ public sealed record VerbDeclaration(
 public sealed record AssetDeclaration(string Name, string Path);
 
 /// <summary>
+/// One <c>[[plugin.artifacts]]</c> row of a plugin-entry manifest (ADR-020):
+/// the prebuilt execution half for one platform and arch, and the loader ABI
+/// it was built against. The pair a plugin package ships per target -- the
+/// server stages the platform-matched artifact through the module family,
+/// and the ABI name is the compatibility claim the runtime gate and the
+/// registry filter read. The artifact's bytes ride the canonical form
+/// through the per-file digest lines like every other payload.
+/// </summary>
+public sealed record PluginArtifact(string Platform, string Arch, string Path, string Abi);
+
+/// <summary>
+/// The <c>[unit]</c> table of a build-unit manifest (ADR-021): the external
+/// build contract's own face -- the unit id the build pipeline routes
+/// requests by (an open vocabulary; the in-tree units claim <c>rod-rust</c>
+/// and <c>rod-go</c>, a community unit claims any kebab id), the command the
+/// pipeline spawns with the build request, and an optional wall-clock
+/// timeout. One implementation, any toolchain: a new language registers a
+/// build unit without the teamserver compiling a line of its code.
+/// </summary>
+public sealed record UnitDefinition(string Id, string Command, int? TimeoutMinutes = null);
+
+/// <summary>
 /// The manifest's conformance report (ADR-017): what a build unit's
 /// candidate proved against the conformance harness -- the tier achieved,
 /// the harness generation, the run's date, and the clauses that passed.
@@ -247,6 +337,8 @@ public sealed record ModuleManifest
     public IReadOnlyList<string> Techniques { get; init; } = [];
     public IReadOnlyList<VerbDeclaration> Verbs { get; init; } = [];
     public IReadOnlyList<AssetDeclaration> Assets { get; init; } = [];
+    public IReadOnlyList<PluginArtifact> PluginArtifacts { get; init; } = [];
+    public UnitDefinition? Unit { get; init; }
     public PackageRules? Package { get; init; }
 
     private static readonly Regex NamePattern = new("^[a-z0-9][a-z0-9-]{0,63}$", RegexOptions.Compiled);
@@ -302,11 +394,12 @@ public sealed record ModuleManifest
         }
 
         // The capability requirements (ADR-017): names from the closed wire
-        // vocabulary only, on the entries that carry an execution half -- a
-        // build unit is the implant itself and an assets module runs
-        // nothing on a target, so a requirement there names nothing real.
-        // The runtime check is the implant's own handshake advertisement;
-        // this row is the store's static filter.
+        // vocabulary only, on the entries that carry a runtime-hosted
+        // execution half. A build unit is the implant itself, an assets
+        // module runs nothing on a target, and an extension compiles into
+        // the implant (its half needs no loader), so a requirement there
+        // names nothing real. The runtime check is the implant's own
+        // handshake advertisement; this row is the store's static filter.
         var seenRequires = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < Requires.Count; i++)
         {
@@ -317,10 +410,105 @@ public sealed record ModuleManifest
             else if (!seenRequires.Add(Requires[i]))
                 errors.Add($"compatibility.requires[{i}] '{Requires[i]}' is declared twice.");
         }
-        if (seenRequires.Count > 0 && Entry is ModuleEntryKind.BuildUnit or ModuleEntryKind.Assets)
+        if (seenRequires.Count > 0 && Entry is ModuleEntryKind.BuildUnit or ModuleEntryKind.Assets or ModuleEntryKind.Extension)
             errors.Add(
                 "compatibility.requires constrains an implant hosting this module's execution half; "
                 + $"a {ModuleEntryKindNames.ToString(Entry)} module carries none.");
+
+        // A plugin's requirement rows are its artifacts' ABI set stated as a
+        // static filter: the union is a function of the artifact rows, so the
+        // manifest is refused when the two stories differ -- a requirement
+        // the artifacts do not back, or a loader an artifact needs that the
+        // rows stay silent about.
+        if (Entry == ModuleEntryKind.Plugin)
+        {
+            // The artifact rows carry bare ABI ids; the requirement rows
+            // carry the family-prefixed capability names -- the union
+            // compares in the requirement rows' spelling.
+            var artifactAbis = PluginArtifacts
+                .Select(a => WireCapabilities.PluginLoaderPrefix + a.Abi)
+                .Distinct().OrderBy(a => a, StringComparer.Ordinal).ToArray();
+            var declared = Requires.Where(WireCapabilities.IsPluginLoaderAbi).Distinct().OrderBy(r => r, StringComparer.Ordinal).ToArray();
+            if (!artifactAbis.SequenceEqual(declared))
+                errors.Add(
+                    "compatibility.requires must be exactly the union of the plugin artifacts' ABIs "
+                    + $"(the rows are the store's static filter): declared [{string.Join(",", declared)}], "
+                    + $"artifacts carry [{string.Join(",", artifactAbis)}].");
+        }
+
+        // The extension half of the targeting rows (ADR-022): an extension is
+        // compiled into a build by the unit that owns it, so its targets name
+        // the build unit (and optionally its version floor) -- a manifest
+        // that targets no unit is a portable plugin mis-declared as an
+        // extension, and the build-time gate has nothing to hang on.
+        if (Entry == ModuleEntryKind.Extension)
+        {
+            if (Targets.Count == 0)
+                errors.Add("an extension declares no [[compatibility.targets]]; every row must name the build-unit it compiles into.");
+            for (var i = 0; i < Targets.Count; i++)
+            {
+                if (Targets[i].BuildUnit is not { } unit)
+                    errors.Add($"compatibility.targets[{i}] carries no build-unit; an extension targets the build unit that compiles it in.");
+                else if (!ValidName(unit))
+                    errors.Add($"compatibility.targets[{i}].build-unit '{unit}' must be kebab-case: lowercase letters, digits, hyphens, at most 64 characters.");
+            }
+        }
+
+        // The external build contract's face (ADR-021): a [unit] table rides
+        // a build-unit manifest only, and a build-unit manifest must carry
+        // one -- an external unit without its id and command is a package
+        // the pipeline cannot spawn.
+        if (Unit is { } unitDefinition)
+        {
+            if (Entry != ModuleEntryKind.BuildUnit)
+                errors.Add(
+                    "[unit] declares the external build command; "
+                    + $"a {ModuleEntryKindNames.ToString(Entry)} module carries none.");
+            else
+            {
+                if (!ValidName(unitDefinition.Id))
+                    errors.Add($"unit.id '{unitDefinition.Id}' must be kebab-case: lowercase letters, digits, hyphens, at most 64 characters.");
+                if (unitDefinition.Command.Length == 0 || unitDefinition.Command.Contains('\n') || unitDefinition.Command.Contains('\r'))
+                    errors.Add("unit.command is required and must be a single line (it participates in the signed canonical form).");
+                if (unitDefinition.TimeoutMinutes is <= 0)
+                    errors.Add($"unit.timeout-minutes '{unitDefinition.TimeoutMinutes}' must be a positive number of minutes.");
+            }
+        }
+        else if (Entry == ModuleEntryKind.BuildUnit)
+        {
+            errors.Add("a build-unit manifest carries no [unit] table; the id and the command are the pipeline's spawn contract.");
+        }
+
+        // The plugin artifact rows (ADR-020): one prebuilt execution half per
+        // platform and arch, its loader ABI from the closed vocabulary. The
+        // path rule is the asset rows' own (package-relative, no escape), and
+        // a platform may carry one artifact -- two rows for one platform is
+        // a staging ambiguity, not a choice.
+        if (Entry == ModuleEntryKind.Plugin && PluginArtifacts.Count == 0)
+            errors.Add("a plugin module declares no [[plugin.artifacts]] rows; add one per platform and arch it ships.");
+        var seenArtifacts = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < PluginArtifacts.Count; i++)
+        {
+            var artifact = PluginArtifacts[i];
+            if (artifact.Platform.Length == 0 || artifact.Arch.Length == 0)
+                errors.Add($"plugin.artifacts[{i}] must carry non-empty platform and arch.");
+            foreach (var part in new[] { artifact.Platform, artifact.Arch })
+            {
+                if (part.Contains('\n') || part.Contains('\r') || part.Contains('/'))
+                    errors.Add($"plugin.artifacts[{i}] fields must be single-line and contain no '/'.");
+            }
+            if (!PluginAbis.IsKnown(artifact.Abi))
+                errors.Add(
+                    $"plugin.artifacts[{i}] abi '{artifact.Abi}' is not a loader ABI; "
+                    + $"the vocabulary is: {string.Join(", ", PluginAbis.Known)}.");
+            if (artifact.Path.Length == 0 || artifact.Path.Contains('\\') || Path.IsPathRooted(artifact.Path)
+                || artifact.Path.Split('/').Any(segment => segment is ".." or ""))
+                errors.Add($"plugin.artifacts[{i}] path '{artifact.Path}' must be a package-relative path with '/' separators and no '..' segments.");
+            else if (artifact.Path == ManifestToml.FileName)
+                errors.Add($"plugin.artifacts[{i}] cannot point at the manifest itself.");
+            if (!seenArtifacts.Add($"{artifact.Platform}/{artifact.Arch}"))
+                errors.Add($"plugin.artifacts[{i}] declares platform '{artifact.Platform}' arch '{artifact.Arch}' twice; one artifact per target.");
+        }
 
         if (Conformance is { } report)
         {

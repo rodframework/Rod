@@ -17,11 +17,13 @@ namespace Rod.Packaging;
 public static class CanonicalForm
 {
     // v2 added the compatibility rows (requires, the conformance report)
-    // to the signed field set; v3 adds the verb rows' descriptor half
-    // (category, OPSEC flags, parameter schema, output declaration) -- the
-    // form's identity names its own shape, so a field-set change is a
-    // version bump, never a silent mismatch.
-    public const string VersionLine = "rod-module-manifest-v3";
+    // to the signed field set; v3 added the verb rows' descriptor half
+    // (category, OPSEC flags, parameter schema, output declaration); v4
+    // adds the plugin artifact rows, the targets' build-unit targeting,
+    // and the [unit] table (ADRs 020 through 022) -- the form's identity
+    // names its own shape, so a field-set change is a version bump, never
+    // a silent mismatch.
+    public const string VersionLine = "rod-module-manifest-v4";
 
     /// <summary>Builds the signed message: one line per field in fixed
     /// order, then one digest line per payload file sorted by path. Lines
@@ -44,12 +46,43 @@ public static class CanonicalForm
         Line("techniques", manifest.Techniques.Count == 0
             ? "-"
             : string.Join(",", manifest.Techniques.Select(t => t.ToUpperInvariant()).Distinct().OrderBy(t => t, StringComparer.Ordinal)));
+        // The targets carry the extension targeting half (ADR-022): a row
+        // that names a build unit appends it (with its optional floor), so a
+        // tampered targeting claim breaks the signature exactly like a
+        // tampered platform.
         Line("targets", manifest.Targets.Count == 0
             ? "-"
             : string.Join(",", manifest.Targets
-                .Select(t => $"{t.ImplantClass}/{t.Platform}/{t.Arch}")
+                .Select(t =>
+                {
+                    var value = $"{t.ImplantClass}/{t.Platform}/{t.Arch}";
+                    if (t.BuildUnit is { } unit)
+                    {
+                        value += $" unit={unit}";
+                        if (t.UnitRange is { } floor)
+                            value += $" unit-floor={floor}";
+                    }
+                    return value;
+                })
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(t => t, StringComparer.Ordinal)));
+
+        // The external build contract's face (ADR-021): a tampered unit id
+        // or command is a tampered spawn contract, so the table rides the
+        // form like every other field. The command is key-delimited, not
+        // slash-joined, because a command line may itself carry slashes.
+        Line("unit", manifest.Unit is { } unitDefinition
+            ? $"{unitDefinition.Id} command={unitDefinition.Command} timeout={unitDefinition.TimeoutMinutes?.ToString() ?? "-"}"
+            : "-");
+
+        // The plugin artifact rows ride one line per artifact, target-sorted:
+        // the path and the ABI together, so a tampered binary (the digest
+        // lines below) or a tampered ABI claim (which loader runs it) each
+        // break verification.
+        foreach (var artifact in manifest.PluginArtifacts
+                     .OrderBy(a => a.Platform, StringComparer.Ordinal)
+                     .ThenBy(a => a.Arch, StringComparer.Ordinal))
+            Line($"plugin-artifact/{artifact.Platform}/{artifact.Arch}", $"path={artifact.Path} abi={artifact.Abi}");
 
         // The compatibility rows (ADR-017) ride the form like every other
         // field: a tampered requirement or conformance claim breaks the

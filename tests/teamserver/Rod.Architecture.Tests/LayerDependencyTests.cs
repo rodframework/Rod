@@ -104,7 +104,7 @@ public class LayerDependencyTests
 
     [Fact]
     public void Capabilities_Dependencies_PointInwardOnly()
-        => AssertOnlyDependsOn(Capabilities, nameof(Capabilities), "Rod.Capabilities", "Rod.CoreState", "Rod.Audit");
+        => AssertOnlyDependsOn(Capabilities, nameof(Capabilities), "Rod.Capabilities", "Rod.CoreState", "Rod.Audit", "Rod.Packaging");
 
     // Persistence (ADR 0003) implements the Rod.CoreState and
     // Rod.Audit persistence ports against Postgres, so it may depend inward on

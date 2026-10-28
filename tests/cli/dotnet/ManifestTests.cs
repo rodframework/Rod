@@ -509,40 +509,42 @@ public class ManifestTests
         // ADR-017: a plugin declares what the hosting implant must support,
         // names drawn from the closed wire-capability vocabulary so a store
         // filter compares like against like.
-        var toml = Valid.Replace("teamserver = \"1.0.0\"", "teamserver = \"1.0.0\"\nrequires = [\"plugin-loader\", \"exfil-chunks\"]");
+        var toml = Valid.Replace("teamserver = \"1.0.0\"", "teamserver = \"1.0.0\"\nrequires = [\"plugin-loader/exec-v1\", \"exfil-chunks\"]");
         var errors = ManifestToml.Load(toml, out var manifest);
 
         Assert.Empty(errors);
         Assert.NotNull(manifest);
-        Assert.Equal(["plugin-loader", "exfil-chunks"], manifest!.Requires);
+        Assert.Equal(["plugin-loader/exec-v1", "exfil-chunks"], manifest!.Requires);
     }
 
     [Fact]
     public void CapabilityRequires_OutsideTheVocabulary_AreNamedWithIt()
     {
         // A typo'd or speculative capability is a refused manifest, never a
-        // silent mismatch the store would filter wrong.
+        // silent mismatch the store would filter wrong. The bare family
+        // prefix without an ABI is exactly such a name.
         var toml = Valid.Replace("teamserver = \"1.0.0\"", "teamserver = \"1.0.0\"\nrequires = [\"cha-cha-20\", \"plugin-loader\", \"plugin-loader\"]");
         var errors = ManifestToml.Load(toml, out var manifest);
 
         Assert.NotNull(manifest);
-        Assert.Contains(errors, e => e.Contains("'cha-cha-20' is not a wire capability") && e.Contains("plugin-loader, exfil-chunks, staged-uploads"));
-        Assert.Contains(errors, e => e.Contains("'plugin-loader' is declared twice"));
+        Assert.Contains(errors, e => e.Contains("'cha-cha-20' is not a wire capability") && e.Contains("plugin-loader/exec-v1") && e.Contains("staged-uploads"));
+        Assert.Contains(errors, e => e.Contains("'plugin-loader' is not a wire capability"));
     }
 
     [Fact]
     public void CapabilityRequires_BelongToEntriesWithAnExecutionHalf()
     {
         // A build unit is the implant itself; an assets module runs nothing
-        // on a target -- a requirement there names nothing real.
+        // on a target; an extension compiles into the implant -- a
+        // requirement there names nothing real.
         var buildUnit = Valid.Replace("entry = \"server\"", "entry = \"build-unit\"")
-            .Replace("teamserver = \"1.0.0\"", "teamserver = \"1.0.0\"\nrequires = [\"plugin-loader\"]");
+            .Replace("teamserver = \"1.0.0\"", "teamserver = \"1.0.0\"\nrequires = [\"plugin-loader/exec-v1\"]") + UnitTable;
         var errors = ManifestToml.Load(buildUnit, out var manifest);
         Assert.NotNull(manifest);
         Assert.Contains(errors, e => e.Contains("requires constrains an implant hosting this module's execution half"));
 
         var assets = Valid.Replace("entry = \"server\"", "entry = \"assets\"")
-            .Replace("teamserver = \"1.0.0\"", "teamserver = \"1.0.0\"\nrequires = [\"plugin-loader\"]") + """
+            .Replace("teamserver = \"1.0.0\"", "teamserver = \"1.0.0\"\nrequires = [\"plugin-loader/exec-v1\"]") + """
 
             [[assets]]
             name = "hook"
@@ -553,12 +555,21 @@ public class ManifestTests
         Assert.Contains(errors, e => e.Contains("requires constrains an implant hosting this module's execution half"));
     }
 
+    // A build-unit manifest's [unit] table (ADR-021): appended by the tests
+    // that switch a fixture to the build-unit entry kind.
+    private const string UnitTable = """
+
+        [unit]
+        id = "community-nim"
+        command = "./build.sh"
+        """;
+
     [Fact]
     public void ConformanceReports_ParseOnBuildUnits()
     {
         // The build unit's half of the compatibility collapse: the tier its
         // candidate proved, the harness generation, the date, the clauses.
-        var toml = Valid.Replace("entry = \"server\"", "entry = \"build-unit\"") + """
+        var toml = Valid.Replace("entry = \"server\"", "entry = \"build-unit\"") + UnitTable + """
 
             [conformance]
             tier = 1
@@ -575,6 +586,8 @@ public class ManifestTests
         Assert.Equal(new SemVer(1, 0, 0, null), report.Harness);
         Assert.Equal("2026-01-15", report.Date);
         Assert.Equal(3, report.Clauses.Count);
+        Assert.Equal("community-nim", manifest.Unit!.Id);
+        Assert.Equal("./build.sh", manifest.Unit.Command);
     }
 
     [Fact]
@@ -640,7 +653,7 @@ public class ManifestTests
     [Theory]
     [InlineData("name = \"Demo_Sweep\"", "kebab-case")]
     [InlineData("version = \"1.0\"", "SemVer")]
-    [InlineData("entry = \"sidecar\"", "server, implant, build-unit, or assets")]
+    [InlineData("entry = \"sidecar\"", "server, plugin, extension, build-unit, or assets")]
     public void InvalidValues_FailValidation(string line, string expectedFragment)
     {
         // Each variant omits the field under test from the base document so
@@ -690,6 +703,204 @@ public class ManifestTests
         var errors = ManifestToml.Load(toml, out var manifest);
         Assert.Empty(errors);
         Assert.NotNull(manifest);
+    }
+    [Fact]
+    public void PluginArtifacts_RequireTheirAbisUnionAsRequires()
+    {
+        // ADR-020: a plugin's artifact rows carry the loader ABI each
+        // prebuilt half targets, and the requirement rows state exactly
+        // their union -- the static filter cannot tell another story than
+        // the artifacts do.
+        var toml = Valid
+            .Replace("entry = \"server\"", "entry = \"plugin\"")
+            .Replace("teamserver = \"1.0.0\"", "teamserver = \"1.0.0\"\nrequires = [\"plugin-loader/exec-v1\"]") + """
+
+            [[plugin.artifacts]]
+            platform = "linux"
+            arch = "amd64"
+            path = "bin/demo-sweep-linux-amd64"
+            abi = "exec-v1"
+
+            [[plugin.artifacts]]
+            platform = "windows"
+            arch = "amd64"
+            path = "bin/demo-sweep-windows-amd64.dll"
+            abi = "native-v1"
+            """;
+        var errors = ManifestToml.Load(toml, out var manifest);
+
+        Assert.NotEmpty(errors);
+        Assert.Contains(errors, e => e.Contains("must be exactly the union of the plugin artifacts' ABIs"));
+
+        var honest = toml.Replace("requires = [\"plugin-loader/exec-v1\"]",
+            "requires = [\"plugin-loader/exec-v1\", \"plugin-loader/native-v1\"]");
+        errors = ManifestToml.Load(honest, out manifest);
+        Assert.Empty(errors);
+        Assert.NotNull(manifest);
+        Assert.Equal(2, manifest!.PluginArtifacts.Count);
+        Assert.Equal("exec-v1", manifest.PluginArtifacts[0].Abi);
+        Assert.Equal("bin/demo-sweep-windows-amd64.dll", manifest.PluginArtifacts[1].Path);
+    }
+
+    [Fact]
+    public void PluginArtifacts_ValidateTheirRows()
+    {
+        // The path rule is the asset rows' own, the ABI comes from the
+        // closed vocabulary, and one platform carries one artifact -- a
+        // second row for the same target is a staging ambiguity.
+        var toml = Valid.Replace("entry = \"server\"", "entry = \"plugin\"") + """
+
+            [[plugin.artifacts]]
+            platform = "linux"
+            arch = "amd64"
+            path = "../escape"
+            abi = "exec-v1"
+
+            [[plugin.artifacts]]
+            platform = "linux"
+            arch = "amd64"
+            path = "bin/a"
+            abi = "software"
+
+            [[plugin.artifacts]]
+            platform = "linux"
+            arch = "amd64"
+            path = "bin/b"
+            abi = "exec-v1"
+            """;
+        var errors = ManifestToml.Load(toml, out var manifest);
+
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("no '..' segments"));
+        Assert.Contains(errors, e => e.Contains("abi 'software' is not a loader ABI"));
+        Assert.Contains(errors, e => e.Contains("arch 'amd64' twice"));
+    }
+
+    [Fact]
+    public void APluginWithoutArtifactRows_IsRefused()
+    {
+        var toml = Valid.Replace("entry = \"server\"", "entry = \"plugin\"");
+        var errors = ManifestToml.Load(toml, out var manifest);
+
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("declares no [[plugin.artifacts]] rows"));
+    }
+
+    [Fact]
+    public void ExtensionTargets_NameTheBuildUnitTheyCompileInto()
+    {
+        // ADR-022: an extension is compiled in by the build unit its target
+        // rows name (with an optional floor) -- a manifest that targets no
+        // unit is a portable plugin mis-declared as an extension.
+        var toml = Valid.Replace("entry = \"server\"", "entry = \"extension\"").Replace(TargetsBlock, "");
+        var errors = ManifestToml.Load(toml, out var manifest);
+
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("declares no [[compatibility.targets]]"));
+
+        var targeted = Valid.Replace("entry = \"server\"", "entry = \"extension\"").Replace(TargetsBlock, TargetedBlock);
+        errors = ManifestToml.Load(targeted, out manifest);
+        Assert.Empty(errors);
+        Assert.NotNull(manifest);
+        Assert.Equal("rod-rust", manifest!.Targets[0].BuildUnit);
+        Assert.Equal(new SemVer(1, 0, 0, null), manifest.Targets[0].UnitRange);
+
+        var untargeted = targeted.Replace("build-unit = \"rod-rust\"\nunit-range = \"1.0.0\"\n", "");
+        errors = ManifestToml.Load(untargeted, out manifest);
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("carries no build-unit"));
+    }
+
+    // The base fixture's targeting block, flush-left as the document carries
+    // it (raw-string literals strip their indentation), and its build-unit
+    // targeting variant.
+    private const string TargetsBlock = """
+        [[compatibility.targets]]
+        implant-class = "implant"
+        platform = "linux"
+        arch = "amd64"
+        """;
+
+    private const string TargetedBlock = """
+        [[compatibility.targets]]
+        implant-class = "implant"
+        platform = "linux"
+        arch = "amd64"
+        build-unit = "rod-rust"
+        unit-range = "1.0.0"
+        """;
+
+    [Fact]
+    public void UnitTables_RideBuildUnitsOnlyAndMustBeWhole()
+    {
+        // ADR-021: the [unit] table is the external build contract's face --
+        // a build unit must carry one, and nobody else may.
+        var unitless = Valid.Replace("entry = \"server\"", "entry = \"build-unit\"");
+        var errors = ManifestToml.Load(unitless, out var manifest);
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("carries no [unit] table"));
+
+        var foreign = Valid + UnitTable;
+        errors = ManifestToml.Load(foreign, out manifest);
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("[unit] declares the external build command"));
+
+        var brokenId = Valid.Replace("entry = \"server\"", "entry = \"build-unit\"") + """
+
+            [unit]
+            id = "Community Nim"
+            command = ""
+            timeout-minutes = 0
+            """;
+        errors = ManifestToml.Load(brokenId, out manifest);
+        Assert.NotNull(manifest);
+        Assert.Contains(errors, e => e.Contains("unit.id 'Community Nim' must be kebab-case"));
+        Assert.Contains(errors, e => e.Contains("unit.command is required"));
+        Assert.Contains(errors, e => e.Contains("unit.timeout-minutes '0'"));
+    }
+
+    [Fact]
+    public void TargetingRows_RideTheCanonicalForm()
+    {
+        // The targeting half is signature-bound: a tampered build-unit or
+        // floor breaks verification like a tampered platform.
+        var targeted = Valid.Replace("""
+                [[compatibility.targets]]
+                implant-class = "implant"
+                platform = "linux"
+                arch = "amd64"
+                """, """
+                [[compatibility.targets]]
+                implant-class = "implant"
+                platform = "linux"
+                arch = "amd64"
+                build-unit = "rod-rust"
+                unit-range = "1.2.0"
+                """);
+        ManifestToml.Load(targeted, out var manifest);
+        var canonical = CanonicalForm.Build(manifest!, new Dictionary<string, string>());
+
+        Assert.Contains("unit=rod-rust unit-floor=1.2.0", canonical);
+
+        var unit = ((Valid.Replace("entry = \"server\"", "entry = \"build-unit\"")) + UnitTable)
+            .Replace("command = \"./build.sh\"", "command = \"./build.sh --hermetic\"");
+        ManifestToml.Load(unit, out manifest);
+        canonical = CanonicalForm.Build(manifest!, new Dictionary<string, string>());
+        Assert.Contains("unit=community-nim command=./build.sh --hermetic timeout=-", canonical);
+
+        var plugin = Valid.Replace("entry = \"server\"", "entry = \"plugin\"") + """
+
+            requires = ["plugin-loader/exec-v1"]
+
+            [[plugin.artifacts]]
+            platform = "linux"
+            arch = "amd64"
+            path = "bin/demo"
+            abi = "exec-v1"
+            """;
+        ManifestToml.Load(plugin, out manifest);
+        canonical = CanonicalForm.Build(manifest!, new Dictionary<string, string>());
+        Assert.Contains("plugin-artifact/linux/amd64=path=bin/demo abi=exec-v1", canonical);
     }
 }
 
@@ -865,11 +1076,12 @@ public class CanonicalFormTests
     public void TheForm_CarriesItsVersionLineAndNoTrailingNewline()
     {
         var form = CanonicalForm.Build(Manifest(), new Dictionary<string, string>());
-        // v3 names the form whose field set carries the verb rows' descriptor
-        // half (category, OPSEC flags, parameters, output) -- the shape
-        // change is the bump.
-        Assert.StartsWith("rod-module-manifest-v3\n", form);
+        // v4 names the form whose field set carries the plugin artifact
+        // rows, the targets' build-unit targeting, and the [unit] table
+        // (ADRs 020 through 022) -- the shape change is the bump.
+        Assert.StartsWith("rod-module-manifest-v4\n", form);
         Assert.False(form.EndsWith('\n'));
         Assert.StartsWith("name=demo-sweep\n", form[(CanonicalForm.VersionLine.Length + 1)..]);
     }
+
 }

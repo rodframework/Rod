@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Rod.CoreState.Assets;
-using Tomlyn;
-using Tomlyn.Serialization;
+using Rod.Packaging;
 
 namespace Rod.Capabilities.Registry;
 
@@ -79,34 +78,23 @@ public sealed class ModuleAssetStore : IModuleAssetStore
 
     private void LoadModule(string directory)
     {
-        var manifestPath = Path.Combine(directory, "rod-module.toml");
+        var manifestPath = Path.Combine(directory, ManifestToml.FileName);
         if (!File.Exists(manifestPath))
             throw new InvalidOperationException(
-                $"Asset module directory '{directory}' carries no rod-module.toml; an entry in '{AssetModulesSectionKey}' must name a module directory.");
+                $"Asset module directory '{directory}' carries no {ManifestToml.FileName}; an entry in '{AssetModulesSectionKey}' must name a module directory.");
 
-        // The same typed read the CLI's manifest loader performs, cut down to
-        // the two fields the host consumes; unknown keys are ignored, so a
-        // manifest written for a newer toolchain still loads.
-        Document? parsed;
-        try
-        {
-            parsed = TomlSerializer.Deserialize<Document>(
-                File.ReadAllText(manifestPath), new TomlSerializerOptions());
-        }
-        catch (TomlException failure)
-        {
+        // The same parse every consumer of the manifest performs --
+        // Rod.Packaging's one implementation of the grammar, full
+        // validation included, so the host's read cannot drift from the
+        // CLI's.
+        var (manifest, errors) = ManifestToml.LoadFile(manifestPath);
+        if (manifest is null)
             throw new InvalidOperationException(
-                $"Asset module manifest '{manifestPath}' does not parse: {failure.Message}.");
-        }
-        var document = parsed ?? throw new InvalidOperationException(
-            $"Asset module manifest '{manifestPath}' did not deserialize.");
+                $"Asset module manifest '{manifestPath}' does not parse: {string.Join(" ", errors)}");
 
-        var name = document.Module?.Name?.Trim() ?? "";
-        var rows = document.Assets ?? [];
+        var name = manifest.Name;
+        var rows = manifest.Assets;
 
-        if (name.Length == 0)
-            throw new InvalidOperationException(
-                $"Asset module manifest '{manifestPath}' carries no [module] name; the store resolves assets by module name.");
         if (rows.Count == 0)
             throw new InvalidOperationException(
                 $"Asset module '{name}' ({manifestPath}) declares no [[assets]] rows; a content module names every file it serves.");
@@ -114,11 +102,8 @@ public sealed class ModuleAssetStore : IModuleAssetStore
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in rows)
         {
-            var assetName = row.Name?.Trim() ?? "";
-            var assetPath = row.Path?.Trim() ?? "";
-            if (assetName.Length == 0 || assetPath.Length == 0)
-                throw new InvalidOperationException(
-                    $"Asset module '{name}' ({manifestPath}) carries an [[assets]] row without a name or a path.");
+            var assetName = row.Name;
+            var assetPath = row.Path;
 
             // The no-escape rule the manifest validator and the installer's
             // extraction both hold: an asset stays inside its module tree.
@@ -137,28 +122,5 @@ public sealed class ModuleAssetStore : IModuleAssetStore
 
             _assets[name + "\n" + assetName] = new ModuleAsset(File.ReadAllBytes(file), assetPath);
         }
-    }
-
-    // The manifest subset the host consumes: the module's name and its asset
-    // rows. The full grammar -- entry kinds, verbs, OPSEC, the signed
-    // canonical form -- stays the CLI's (architecture.md Sec 15.2).
-    private sealed class Document
-    {
-        [TomlPropertyName("module")]
-        public ModuleSection? Module { get; set; }
-
-        [TomlPropertyName("assets")]
-        public List<AssetRow>? Assets { get; set; }
-    }
-
-    private sealed class ModuleSection
-    {
-        [TomlPropertyName("name")] public string? Name { get; set; }
-    }
-
-    private sealed class AssetRow
-    {
-        [TomlPropertyName("name")] public string? Name { get; set; }
-        [TomlPropertyName("path")] public string? Path { get; set; }
     }
 }

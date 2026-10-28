@@ -104,14 +104,14 @@ public class CapabilityRegistryTests
     public async Task FindByName_MatchesThePublishedName_CaseInsensitively_LastWins()
     {
         var registry = new InMemoryCapabilityRegistry();
-        var named = new Stub("collect.hives") { Name = "hives", Requires = ["plugin-loader"] };
+        var named = new Stub("collect.hives") { Name = "hives", Requires = ["plugin-loader/exec-v1"] };
         await registry.RegisterAsync(named);
         await registry.RegisterAsync(new Stub("shell.exec"));
 
         var found = await registry.FindByNameAsync("HIVES");
 
         Assert.Same(named, found);
-        Assert.Equal(new[] { "plugin-loader" }, found!.Requires);
+        Assert.Equal(new[] { "plugin-loader/exec-v1" }, found!.Requires);
         Assert.Null(await registry.FindByNameAsync("nothing"));
     }
 
@@ -119,7 +119,7 @@ public class CapabilityRegistryTests
     public async Task ListModules_CarriesTheModuleLevelMetadata()
     {
         var registry = new InMemoryCapabilityRegistry();
-        var named = new Stub("collect.hives") { Name = "hives", Requires = ["plugin-loader"] };
+        var named = new Stub("collect.hives") { Name = "hives", Requires = ["plugin-loader/exec-v1"] };
         await registry.RegisterAsync(named);
         await registry.RegisterAsync(new Stub("shell.exec"));
 
@@ -127,7 +127,7 @@ public class CapabilityRegistryTests
 
         Assert.Equal(2, modules.Count);
         var hives = Assert.Single(modules, m => m.Name == "hives");
-        Assert.Equal(new[] { "plugin-loader" }, hives.Requires);
+        Assert.Equal(new[] { "plugin-loader/exec-v1" }, hives.Requires);
         Assert.Null(Assert.Single(modules, m => m.Descriptor.Verb == "shell.exec").Requires);
     }
 

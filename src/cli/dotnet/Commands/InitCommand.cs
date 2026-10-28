@@ -28,7 +28,7 @@ public static class InitCommand
 
         var entry = ModuleEntryKind.Server;
         if (parsed.Has("entry") && !ModuleEntryKindNames.TryParse(parsed.Require("entry", "entry kind"), out entry))
-            throw new CliError("--entry must be server, implant, build-unit, or assets.");
+            throw new CliError("--entry must be server, plugin, extension, build-unit, or assets.");
 
         var directory = parsed.Value("path") ?? name;
         if (File.Exists(Path.Combine(directory, ManifestToml.FileName)))
@@ -88,12 +88,18 @@ public static class InitCommand
                 // Capabilities:Modules; the manifest rows stay the packaging
                 // truth either way.
                 break;
-            case ModuleEntryKind.Implant:
+            case ModuleEntryKind.Plugin:
                 {
+                    // The plugin entry's halves: the Rust source to build the
+                    // execution half against rod-plugin-sdk, and the
+                    // placeholder artifact the scaffold manifest's
+                    // [[plugin.artifacts]] row points at -- replace the
+                    // placeholder with the real built binary before
+                    // publishing.
                     var source = Path.Combine(directory, "src");
                     Directory.CreateDirectory(source);
                     File.WriteAllText(Path.Combine(source, "plugin.rs"), $$"""
-                    // The implant-side half of {{name}}: a plugin module built against the
+                    // The execution half of {{name}}: a plugin module built against the
                     // rod-plugin-sdk crate (cargo new --lib, then depend on it). See the
                     // upstream module guide for the loader contract this compiles into.
                     //
@@ -114,6 +120,51 @@ public static class InitCommand
                     //
                     // rod_plugin!({{pascal}});
                     """);
+                    var bin = Path.Combine(directory, "bin");
+                    Directory.CreateDirectory(bin);
+                    var artifact = Path.Combine(bin, $"{name}-linux-amd64");
+                    File.WriteAllText(artifact, $$"""
+                    #!/bin/sh
+                    # Placeholder for the exec-v1 artifact the manifest's
+                    # [[plugin.artifacts]] row names: replace with the binary built
+                    # from src/plugin.rs (cargo build --release) before publishing.
+                    exit 1
+                    """);
+                    MarkExecutable(artifact);
+                    break;
+                }
+            case ModuleEntryKind.Extension:
+                {
+                    // The extension half (ADR-022): an implant-native crate the
+                    // targeted build unit compiles into the implant -- full
+                    // implant internals, per-build selection. The scaffold is
+                    // the crate the rod-rust overlay merges.
+                    var source = Path.Combine(directory, "src");
+                    Directory.CreateDirectory(source);
+                    File.WriteAllText(Path.Combine(source, "lib.rs"), $$"""
+                    //! The extension half of {{name}}: an implant-native crate the
+                    //! targeted build unit compiles into the implant (ADR-022).
+                    //! Unlike a portable plugin this code links the implant's own
+                    //! internals -- the overlay contract the target unit documents
+                    //! is the API surface it may touch.
+                    //!
+                    //! Replace this stub with the crate the unit's extension
+                    //! contract describes; the manifest's [[compatibility.targets]]
+                    //! rows name the build unit (and its version floor) this
+                    //! compiles into.
+                    """);
+                    File.WriteAllText(Path.Combine(directory, "Cargo.toml"), $$"""
+                    # The crate the targeted build unit's overlay merges (ADR-022).
+                    # The unit's extension contract pins the name and the shape it
+                    # expects; this scaffold only reserves the layout.
+                    [package]
+                    name = "rod-ext-{{name}}"
+                    version = "0.1.0"
+                    edition = "2021"
+
+                    [lib]
+                    crate-type = ["rlib"]
+                    """);
                     break;
                 }
             case ModuleEntryKind.BuildUnit:
@@ -128,10 +179,22 @@ public static class InitCommand
                     an external tool with hermetic staging and a baked profile, and
                     the wire protocol -- not the teamserver's language -- is the contract.
 
-                    Implement the contract against the version pinned in
-                    rod-module.toml's compatibility floor, and register the unit with
-                    the teamserver's build configuration.
+                    The [unit] table in rod-module.toml names the id the pipeline
+                    routes by and the command it spawns; build.sh below is the
+                    scaffold command. Implement the contract against the version
+                    pinned in rod-module.toml's compatibility floor, and register
+                    the unit with the teamserver's build configuration.
                     """);
+                    var script = Path.Combine(directory, "build.sh");
+                    File.WriteAllText(script, $$"""
+                    #!/bin/sh
+                    # The external build contract (ADR-021): the pipeline spawns this
+                    # script with the build request file as argv[1]; it answers with
+                    # the result file the contract documents. Replace with the real
+                    # build driver for the language this unit owns.
+                    exit 1
+                    """);
+                    MarkExecutable(script);
                     break;
                 }
             case ModuleEntryKind.Assets:
@@ -151,6 +214,26 @@ public static class InitCommand
                     """);
                     break;
                 }
+        }
+    }
+
+    private static void MarkExecutable(string path)
+    {
+        // Owner-executable on the Unix-likes, best-effort: the placeholder
+        // artifacts and build scripts only need the bit where the loader
+        // and the pipeline exec them.
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+        {
+            try
+            {
+                File.SetUnixFileMode(path,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+            catch (IOException)
+            {
+                // The filesystem wins; a scaffold script that stays
+                // non-executable fails loudly the first time it runs.
+            }
         }
     }
 

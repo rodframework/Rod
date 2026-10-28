@@ -122,10 +122,10 @@ public class CapabilityRegistryTaskResolverTests
         // the requirement rows -- the named module's declaration, null for an
         // unknown name or a module that declares none.
         var registry = new InMemoryCapabilityRegistry();
-        await registry.RegisterAsync(new FixedModule("collect.hives") { Name = "hives", Requires = ["plugin-loader"] });
+        await registry.RegisterAsync(new FixedModule("collect.hives") { Name = "hives", Requires = ["plugin-loader/exec-v1"] });
         var resolver = new CapabilityRegistryTaskResolver(registry);
 
-        Assert.Equal(new[] { "plugin-loader" }, resolver.ModuleRequires("hives"));
+        Assert.Equal(new[] { "plugin-loader/exec-v1" }, resolver.ModuleRequires("hives"));
         Assert.Null(resolver.ModuleRequires("nothing"));
         Assert.Null(resolver.ModuleRequires("shell.exec"));
     }

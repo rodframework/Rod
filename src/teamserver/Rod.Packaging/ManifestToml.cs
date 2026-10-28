@@ -41,11 +41,38 @@ public static class ManifestToml
         [TomlPropertyName("package")]
         public PackageSection? Package { get; set; }
 
+        [TomlPropertyName("plugin")]
+        public PluginSection? Plugin { get; set; }
+
+        [TomlPropertyName("unit")]
+        public UnitSection? Unit { get; set; }
+
         [TomlPropertyName("verbs")]
         public List<VerbRow>? Verbs { get; set; }
 
         [TomlPropertyName("assets")]
         public List<AssetRow>? Assets { get; set; }
+    }
+
+    private sealed class PluginSection
+    {
+        [TomlPropertyName("artifacts")]
+        public List<PluginArtifactRow>? Artifacts { get; set; }
+    }
+
+    private sealed class PluginArtifactRow
+    {
+        [TomlPropertyName("platform")] public string? Platform { get; set; }
+        [TomlPropertyName("arch")] public string? Arch { get; set; }
+        [TomlPropertyName("path")] public string? Path { get; set; }
+        [TomlPropertyName("abi")] public string? Abi { get; set; }
+    }
+
+    private sealed class UnitSection
+    {
+        [TomlPropertyName("id")] public string? Id { get; set; }
+        [TomlPropertyName("command")] public string? Command { get; set; }
+        [TomlPropertyName("timeout-minutes")] public long? TimeoutMinutes { get; set; }
     }
 
     private sealed class ModuleSection
@@ -78,6 +105,8 @@ public static class ManifestToml
         [TomlPropertyName("implant-class")] public string? ImplantClass { get; set; }
         [TomlPropertyName("platform")] public string? Platform { get; set; }
         [TomlPropertyName("arch")] public string? Arch { get; set; }
+        [TomlPropertyName("build-unit")] public string? BuildUnit { get; set; }
+        [TomlPropertyName("unit-range")] public string? UnitRange { get; set; }
     }
 
     private sealed class OpsecSection
@@ -158,7 +187,7 @@ public static class ManifestToml
         string? license = TrimOrNull(module?.License);
         if (name is null) errors.Add("module.name is missing.");
         if (versionText is null) errors.Add("module.version is missing.");
-        if (entryText is null) errors.Add("module.entry is missing (server, implant, build-unit, or assets).");
+        if (entryText is null) errors.Add("module.entry is missing (server, plugin, extension, build-unit, or assets).");
         if (license is null) errors.Add("module.license is missing; use an SPDX identifier.");
 
         string? teamserverText = TrimOrNull(compatibility?.Teamserver);
@@ -175,14 +204,34 @@ public static class ManifestToml
         if (!SemVer.TryParse(versionText!, out var version))
             errors.Add($"module.version '{versionText}' is not a SemVer version (M.m.p[-pre]).");
         if (!ModuleEntryKindNames.TryParse(entryText!, out var entry))
-            errors.Add($"module.entry '{entryText}' is not one of: server, implant, build-unit, or assets.");
+            errors.Add($"module.entry '{entryText}' is not one of: server, plugin, extension, build-unit, or assets.");
         if (!SemVer.TryParse(teamserverText!, out var teamserverMin))
             errors.Add($"compatibility.teamserver '{teamserverText}' is not a SemVer version.");
 
-        var targets = (compatibility?.Targets ?? []).Select(row => new TargetMatrix(
-            TrimOrNull(row.ImplantClass) ?? "",
-            TrimOrNull(row.Platform) ?? "",
-            TrimOrNull(row.Arch) ?? "")).ToList();
+        var targets = new List<TargetMatrix>();
+        foreach (var row in compatibility?.Targets ?? [])
+        {
+            // The extension targeting half (ADR-022): the build unit the row
+            // names and its optional version floor. A row without them stays
+            // the portable shape (class/platform/arch); the validator decides
+            // which entries may carry which shape.
+            SemVer? unitRange = null;
+            var rangeText = TrimOrNull(row.UnitRange);
+            if (rangeText is not null)
+            {
+                if (SemVer.TryParse(rangeText, out var parsedRange))
+                    unitRange = parsedRange;
+                else
+                    errors.Add($"compatibility.targets unit-range '{rangeText}' is not a SemVer version.");
+            }
+
+            targets.Add(new TargetMatrix(
+                TrimOrNull(row.ImplantClass) ?? "",
+                TrimOrNull(row.Platform) ?? "",
+                TrimOrNull(row.Arch) ?? "",
+                TrimOrNull(row.BuildUnit),
+                unitRange));
+        }
 
         // The capability requirements (ADR-017): trims and drops empties the
         // way the technique list does; the closed-vocabulary check is the
@@ -337,6 +386,40 @@ public static class ManifestToml
             assets.Add(new AssetDeclaration(assetName, assetPath));
         }
 
+        // The plugin artifact rows (ADR-020): one prebuilt execution half per
+        // platform and arch. Like a verb row, a row that fails to parse names
+        // itself rather than failing the whole load.
+        var pluginArtifacts = new List<PluginArtifact>();
+        for (var i = 0; i < (document.Plugin?.Artifacts?.Count ?? 0); i++)
+        {
+            var row = document.Plugin!.Artifacts![i];
+            var platform = TrimOrNull(row.Platform);
+            var arch = TrimOrNull(row.Arch);
+            var path = TrimOrNull(row.Path);
+            var abi = TrimOrNull(row.Abi);
+            if (platform is null || arch is null || path is null || abi is null)
+            {
+                errors.Add($"plugin.artifacts[{i}] needs platform, arch, path, and abi.");
+                continue;
+            }
+            pluginArtifacts.Add(new PluginArtifact(platform, arch, path, abi));
+        }
+
+        // The external build contract's face (ADR-021): the section maps
+        // onto the model as-is and the validator names what is wrong with
+        // it -- the same split every other section keeps (parse maps,
+        // validate judges), so one load reports every wrong field at once.
+        UnitDefinition? unit = null;
+        var unitSection = document.Unit;
+        if (unitSection is { } declaredUnit
+            && (declaredUnit.Id is not null || declaredUnit.Command is not null || declaredUnit.TimeoutMinutes is not null))
+        {
+            unit = new UnitDefinition(
+                TrimOrNull(declaredUnit.Id) ?? "",
+                TrimOrNull(declaredUnit.Command) ?? "",
+                declaredUnit.TimeoutMinutes is null ? null : (int)declaredUnit.TimeoutMinutes);
+        }
+
         if (errors.Count > 0)
             return errors;
 
@@ -358,6 +441,8 @@ public static class ManifestToml
             Techniques = techniques,
             Verbs = verbs,
             Assets = assets,
+            PluginArtifacts = pluginArtifacts,
+            Unit = unit,
             Package = package,
         };
         errors.AddRange(manifest.Validate());
@@ -392,17 +477,28 @@ public static class ManifestToml
         sb.AppendLine("[module]");
         sb.AppendLine($"name = {Quote(name)}");
         sb.AppendLine($"version = {Quote(version.ToString())}");
-        sb.AppendLine($"entry = {Quote(ModuleEntryKindNames.ToString(entry))}  # server | implant | build-unit | assets");
+        sb.AppendLine($"entry = {Quote(ModuleEntryKindNames.ToString(entry))}  # server | plugin | extension | build-unit | assets");
         sb.AppendLine($"license = {Quote(license)}  # SPDX identifier; publish refuses UNLICENSED");
         sb.AppendLine($"description = {Quote(description ?? "")}");
         sb.AppendLine();
         sb.AppendLine("[compatibility]");
         sb.AppendLine($"teamserver = {Quote(teamserverMin.ToString())}  # minimum teamserver version");
         sb.AppendLine("# Wire capabilities the hosting implant must support (the closed");
-        sb.AppendLine("# vocabulary: plugin-loader, exfil-chunks, staged-uploads). The");
+        sb.AppendLine("# vocabulary: plugin-loader/exec-v1, plugin-loader/native-v1, the");
+        sb.AppendLine("# reserved coff/wasm tiers, exfil-chunks, staged-uploads). The");
         sb.AppendLine("# implant's handshake advertisement is the runtime truth; this row");
         sb.AppendLine("# is the store's static filter.");
-        sb.AppendLine("# requires = [\"plugin-loader\"]");
+        if (entry == ModuleEntryKind.Plugin)
+        {
+            // A plugin's requirement rows are its artifacts' ABI union (the
+            // validator enforces the equality), so the scaffold states the
+            // row its sample artifact row below implies.
+            sb.AppendLine("requires = [\"plugin-loader/exec-v1\"]");
+        }
+        else
+        {
+            sb.AppendLine("# requires = [\"plugin-loader/exec-v1\"]");
+        }
         sb.AppendLine();
         sb.AppendLine("[opsec]");
         sb.AppendLine($"lands-on-disk = {landsOnDisk.ToString().ToLowerInvariant()}  # what running the module leaves on the target");
@@ -413,6 +509,17 @@ public static class ManifestToml
 
         if (entry == ModuleEntryKind.BuildUnit)
         {
+            // The external build contract's face (ADR-021): the id the
+            // pipeline routes by and the command it spawns -- one
+            // implementation, any toolchain. The conformance report rides
+            // below it.
+            sb.AppendLine("# The external build contract (ADR-021): the pipeline routes build");
+            sb.AppendLine("# requests by unit.id and spawns unit.command with the request file.");
+            sb.AppendLine("[unit]");
+            sb.AppendLine($"id = {Quote(name)}");
+            sb.AppendLine("command = \"./build.sh\"");
+            sb.AppendLine("# timeout-minutes = 20");
+            sb.AppendLine();
             // The conformance report is the build unit's half of the
             // compatibility collapse: what its candidate proved against the
             // harness, signed with the package so a store badge is a
@@ -438,7 +545,7 @@ public static class ManifestToml
             sb.AppendLine($"path = {Quote($"assets/{name}.txt")}");
             sb.AppendLine();
         }
-        else
+        else if (entry != ModuleEntryKind.BuildUnit)
         {
             sb.AppendLine("# The verb rows: each carries its module-scoped version, an optional");
             sb.AppendLine("# per-verb teamserver floor, and the verb's ATT&CK techniques (ADR-007).");
@@ -468,16 +575,52 @@ public static class ManifestToml
             sb.AppendLine("  # placeholder = \"10.0.0.7\"");
             sb.AppendLine();
         }
+
+        if (entry == ModuleEntryKind.Plugin)
+        {
+            // The prebuilt execution halves (ADR-020): one row per platform
+            // and arch, each naming the loader ABI it was built against. The
+            // requires row above is these rows' ABI union, stated as the
+            // store's static filter.
+            sb.AppendLine("# The plugin's prebuilt execution halves (ADR-020): one row per target,");
+            sb.AppendLine("# the ABI naming the loading contract (exec-v1 out-of-process, native-v1");
+            sb.AppendLine("# in-process rod_plugin_*; coff-v1/wasm-v1 are reserved).");
+            sb.AppendLine("[[plugin.artifacts]]");
+            sb.AppendLine("platform = \"linux\"");
+            sb.AppendLine("arch = \"amd64\"");
+            sb.AppendLine($"path = {Quote($"bin/{name}-linux-amd64")}");
+            sb.AppendLine("abi = \"exec-v1\"");
+            sb.AppendLine();
+        }
+
         sb.AppendLine("# Optional packaging rules; uncomment to narrow what publish packs.");
         sb.AppendLine("# [package]");
         sb.AppendLine("# include = [\"src/**\"]");
         sb.AppendLine("# exclude = [\"**/bin/**\", \"**/obj/**\"]");
         sb.AppendLine();
-        sb.AppendLine("# Optional implant-side matrix; server-entry modules leave it empty.");
-        sb.AppendLine("# [[compatibility.targets]]");
-        sb.AppendLine("# implant-class = \"implant\"");
-        sb.AppendLine("# platform = \"linux\"");
-        sb.AppendLine("# arch = \"amd64\"");
+
+        if (entry == ModuleEntryKind.Extension)
+        {
+            // The extension's targeting rows (ADR-022): the build unit that
+            // compiles it in, with an optional version floor -- the
+            // declaration the build-time gate hangs on.
+            sb.AppendLine("# The extension's targets (ADR-022): the build unit that compiles this");
+            sb.AppendLine("# crate into the implant, with an optional version floor.");
+            sb.AppendLine("[[compatibility.targets]]");
+            sb.AppendLine("implant-class = \"implant\"");
+            sb.AppendLine("build-unit = \"rod-rust\"");
+            sb.AppendLine("# unit-range = \"1.0.0\"");
+            sb.AppendLine("platform = \"linux\"");
+            sb.AppendLine("arch = \"amd64\"");
+        }
+        else
+        {
+            sb.AppendLine("# Optional implant-side matrix; server-entry modules leave it empty.");
+            sb.AppendLine("# [[compatibility.targets]]");
+            sb.AppendLine("# implant-class = \"implant\"");
+            sb.AppendLine("# platform = \"linux\"");
+            sb.AppendLine("# arch = \"amd64\"");
+        }
         return sb.ToString();
     }
 

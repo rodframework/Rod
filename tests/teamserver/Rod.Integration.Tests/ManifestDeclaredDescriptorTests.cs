@@ -55,7 +55,10 @@ public class ManifestDeclaredDescriptorTests : IDisposable
 
             [compatibility]
             teamserver = "1.0.0"
-            requires = ["plugin-loader"]
+            requires = ["plugin-loader/exec-v1"]
+
+            [opsec]
+            lands-on-disk = false
 
             [[verbs]]
             name = "{{ScanVerb}}"
@@ -119,7 +122,7 @@ public class ManifestDeclaredDescriptorTests : IDisposable
             var scan = Assert.Single(descriptors!, d => d.Verb == ScanVerb);
             Assert.Equal("Recon", scan.Category);
             Assert.Equal("probe", scan.Module);
-            Assert.Equal(["plugin-loader"], scan.Requires);
+            Assert.Equal(["plugin-loader/exec-v1"], scan.Requires);
             Assert.Equal("true", scan.Attributes["touches-network"]);
             Assert.Equal(["T1046"], scan.Techniques);
             Assert.NotNull(scan.Output);
@@ -180,7 +183,7 @@ public class ManifestDeclaredDescriptorTests : IDisposable
             var byName = await registry.FindByNameAsync(ModuleName);
 
             Assert.NotNull(byName);
-            Assert.Equal(["plugin-loader"], byName!.Requires);
+            Assert.Equal(["plugin-loader/exec-v1"], byName!.Requires);
         }
     }
 

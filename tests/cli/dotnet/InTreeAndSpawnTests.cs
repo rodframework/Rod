@@ -83,7 +83,7 @@ public class InTreeModuleTests
         // hosting implant loads through the module family, so every tree
         // manifest declares the loader requirement -- a future module that
         // forgets the row fails here rather than installing unfiltered.
-        Assert.Equal(new[] { "plugin-loader" }, manifest.Requires);
+        Assert.Equal(new[] { "plugin-loader/exec-v1", "plugin-loader/native-v1" }, manifest.Requires);
     }
 
     [Theory]

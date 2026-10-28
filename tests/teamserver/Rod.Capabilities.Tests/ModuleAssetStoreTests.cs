@@ -51,9 +51,15 @@ public class ModuleAssetStoreTests : IDisposable
         Manifest(directory, $"""
             [module]
             name = "{name}"
+            version = "1.0.0"
+            entry = "assets"
+            license = "Apache-2.0"
 
             [compatibility]
             teamserver = "1.0.0"
+
+            [opsec]
+            lands-on-disk = false
 
             {rows}
             """);
@@ -116,6 +122,14 @@ public class ModuleAssetStoreTests : IDisposable
         Manifest("anonymous", """
             [module]
             version = "1.0.0"
+            entry = "assets"
+            license = "Apache-2.0"
+
+            [compatibility]
+            teamserver = "1.0.0"
+
+            [opsec]
+            lands-on-disk = false
 
             [[assets]]
             name = "hook"
@@ -124,7 +138,7 @@ public class ModuleAssetStoreTests : IDisposable
 
         var failure = Assert.Throws<InvalidOperationException>(
             () => ModuleAssetStore.Load(Config(Dir("anonymous"))));
-        Assert.Contains("no [module] name", failure.Message);
+        Assert.Contains("module.name is missing", failure.Message);
     }
 
     [Fact]
@@ -133,9 +147,15 @@ public class ModuleAssetStoreTests : IDisposable
         Manifest("empty", """
             [module]
             name = "empty"
+            version = "1.0.0"
+            entry = "assets"
+            license = "Apache-2.0"
 
             [compatibility]
             teamserver = "1.0.0"
+
+            [opsec]
+            lands-on-disk = false
             """);
 
         var failure = Assert.Throws<InvalidOperationException>(
@@ -149,6 +169,15 @@ public class ModuleAssetStoreTests : IDisposable
         Manifest("liar", """
             [module]
             name = "liar"
+            version = "1.0.0"
+            entry = "assets"
+            license = "Apache-2.0"
+
+            [compatibility]
+            teamserver = "1.0.0"
+
+            [opsec]
+            lands-on-disk = false
 
             [[assets]]
             name = "hook"
@@ -176,6 +205,15 @@ public class ModuleAssetStoreTests : IDisposable
         Manifest("twice", """
             [module]
             name = "twice"
+            version = "1.0.0"
+            entry = "assets"
+            license = "Apache-2.0"
+
+            [compatibility]
+            teamserver = "1.0.0"
+
+            [opsec]
+            lands-on-disk = false
 
             [[assets]]
             name = "hook"

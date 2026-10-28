@@ -35,14 +35,22 @@ public class DescriptorModuleLoaderTests : IDisposable
 
     // The zero-.NET module the happy path loads: a novel namespace, an
     // OPSEC flag pair, a schema the UI renders, a structured output kind,
-    // and a requirement row the module.load gate reads.
+    // and a requirement row the module.load gate reads. The whole manifest
+    // grammar validates -- the loader parses through Rod.Packaging, the one
+    // implementation the CLI also parses with.
     private const string SweepManifest = """
         [module]
         name = "sweep"
+        version = "0.3.0"
+        entry = "server"
+        license = "Apache-2.0"
 
         [compatibility]
         teamserver = "1.0.0"
-        requires = ["plugin-loader"]
+        requires = ["plugin-loader/exec-v1"]
+
+        [opsec]
+        lands-on-disk = false
 
         [[verbs]]
         name = "sweep.discover"
@@ -79,7 +87,7 @@ public class DescriptorModuleLoaderTests : IDisposable
         var found = await registry.FindAsync("sweep.discover");
         Assert.NotNull(found);
         Assert.Equal("sweep", found!.Name);
-        Assert.Equal(["plugin-loader"], found.Requires);
+        Assert.Equal(["plugin-loader/exec-v1"], found.Requires);
 
         var descriptor = found.Descriptor;
         Assert.Equal(CapabilityCategory.Recon, descriptor.Category);
@@ -161,15 +169,21 @@ public class DescriptorModuleLoaderTests : IDisposable
         Manifest("nameless", SweepManifest.Replace("name = \"sweep\"", ""));
         var nameless = await Assert.ThrowsAsync<InvalidOperationException>(
             () => DescriptorModuleLoader.LoadAsync(Config(Dir("nameless")), registry));
-        Assert.Contains("no [module] name", nameless.Message);
+        Assert.Contains("module.name is missing", nameless.Message);
 
         // No verb rows.
         Manifest("rowless", """
             [module]
             name = "sweep"
+            version = "0.3.0"
+            entry = "server"
+            license = "Apache-2.0"
 
             [compatibility]
             teamserver = "1.0.0"
+
+            [opsec]
+            lands-on-disk = false
             """);
         var rowless = await Assert.ThrowsAsync<InvalidOperationException>(
             () => DescriptorModuleLoader.LoadAsync(Config(Dir("rowless")), registry));
@@ -230,7 +244,7 @@ public class DescriptorModuleLoaderTests : IDisposable
     [Fact]
     public async Task AnUnknownRequirementRow_IsRefusedByTheRegistryItself()
     {
-        Manifest("requires", SweepManifest.Replace("requires = [\"plugin-loader\"]", "requires = [\"cha-cha-20\"]"));
+        Manifest("requires", SweepManifest.Replace("requires = [\"plugin-loader/exec-v1\"]", "requires = [\"cha-cha-20\"]"));
         var registry = new InMemoryCapabilityRegistry();
 
         var failure = await Assert.ThrowsAsync<InvalidOperationException>(

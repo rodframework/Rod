@@ -38,6 +38,8 @@ public sealed record RegistryVersion(
     RegistryVersion.CompatibilityInfo Compatibility,
     IReadOnlyList<RegistryVersion.VerbInfo>? Verbs = null,
     IReadOnlyList<string>? Assets = null,
+    IReadOnlyList<RegistryVersion.PluginArtifactInfo>? PluginArtifacts = null,
+    string? UnitId = null,
     RegistryVersion.ConformanceInfo? Conformance = null)
 {
     public sealed record CompatibilityInfo(
@@ -45,7 +47,23 @@ public sealed record RegistryVersion(
         IReadOnlyList<TargetInfo> Targets,
         IReadOnlyList<string>? Requires = null);
 
-    public sealed record TargetInfo(string ImplantClass, string Platform, string Arch);
+    public sealed record TargetInfo(
+        string ImplantClass,
+        string Platform,
+        string Arch,
+        string? BuildUnit = null,
+        string? UnitRange = null);
+
+    /// <summary>One <c>[[plugin.artifacts]]</c> row mirrored from the manifest
+    /// (ADR-020): the platform and arch the artifact serves, its
+    /// package-relative path, and the loader ABI it was built against --
+    /// mirrored so the catalog answers "which loaders does this plugin ride,
+    /// on which targets" without unpacking the package.</summary>
+    public sealed record PluginArtifactInfo(
+        string Platform,
+        string Arch,
+        string Path,
+        string Abi);
 
     /// <summary>The build unit's conformance report, mirrored from the
     /// manifest (ADR-017): the tier its candidate proved, the harness
@@ -95,7 +113,7 @@ public static class RegistryJson
         public override RegistryVersion.TargetInfo Read(
             ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
-            string? implantClass = null, platform = null, arch = null;
+            string? implantClass = null, platform = null, arch = null, buildUnit = null, unitRange = null;
             while (reader.Read())
             {
                 if (reader.TokenType == JsonTokenType.EndObject)
@@ -110,9 +128,14 @@ public static class RegistryJson
                     case "implantClass": implantClass = value; break;
                     case "platform": platform = value; break;
                     case "arch": arch = value; break;
+                    case "buildUnit": buildUnit = value; break;
+                    case "unitRange": unitRange = value; break;
                 }
             }
-            return new RegistryVersion.TargetInfo(implantClass ?? "", platform ?? "", arch ?? "");
+            return new RegistryVersion.TargetInfo(
+                implantClass ?? "", platform ?? "", arch ?? "",
+                string.IsNullOrEmpty(buildUnit) ? null : buildUnit,
+                string.IsNullOrEmpty(unitRange) ? null : unitRange);
         }
 
         public override void Write(
@@ -122,6 +145,10 @@ public static class RegistryJson
             writer.WriteString("implantClass", value.ImplantClass);
             writer.WriteString("platform", value.Platform);
             writer.WriteString("arch", value.Arch);
+            if (value.BuildUnit is not null)
+                writer.WriteString("buildUnit", value.BuildUnit);
+            if (value.UnitRange is not null)
+                writer.WriteString("unitRange", value.UnitRange);
             writer.WriteEndObject();
         }
     }
