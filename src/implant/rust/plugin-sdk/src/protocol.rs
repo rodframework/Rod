@@ -5,17 +5,26 @@
 //!
 //! Frames are little-endian throughout. A request is
 //! `[op: u8][arg: u32][len: u32][len bytes]`; a response is
-//! `[version: u8][status: u8][len: u32][len bytes]`. The loop is
-//! request-in, response-out, until stdin ends -- one process may answer a
-//! whole discovery run (ping, name, count, verb names), and the host
-//! execs a fresh process for each verb dispatch.
+//! `[version: u8][status: u8][len: u32][len bytes]` followed, since
+//! protocol 2, by the artifact section
+//! `[name_len: u32][name bytes][ct_len: u32][content-type bytes]
+//! [data_len: u32][data bytes]` -- a `name_len` of zero is the absent
+//! artifact, and every response carries the section so the reader's
+//! shape is uniform across the operations. The loop is request-in,
+//! response-out, until stdin ends -- one process may answer a whole
+//! discovery run (ping, name, count, verb names), and the host execs a
+//! fresh process for each verb dispatch.
 
 use std::io::{Read, Write};
+
+use crate::VerbArtifact;
 
 /// The protocol version this crate speaks. The host refuses a module
 /// whose response names a version it does not recognize, whole and named
 /// -- the stdio twin of `rod_plugin_abi`.
-pub const PROTOCOL_VERSION: u8 = 1;
+///
+/// Protocol 2 adds the artifact section to the response frame.
+pub const PROTOCOL_VERSION: u8 = 2;
 
 /// The request operations.
 pub mod op {
@@ -44,7 +53,8 @@ pub mod status {
 }
 
 /// The largest frame payload either side will read, so a hostile or broken
-/// peer's length word cannot make the reader allocate without bound.
+/// peer's length word cannot make the reader allocate without bound. Each
+/// artifact section length rides the same budget.
 pub const MAX_PAYLOAD: u32 = 64 << 20;
 
 /// One parsed request.
@@ -71,15 +81,73 @@ pub fn read_request<R: Read>(reader: &mut R) -> Option<Request> {
     })
 }
 
-/// Writes one response frame.
-pub fn write_response<W: Write>(writer: &mut W, status: u8, payload: &[u8]) -> std::io::Result<()> {
-    let mut frame = Vec::with_capacity(9 + payload.len());
+/// Writes one response frame: status and payload, then the artifact
+/// section (an absent artifact is the zero name length, so every frame
+/// carries the section and the reader's shape stays uniform).
+pub fn write_response<W: Write>(
+    writer: &mut W,
+    status: u8,
+    payload: &[u8],
+    artifact: Option<&VerbArtifact>,
+) -> std::io::Result<()> {
+    let mut frame = Vec::with_capacity(9 + payload.len() + 12);
     frame.push(PROTOCOL_VERSION);
     frame.push(status);
     frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
     frame.extend_from_slice(payload);
+    match artifact {
+        None => frame.extend_from_slice(&0u32.to_le_bytes()),
+        Some(run) => {
+            frame.extend_from_slice(&(run.name.len() as u32).to_le_bytes());
+            frame.extend_from_slice(run.name.as_bytes());
+            frame.extend_from_slice(&(run.content_type.len() as u32).to_le_bytes());
+            frame.extend_from_slice(run.content_type.as_bytes());
+            frame.extend_from_slice(&(run.data.len() as u32).to_le_bytes());
+            frame.extend_from_slice(&run.data);
+        }
+    }
     writer.write_all(&frame)?;
     writer.flush()
+}
+
+/// Reads the artifact section that follows a response frame's payload:
+/// the zero name length is the absent artifact.
+pub fn read_artifact<R: Read>(reader: &mut R) -> Option<Option<VerbArtifact>> {
+    let mut name_len = [0u8; 4];
+    reader.read_exact(&mut name_len).ok()?;
+    let name_len = u32::from_le_bytes(name_len);
+    if name_len == 0 {
+        return Some(None);
+    }
+    if name_len > MAX_PAYLOAD {
+        return None;
+    }
+    let mut name = vec![0u8; name_len as usize];
+    reader.read_exact(&mut name).ok()?;
+
+    let mut content_len = [0u8; 4];
+    reader.read_exact(&mut content_len).ok()?;
+    let content_len = u32::from_le_bytes(content_len);
+    if content_len > MAX_PAYLOAD {
+        return None;
+    }
+    let mut content_type = vec![0u8; content_len as usize];
+    reader.read_exact(&mut content_type).ok()?;
+
+    let mut data_len = [0u8; 4];
+    reader.read_exact(&mut data_len).ok()?;
+    let data_len = u32::from_le_bytes(data_len);
+    if data_len > MAX_PAYLOAD {
+        return None;
+    }
+    let mut data = vec![0u8; data_len as usize];
+    reader.read_exact(&mut data).ok()?;
+
+    Some(Some(VerbArtifact {
+        name: String::from_utf8_lossy(&name).into_owned(),
+        content_type: String::from_utf8_lossy(&content_type).into_owned(),
+        data,
+    }))
 }
 
 #[cfg(test)]
@@ -103,11 +171,36 @@ mod tests {
         assert_eq!(parsed.payload, b"xyz");
 
         let mut out = Vec::new();
-        write_response(&mut out, status::OK, b"done").expect("the response writes");
+        write_response(&mut out, status::OK, b"done", None).expect("the response writes");
         assert_eq!(out[0], PROTOCOL_VERSION);
         assert_eq!(out[1], status::OK);
         assert_eq!(u32::from_le_bytes([out[2], out[3], out[4], out[5]]), 4);
-        assert_eq!(&out[6..], b"done");
+        assert_eq!(&out[6..10], b"done");
+        // The absent artifact is the zero name length, exactly four bytes.
+        assert_eq!(u32::from_le_bytes([out[10], out[11], out[12], out[13]]), 0);
+        assert_eq!(out.len(), 14);
+    }
+
+    #[test]
+    fn artifact_sections_round_trip() {
+        let run = VerbArtifact {
+            name: "dump.bin".into(),
+            content_type: "application/octet-stream".into(),
+            data: vec![1, 2, 3, 0xff],
+        };
+        let mut out = Vec::new();
+        write_response(&mut out, status::OK, b"collected", Some(&run))
+            .expect("the response writes");
+
+        // Skip the header and payload the reader's caller already took.
+        let payload_end = 6 + 9;
+        let mut reader = std::io::Cursor::new(&out[payload_end..]);
+        let parsed = read_artifact(&mut reader)
+            .expect("the section parses")
+            .expect("it carries a run");
+        assert_eq!(parsed.name, "dump.bin");
+        assert_eq!(parsed.content_type, "application/octet-stream");
+        assert_eq!(parsed.data, vec![1, 2, 3, 0xff]);
     }
 
     #[test]

