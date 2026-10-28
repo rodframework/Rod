@@ -19,7 +19,7 @@ internal sealed class StoredPayload
     public Guid PayloadId { get; set; }
     public Guid EngagementId { get; set; }
     public string Class { get; set; } = "";
-    public string Language { get; set; } = "";
+    public string UnitId { get; set; } = "";
     public string ContentType { get; set; } = "";
     public string Fingerprint { get; set; } = "";
     public byte[] Content { get; set; } = [];
@@ -39,7 +39,7 @@ internal sealed class StoredPayload
             PayloadId,
             EngagementId,
             Class,
-            Language,
+            UnitId,
             ContentType,
             Fingerprint,
             Content,
@@ -62,7 +62,7 @@ internal sealed class StoredPayload
             PayloadId = payload.PayloadId,
             EngagementId = payload.EngagementId,
             Class = payload.Class,
-            Language = payload.Language,
+            UnitId = payload.UnitId,
             ContentType = payload.ContentType,
             Fingerprint = payload.Fingerprint,
             Content = payload.Content,

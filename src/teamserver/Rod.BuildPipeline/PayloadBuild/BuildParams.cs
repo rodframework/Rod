@@ -91,4 +91,5 @@ public sealed record BuildParams(
     Guid? DeliversPayloadId = null,
     byte[]? WireGuardPrivateKey = null,
     byte[]? WireGuardArtifactPublicKey = null,
-    byte[]? WireGuardServerPublicKey = null);
+    byte[]? WireGuardServerPublicKey = null,
+    IReadOnlyList<ExtensionOverlay>? Extensions = null);

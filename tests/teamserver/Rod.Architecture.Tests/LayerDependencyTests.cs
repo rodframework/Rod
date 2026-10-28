@@ -95,7 +95,7 @@ public class LayerDependencyTests
 
     [Fact]
     public void BuildPipeline_Dependencies_PointInwardOnly()
-        => AssertOnlyDependsOn(BuildPipeline, nameof(BuildPipeline), "Rod.BuildPipeline", "Rod.CoreState");
+        => AssertOnlyDependsOn(BuildPipeline, nameof(BuildPipeline), "Rod.BuildPipeline", "Rod.CoreState", "Rod.Packaging");
 
     // Operators and capabilities may depend on core state and audit only.
     [Fact]

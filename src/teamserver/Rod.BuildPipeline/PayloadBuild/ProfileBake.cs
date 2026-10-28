@@ -30,13 +30,16 @@ public static class ProfileBake
     /// </summary>
     public const string FileName = "rod.profile.json";
 
-    public static string Render(BuildParams @params)
+    public static string Render(BuildParams @params, IEnumerable<string>? extensionVerbs = null)
     {
         // The class's reduced verb set (architecture.md Sec 5.2) plus the
         // contract-only verbs no class gates, comma-joined so the artifact is
-        // self-describing: it carries the verbs it is permitted to run.
+        // self-describing: it carries the verbs it is permitted to run. The
+        // compiled-in extensions' verbs (ADR-022) join the bake the same
+        // way -- the artifact advertises what it carries.
         var verbs = string.Join(",", ImplantClassCapabilities.For(@params.Class)
-            .Concat(ImplantClassCapabilities.Ungated));
+            .Concat(ImplantClassCapabilities.Ungated)
+            .Concat(extensionVerbs ?? []));
         // Headers ride as a nested JSON object (an empty profile emits {})
         // with keys sorted for stable byte output, so the baked profile
         // matches the wire-contract shape across build units.
@@ -112,8 +115,8 @@ public static class ProfileBake
     /// produce the same bytes through the documented contract
     /// (extending/implants.md, "The baked profile file").
     /// </summary>
-    public static void WriteFile(BuildParams @params, string treeRoot) =>
-        File.WriteAllText(Path.Combine(treeRoot, FileName), Render(@params));
+    public static void WriteFile(BuildParams @params, string treeRoot, IEnumerable<string>? extensionVerbs = null) =>
+        File.WriteAllText(Path.Combine(treeRoot, FileName), Render(@params, extensionVerbs));
 
     // The headers as a sorted JSON-object value ({} when empty), so the
     // baked profile's byte output is stable regardless of dictionary

@@ -12,6 +12,7 @@ using Rod.Transport;
 using Rod.Transport.Endpoints;
 using Rod.Transport.Listeners;
 using static Rod.Integration.Tests.EngagementSetup;
+using Rod.BuildPipeline.PayloadBuild;
 
 namespace Rod.Integration.Tests;
 
@@ -676,7 +677,7 @@ public class ListenerRuntimeTests
 
         var built = await env.Http.PostAsJsonAsync($"/engagements/{engagementId}/payloads",
             new PayloadEndpoints.BuildPayloadRequest(
-                Language: "Rust",
+                Unit: BuildUnitIds.Rust,
                 Class: "Implant",
                 TargetOs: "linux",
                 TargetArch: "amd64",
@@ -700,7 +701,7 @@ public class ListenerRuntimeTests
         var foreignListener = await foreign.Content.ReadFromJsonAsync<ListenerEndpoints.ListenerResponse>();
         var wrongEngagement = await env.Http.PostAsJsonAsync($"/engagements/{engagementId}/payloads",
             new PayloadEndpoints.BuildPayloadRequest(
-                Language: "Rust", Class: "Implant", TargetOs: "linux", TargetArch: "amd64",
+                Unit: BuildUnitIds.Rust, Class: "Implant", TargetOs: "linux", TargetArch: "amd64",
                 Endpoint: null, UriPath: "/beacon", SleepSeconds: 30, JitterSeconds: 10,
                 KillDate: null, ListenerId: foreignListener!.Id));
         Assert.Equal(HttpStatusCode.BadRequest, wrongEngagement.StatusCode);
@@ -711,7 +712,7 @@ public class ListenerRuntimeTests
         var front = Assert.Single(await registry.ListAsync(), l => l.EngagementId is null);
         var frontNamed = await env.Http.PostAsJsonAsync($"/engagements/{engagementId}/payloads",
             new PayloadEndpoints.BuildPayloadRequest(
-                Language: "Rust", Class: "Implant", TargetOs: "linux", TargetArch: "amd64",
+                Unit: BuildUnitIds.Rust, Class: "Implant", TargetOs: "linux", TargetArch: "amd64",
                 Endpoint: null, UriPath: "/beacon", SleepSeconds: 30, JitterSeconds: 10,
                 KillDate: null, ListenerId: front.Id.ToString()));
         Assert.Equal(HttpStatusCode.BadRequest, frontNamed.StatusCode);
@@ -720,7 +721,7 @@ public class ListenerRuntimeTests
         // rather than silently preferring one.
         var both = await env.Http.PostAsJsonAsync($"/engagements/{engagementId}/payloads",
             new PayloadEndpoints.BuildPayloadRequest(
-                Language: "Rust", Class: "Implant", TargetOs: "linux", TargetArch: "amd64",
+                Unit: BuildUnitIds.Rust, Class: "Implant", TargetOs: "linux", TargetArch: "amd64",
                 Endpoint: "http://typed.example.test", UriPath: "/beacon", SleepSeconds: 30,
                 JitterSeconds: 10, KillDate: null, ListenerId: listener.Id));
         Assert.Equal(HttpStatusCode.BadRequest, both.StatusCode);

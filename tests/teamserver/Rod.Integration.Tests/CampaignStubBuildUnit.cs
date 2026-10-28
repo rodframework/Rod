@@ -13,7 +13,7 @@ namespace Rod.Integration.Tests;
 /// </summary>
 internal sealed class CampaignStubBuildUnit : IBuildUnit
 {
-    public Language Language => Language.Go;
+    public string UnitId => BuildUnitIds.Go;
 
     public Task<BuildArtifact> BuildAsync(BuildParams @params, CancellationToken cancellationToken = default)
     {
@@ -28,7 +28,7 @@ internal sealed class CampaignStubBuildUnit : IBuildUnit
         var content = Encoding.UTF8.GetBytes(manifest.ToString());
 
         return Task.FromResult(BuildArtifact.Of(
-            Language,
+            UnitId,
             artifactId: Guid.NewGuid(),
             @params,
             content,

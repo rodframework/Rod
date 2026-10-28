@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
 using Rod.Audit;
+using Rod.BuildPipeline.PayloadBuild;
 using Rod.CoreState;
 using Rod.Persistence;
 using Rod.Transport;
@@ -62,7 +63,7 @@ public sealed class PayloadLibraryDurabilityTests : IClassFixture<PostgresFixtur
                 payloadId,
                 engagement,
                 Class: "implant",
-                Language: "rust",
+                UnitId: BuildUnitIds.Rust,
                 ContentType: "application/octet-stream",
                 Fingerprint: "sha256:abc123",
                 Content: content,

@@ -60,7 +60,7 @@ public class CampaignTargetSelectionTests
             Subject: "Renewal", Body: "Open {{link}}", BodyIsHtml: false),
         Recipients: recipients,
         Build: new PayloadEndpoints.BuildPayloadRequest(
-            Language: "go",
+            Unit: "rod-go",
             Class: "Implant",
             TargetOs: null,
             TargetArch: null,

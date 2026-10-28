@@ -52,7 +52,7 @@ public class BrowserHookTests
         var record = await payloads.FindByIdAsync(Guid.Parse(hook.HookId));
         Assert.NotNull(record);
         Assert.Equal("Browser", record!.Class);
-        Assert.Equal("javascript", record.Language);
+        Assert.Equal("javascript", record.UnitId);
         Assert.Equal("application/javascript", record.ContentType);
         Assert.NotNull(record.TokenId);
         Assert.NotNull(record.EnvelopeKeyId);

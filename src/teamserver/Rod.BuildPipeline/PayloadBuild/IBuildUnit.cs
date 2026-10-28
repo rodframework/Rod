@@ -1,17 +1,21 @@
 namespace Rod.BuildPipeline.PayloadBuild;
 
 /// <summary>
-/// A per-language build unit (architecture.md Sec 6, Sec 12). One per implant
-/// language (Go, C#/.NET, C/C++, Nim), each owning its own toolchain. The
-/// teamserver drives them through this uniform contract and is coupled to them
-/// only by it -- a .NET teamserver produces a Go or C implant with no in-language
-/// coupling. <see cref="Language"/> routes a build request to its unit via
-/// <see cref="IBuildUnitRegistry"/>.
+/// A build unit (architecture.md Sec 6, ADR-021): the owner of one implant
+/// toolchain. The in-tree units compile the Rust and Go references; an
+/// external unit is a package whose manifest declares its
+/// <c>[unit]</c> table -- the pipeline routes a request to it by
+/// <see cref="UnitId"/> and spawns its command with the request file, so a
+/// community implant in any language registers without the teamserver
+/// compiling a line of its code. The teamserver drives every unit through
+/// this uniform contract and is coupled to it by nothing else.
 /// </summary>
 public interface IBuildUnit
 {
-    /// <summary>The implant language this unit compiles for.</summary>
-    Language Language { get; }
+    /// <summary>The unit id this unit answers to -- an open kebab-case
+    /// vocabulary; the in-tree members are <see cref="BuildUnitIds.Rust"/>
+    /// and <see cref="BuildUnitIds.Go"/>.</summary>
+    string UnitId { get; }
 
     /// <summary>
     /// Compiles <paramref name="params"/> into a fingerprinted artifact. Build

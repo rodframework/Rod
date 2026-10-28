@@ -10,9 +10,9 @@ namespace Rod.BuildPipeline.PayloadBuild;
 /// SHA-256 hex digest over <see cref="Content"/>; <see cref="Size"/> is its byte
 /// length. <see cref="Params"/> is the build request that produced this artifact,
 /// carried back so the recorder has the full who/when/config alongside the
-/// fingerprint (architecture.md Sec 11). <see cref="Language"/> records which
-/// build unit compiled it -- the contract input is language-neutral, so the unit
-/// stamps the language on the result.
+/// fingerprint (architecture.md Sec 11). <see cref="UnitId"/> records which
+/// build unit compiled it -- the contract input is unit-neutral, so the unit
+/// stamps its id on the result.
 ///
 /// <see cref="Transforms"/> names every post-build transform that produced
 /// <see cref="Content"/> (architecture.md Sec 6, the transform seam), in
@@ -24,7 +24,7 @@ public sealed record BuildArtifact(
     Guid ArtifactId,
     EngagementId EngagementId,
     ImplantClass Class,
-    Language Language,
+    string UnitId,
     byte[] Content,
     string ContentType,
     string Fingerprint,
@@ -41,7 +41,7 @@ public sealed record BuildArtifact(
     /// fields, so the fingerprint always agrees with the bytes.
     /// </summary>
     public static BuildArtifact Of(
-        Language language,
+        string unitId,
         Guid artifactId,
         BuildParams @params,
         byte[] content,
@@ -53,7 +53,7 @@ public sealed record BuildArtifact(
             artifactId,
             @params.EngagementId,
             @params.Class,
-            language,
+            unitId,
             content,
             contentType,
             fingerprint,

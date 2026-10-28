@@ -127,13 +127,13 @@ public class StubBuildUnitTests
     }
 
     [Fact]
-    public async Task Build_ReturnsNonEmptyArtifact_WithGoLanguage()
+    public async Task Build_ReturnsNonEmptyArtifact_WithItsUnitId()
     {
         var unit = new StubBuildUnit();
 
         var artifact = await unit.BuildAsync(Params());
 
-        Assert.Equal(Language.Go, artifact.Language);
+        Assert.Equal("stub-go", artifact.UnitId);
         Assert.NotEmpty(artifact.Content);
         Assert.Equal(artifact.Content.Length, artifact.Size);
         Assert.False(string.IsNullOrWhiteSpace(artifact.ContentType));
@@ -152,22 +152,22 @@ public class StubBuildUnitTests
     }
 
     [Fact]
-    public void Registry_ResolvesUnit_ByLanguage()
+    public void Registry_ResolvesUnit_ByItsId()
     {
         var registry = new InMemoryBuildUnitRegistry();
         registry.Register(new StubBuildUnit());
 
-        var resolved = registry.Find(Language.Go);
+        var resolved = registry.Find("stub-go");
 
         Assert.NotNull(resolved);
         Assert.IsType<StubBuildUnit>(resolved);
     }
 
     [Fact]
-    public void Registry_ReturnsNull_ForUnregisteredLanguage()
+    public void Registry_ReturnsNull_ForUnregisteredId()
     {
         var registry = new InMemoryBuildUnitRegistry();
 
-        Assert.Null(registry.Find(Language.Go));
+        Assert.Null(registry.Find("no-such-unit"));
     }
 }

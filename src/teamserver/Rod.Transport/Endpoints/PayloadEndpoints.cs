@@ -140,7 +140,7 @@ public static class PayloadEndpoints
                 taskId: Guid.Empty,
                 verb: "payload.delete",
                 kind: AuditEventKind.PayloadDeleted,
-                payload: $"{payload.Language}:{payload.Class} {payload.Target ?? "unknown-target"} {payload.Endpoint ?? "unknown-endpoint"}",
+                payload: $"{payload.UnitId}:{payload.Class} {payload.Target ?? "unknown-target"} {payload.Endpoint ?? "unknown-endpoint"}",
                 output: null,
                 outcome: payload.Fingerprint,
                 at: clock.GetUtcNow()),
@@ -239,7 +239,7 @@ public static class PayloadEndpoints
             // runner read as three hundred bad requests instead of one
             // broken environment.
             loggerFactory.CreateLogger("Rod.Transport.Endpoints.PayloadEndpoints")
-                .LogError(ex, "Payload build failed for language {Language}.", request!.Language);
+                .LogError(ex, "Payload build failed for unit {Unit}.", request!.Unit);
             return Results.Problem(
                 title: "Payload build failed.",
                 statusCode: StatusCodes.Status500InternalServerError);
@@ -250,7 +250,7 @@ public static class PayloadEndpoints
             // child process). Keep the response generic; the server log carries
             // the detail.
             loggerFactory.CreateLogger("Rod.Transport.Endpoints.PayloadEndpoints")
-                .LogError(ex, "Payload build failed for language {Language}.", request!.Language);
+                .LogError(ex, "Payload build failed for unit {Unit}.", request!.Unit);
             return Results.Problem(
                 title: "Payload build failed.",
                 statusCode: StatusCodes.Status500InternalServerError);
@@ -320,7 +320,7 @@ public static class PayloadEndpoints
     // deliversPayloadId naming this engagement's stored payload the loader
     // fetches and runs from memory).
     public sealed record BuildPayloadRequest(
-        string? Language,
+        string? Unit,
         string? Class,
         string? TargetOs,
         string? TargetArch,
@@ -344,6 +344,7 @@ public static class PayloadEndpoints
         string? Format = null,
         string? Kind = null,
         string? DeliversPayloadId = null,
+        List<string>? Extensions = null,
         // Retired as a pick: the named front's listener owns the certificate
         // posture and the build inherits it (architecture.md Sec 9). A
         // non-null value may only agree with the front -- the parser refuses
@@ -361,7 +362,7 @@ public static class PayloadEndpoints
         string ArtifactId,
         string EngagementId,
         string Class,
-        string Language,
+        string UnitId,
         string ContentType,
         long Size,
         string Fingerprint,
@@ -389,7 +390,7 @@ public static class PayloadEndpoints
     public sealed record PayloadSummaryResponse(
         string ArtifactId,
         string Class,
-        string Language,
+        string UnitId,
         string? Target,
         string? Endpoint,
         string ContentType,
@@ -411,7 +412,7 @@ public static class PayloadEndpoints
             string? credential = null) => new(
             record.PayloadId.ToString(),
             record.Class,
-            record.Language,
+            record.UnitId,
             record.Target,
             record.Endpoint,
             record.ContentType,

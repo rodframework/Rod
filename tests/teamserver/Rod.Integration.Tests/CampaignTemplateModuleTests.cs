@@ -78,7 +78,7 @@ public class CampaignTemplateModuleTests
         Template: template,
         Recipients: [new CampaignEndpoints.CampaignRecipientRequest("target@example.test", "Target")],
         Build: new PayloadEndpoints.BuildPayloadRequest(
-            Language: "go",
+            Unit: "rod-go",
             Class: "Implant",
             TargetOs: null,
             TargetArch: null,

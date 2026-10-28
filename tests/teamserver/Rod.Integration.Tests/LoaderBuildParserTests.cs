@@ -85,7 +85,7 @@ public class LoaderBuildParserTests
         Listener listener = (await h.Registry.ListAsync(CancellationToken.None)).First(l => l.Name == listenerName);
         return await PayloadBuildRequestParser.ParseAsync(
             new Rod.Transport.Endpoints.PayloadEndpoints.BuildPayloadRequest(
-                Language: language,
+                Unit: "rod-rust",
                 Class: null,
                 TargetOs: targetOs,
                 TargetArch: targetArch,

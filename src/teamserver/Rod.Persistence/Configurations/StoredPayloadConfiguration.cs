@@ -20,7 +20,7 @@ internal sealed class StoredPayloadConfiguration : IEntityTypeConfiguration<Stor
         builder.Property(p => p.PayloadId).HasColumnName("payload_id");
         builder.Property(p => p.EngagementId).HasColumnName("engagement_id");
         builder.Property(p => p.Class).HasColumnName("class").HasMaxLength(64).IsRequired();
-        builder.Property(p => p.Language).HasColumnName("language").HasMaxLength(64).IsRequired();
+        builder.Property(p => p.UnitId).HasColumnName("language").HasMaxLength(64).IsRequired();
         builder.Property(p => p.ContentType).HasColumnName("content_type").HasMaxLength(256).IsRequired();
         builder.Property(p => p.Fingerprint).HasColumnName("fingerprint").HasMaxLength(128).IsRequired();
         builder.Property(p => p.Content).HasColumnName("content").IsRequired();

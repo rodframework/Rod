@@ -55,11 +55,12 @@ internal static class PayloadBuildRequestParser
         Listeners.WireGuard.WireGuardTunnelRegistry? wireGuardTunnels = null,
         bool mintWireGuard = true)
     {
-        // Language and class come in as strings and parse to the enums; anything
-        // that does not parse is a 400. The defaults keep a minimal request
-        // valid (the in-tree Rust unit, an Implant-class build, linux/amd64).
-        if (!TryParseLanguage(body.Language, out var language))
-            return (null, "Language is not recognized.");
+        // Unit and class come in as strings; the unit id is an open kebab-case
+        // vocabulary (ADR-021) and anything this build cannot route is a 400.
+        // The default keeps a minimal request valid (the in-tree Rust unit, an
+        // Implant-class build, linux/amd64).
+        if (!TryParseUnit(body.Unit, out var unit))
+            return (null, "Unit is not recognized; the in-tree ids are 'rod-rust' and 'rod-go'.");
         // The stager class is retired with the .NET trees: delivery rides the
         // launcher one-liners (the disk families plus the in-memory memfd
         // family), which fetch the payload over the same token-gated route a
@@ -229,9 +230,9 @@ internal static class PayloadBuildRequestParser
         // its cargo feature; a build in another language against a
         // wireguard listener would bake a dial that implant cannot serve.
         // A community unit that ports the carriage reopens the pairing.
-        if (endpoint.WireGuard is { } && language != Language.Rust)
+        if (endpoint.WireGuard is { } && unit != BuildUnitIds.Rust)
             return (null,
-                "The wireguard carriage ships in the Rust reference implant; build language 'rust' "
+                "The wireguard carriage ships in the Rust reference implant; build unit 'rod-rust' "
                 + "against a wireguard listener.");
 
         // The baked token's scope rides the same request: how many implants
@@ -257,8 +258,8 @@ internal static class PayloadBuildRequestParser
         // it wants rather than failing inside cargo with less to act on.
         if (kind == PayloadKind.Loader)
         {
-            if (language != Language.Rust)
-                return (null, "The loader tier is the in-tree Rust unit's artifact; set language to Rust or leave it empty.");
+            if (unit != BuildUnitIds.Rust)
+                return (null, "The loader tier is the in-tree Rust unit's artifact; set unit to 'rod-rust' or leave it empty.");
             if (format is not (ArtifactFormat.SingleFileExe or ArtifactFormat.TrimmedExe or ArtifactFormat.NativeAot))
                 return (null, "The loader is a native executable; build it with the default 'exe' format.");
             var os = (body.TargetOs ?? "linux").Trim().ToLowerInvariant();
@@ -292,7 +293,7 @@ internal static class PayloadBuildRequestParser
             return (new BuildRequest(
                 engagementId,
                 requestedBy,
-                language,
+                unit,
                 @class,
             new TargetProfile(body.TargetOs ?? "linux", body.TargetArch ?? "amd64"),
             BuildTransport(body, endpoint.Value!, ExportCaPem(ca),
@@ -304,6 +305,7 @@ internal static class PayloadBuildRequestParser
             Format: format,
             Kind: kind,
             DeliversPayloadId: deliversValue,
+            Extensions: CleanExtensions(body),
             WireGuardPrivateKey: endpoint.WireGuard?.ArtifactPrivate,
             WireGuardArtifactPublicKey: endpoint.WireGuard?.ArtifactPublic,
             WireGuardServerPublicKey: endpoint.WireGuard?.ServerPublic), null);
@@ -321,7 +323,7 @@ internal static class PayloadBuildRequestParser
         return (new BuildRequest(
             engagementId,
             requestedBy,
-            language,
+            unit,
             @class,
             new TargetProfile(body.TargetOs ?? "linux", body.TargetArch ?? "amd64"),
             // Non-null by construction: every resolution path either returns
@@ -333,6 +335,7 @@ internal static class PayloadBuildRequestParser
             body.KillDate,
             mode,
             Format: format,
+            Extensions: CleanExtensions(body),
             WireGuardPrivateKey: endpoint.WireGuard?.ArtifactPrivate,
             WireGuardArtifactPublicKey: endpoint.WireGuard?.ArtifactPublic,
             WireGuardServerPublicKey: endpoint.WireGuard?.ServerPublic), null);
@@ -561,17 +564,38 @@ internal static class PayloadBuildRequestParser
         return profile;
     }
 
-    // Case-insensitive enum parse off the request string, with a fallback when
-    // the field is absent so a minimal request stays valid.
-    private static bool TryParseLanguage(string? text, out Language language)
+    // The unit id parse: the open vocabulary's in-tree members, with a
+    // fallback when the field is absent so a minimal request stays valid (the
+    // Rust reference unit). An external unit's id arrives here the moment its
+    // package is listed -- no code change, which is the whole point of the
+    // open vocabulary (ADR-021).
+    private static bool TryParseUnit(string? text, out string unit)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
-            language = Language.Rust; // the in-tree reference unit is Rust (Sec 12.2).
+            unit = BuildUnitIds.Rust;
             return true;
         }
-        return Enum.TryParse(text, ignoreCase: true, out language);
+        var trimmed = text.Trim();
+        if (string.Equals(trimmed, BuildUnitIds.Rust, StringComparison.OrdinalIgnoreCase))
+        {
+            unit = BuildUnitIds.Rust;
+            return true;
+        }
+        if (string.Equals(trimmed, BuildUnitIds.Go, StringComparison.OrdinalIgnoreCase))
+        {
+            unit = BuildUnitIds.Go;
+            return true;
+        }
+        unit = BuildUnitIds.Rust;
+        return false;
     }
+
+    // The extension names a build selects: blanks dropped so a trailing
+    // comma is not a 400; the catalog is the judge of every name that
+    // survives (targeting, guards), never the parser.
+    static List<string>? CleanExtensions(Endpoints.PayloadEndpoints.BuildPayloadRequest body)
+        => body.Extensions?.Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim()).ToList();
 
     private static bool TryParseClass(string? text, out ImplantClass @class)
     {

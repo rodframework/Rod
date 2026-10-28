@@ -5,6 +5,7 @@ using Google.Protobuf;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Rod.BuildPipeline.PayloadBuild;
 using Rod.CoreState;
 using Rod.CoreState.Implants;
 using Rod.CoreState.Engagements;
@@ -282,7 +283,7 @@ public sealed class WireGuardContactTests
         var ca = new Rod.CoreState.Pki.DevCertificateAuthority();
         var payloads = new Rod.Audit.InMemoryPayloadStore();
         var request = new PayloadEndpoints.BuildPayloadRequest(
-            Language: "rust", Class: null, TargetOs: null, TargetArch: null,
+            Unit: "rod-rust", Class: null, TargetOs: null, TargetArch: null,
             ListenerId: listener.Id.ToString(), Mode: "poll");
 
         var (parsed, error) = await PayloadBuildRequestParser.ParseAsync(
@@ -300,12 +301,12 @@ public sealed class WireGuardContactTests
         // A non-Rust build is refused: the carriage ships in the reference
         // implant, and another language's artifact would bake a dial it
         // cannot serve.
-        var (go, goError) = await PayloadBuildRequestParser.ParseAsync(
-            request with { Language = "go" }, engagement, Rod.CoreState.OperatorId.New(),
+        var (goUnit, goError) = await PayloadBuildRequestParser.ParseAsync(
+            request with { Unit = BuildUnitIds.Go }, engagement, Rod.CoreState.OperatorId.New(),
             registry, ca!, payloads, CancellationToken.None, options, tunnels);
         Assert.NotNull(goError);
-        Assert.Contains("rust", goError, StringComparison.OrdinalIgnoreCase);
-        Assert.Null(go);
+        Assert.Contains("rod-rust", goError, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(goUnit);
 
         // The carrier is one-answer-one-poll: a stream-mode bake is refused
         // with the fix, the DNS family's own rule.

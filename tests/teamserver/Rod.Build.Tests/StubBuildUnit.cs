@@ -26,7 +26,7 @@ public sealed class StubBuildUnit : IBuildUnit
     private static readonly byte[] Marker =
         Encoding.UTF8.GetBytes("\n---ROD-STUB-BUILD-MARKER-NOT-EXECUTABLE---\n");
 
-    public Language Language => Language.Go;
+    public string UnitId => "stub-go";
 
     public Task<BuildArtifact> BuildAsync(BuildParams @params, CancellationToken cancellationToken = default)
     {
@@ -35,7 +35,7 @@ public sealed class StubBuildUnit : IBuildUnit
         var content = Concat(manifest, Marker);
 
         var artifact = BuildArtifact.Of(
-            Language,
+            UnitId,
             artifactId: Guid.NewGuid(),
             @params,
             content,

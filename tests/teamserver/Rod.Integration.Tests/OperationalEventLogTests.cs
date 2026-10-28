@@ -101,7 +101,7 @@ public class OperationalEventLogTests
         var build = await env.Http.PostAsJsonAsync(
             $"/engagements/{engagementId}/payloads",
             new PayloadEndpoints.BuildPayloadRequest(
-                Language: null,
+                Unit: null,
                 Class: null,
                 TargetOs: "linux",
                 TargetArch: "amd64",

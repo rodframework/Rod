@@ -143,7 +143,7 @@ public class CarrierGateEndpointTests
             PayloadId: Guid.NewGuid(),
             EngagementId: Guid.Parse(engagementId),
             Class: "Implant",
-            Language: "dotnet",
+            UnitId: "rod-dotnet",
             ContentType: "application/octet-stream",
             Fingerprint: "sha256:" + new string('a', 64),
             Content: Array.Empty<byte>(),

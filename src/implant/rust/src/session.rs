@@ -151,16 +151,23 @@ impl Session {
     ) -> Session {
         // The advertisement is the baked class verbs intersected with this
         // build's compiled handlers: the server only dispatches what this
-        // binary can run (architecture.md Sec 5.3). A poll bake carrying a
-        // channel verb also opts into the degraded channel discipline: the
-        // wire-contract capability that parks operator input server-side and
-        // drains it onto this implant's poll contacts. A stream bake must
-        // NOT opt in -- the input route prefers the park whenever it sees
-        // the advertisement, and a long-lived stream never drains one, so
-        // its input rides the live sink instead.
+        // binary can run (architecture.md Sec 5.3). A compiled-in extension
+        // registers its verbs beside the core set (ADR-022) -- the build unit
+        // generated its table from the same request that baked the profile,
+        // so a verb the bake carries and the table answers is this
+        // artifact's own. A poll bake carrying a channel verb also opts into
+        // the degraded channel discipline: the wire-contract capability that
+        // parks operator input server-side and drains it onto this implant's
+        // poll contacts. A stream bake must NOT opt in -- the input route
+        // prefers the park whenever it sees the advertisement, and a
+        // long-lived stream never drains one, so its input rides the live
+        // sink instead.
         let mut advertised = baked_verbs
             .iter()
-            .filter(|verb| handlers::COMPILED_VERBS.contains(&verb.as_str()))
+            .filter(|verb| {
+                handlers::COMPILED_VERBS.contains(&verb.as_str())
+                    || crate::extensions::EXTENSION_VERBS.contains(&verb.as_str())
+            })
             .cloned()
             .collect::<Vec<_>>();
         if poll_carriage && advertised.iter().any(|verb| channel::is_channel_verb(verb)) {

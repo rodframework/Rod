@@ -36,7 +36,7 @@ public class PayloadTransformTests
     private static BuildRequest Request() => new(
         EngagementId.New(),
         OperatorId.New(),
-        Language.Go,
+        "stub-go",
         ImplantClass.Implant,
         new TargetProfile("linux", "amd64"),
         new TransportProfile("http://c2.example.test/implants/enroll", "/beacon"),

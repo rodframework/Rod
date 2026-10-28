@@ -171,7 +171,7 @@ public class GoImplantEndToEndTests
         var built = await env.Http.PostAsJsonAsync(
             $"/engagements/{env.EngagementId}/payloads",
             new PayloadEndpoints.BuildPayloadRequest(
-                Language: "go",
+                Unit: "rod-go",
                 Class: "Implant",
                 TargetOs: TestCell.Os,
                 TargetArch: TestCell.Arch,

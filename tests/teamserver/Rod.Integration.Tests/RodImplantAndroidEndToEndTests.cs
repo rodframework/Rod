@@ -127,7 +127,7 @@ public class RodImplantAndroidEndToEndTests
         var built = await env.Http.PostAsJsonAsync(
             $"/engagements/{env.EngagementId}/payloads",
             new PayloadEndpoints.BuildPayloadRequest(
-                Language: "rust",
+                Unit: "rod-rust",
                 Class: "Implant",
                 TargetOs: "android",
                 TargetArch: "amd64",

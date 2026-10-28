@@ -19,7 +19,7 @@ public class FilePayloadStoreTests
             PayloadId: Guid.NewGuid(),
             EngagementId: engagement,
             Class: "Implant",
-            Language: "DotNet",
+            UnitId: "DotNet",
             ContentType: "application/octet-stream",
             Fingerprint: new string('a', 64),
             Content: Enumerable.Range(0, 64).Select(i => (byte)(seed + i)).ToArray(),

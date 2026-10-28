@@ -135,35 +135,30 @@ public static class InitCommand
                 }
             case ModuleEntryKind.Extension:
                 {
-                    // The extension half (ADR-022): an implant-native crate the
-                    // targeted build unit compiles into the implant -- full
-                    // implant internals, per-build selection. The scaffold is
-                    // the crate the rod-rust overlay merges.
+                    // The extension half (ADR-022): implant-native sources the
+                    // targeted build unit compiles into the implant itself --
+                    // the implant's own types behind crate:: paths, per-build
+                    // selection. The scaffold is the source module the
+                    // rod-rust overlay merges.
                     var source = Path.Combine(directory, "src");
                     Directory.CreateDirectory(source);
                     File.WriteAllText(Path.Combine(source, "lib.rs"), $$"""
-                    //! The extension half of {{name}}: an implant-native crate the
-                    //! targeted build unit compiles into the implant (ADR-022).
-                    //! Unlike a portable plugin this code links the implant's own
-                    //! internals -- the overlay contract the target unit documents
-                    //! is the API surface it may touch.
+                    //! The extension half of {{name}}: implant-native sources the
+                    //! targeted build unit compiles into the implant itself
+                    //! (ADR-022). Unlike a portable plugin this code runs inside
+                    //! the implant crate -- its types sit behind crate:: paths --
+                    //! which is the tier's whole reach.
                     //!
-                    //! Replace this stub with the crate the unit's extension
-                    //! contract describes; the manifest's [[compatibility.targets]]
-                    //! rows name the build unit (and its version floor) this
-                    //! compiles into.
-                    """);
-                    File.WriteAllText(Path.Combine(directory, "Cargo.toml"), $$"""
-                    # The crate the targeted build unit's overlay merges (ADR-022).
-                    # The unit's extension contract pins the name and the shape it
-                    # expects; this scaffold only reserves the layout.
-                    [package]
-                    name = "rod-ext-{{name}}"
-                    version = "0.1.0"
-                    edition = "2021"
-
-                    [lib]
-                    crate-type = ["rlib"]
+                    //! The contract the rod-rust overlay expects: one exposed
+                    //! function the generated registry calls, answering the verbs
+                    //! the manifest's [[verbs]] rows register. Replace this stub
+                    //! with the extension's real work.
+                    //!
+                    //! use crate::handlers::{{"{"}}HandlerOutput, Outcome{{"}"}};
+                    //!
+                    //! pub fn rod_extension(verb: &str, arguments: &str) -> HandlerOutput {{"{"}}
+                    //!     todo!("{{name}}: {verb} {arguments}")
+                    //! {{"}"}}
                     """);
                     break;
                 }

@@ -89,10 +89,10 @@ public class ProfileFileTests
         {
             Assert.True(
                 artifact.Content.AsSpan().IndexOf(document) >= 0,
-                $"the {artifact.Language} artifact embeds the profile file verbatim");
+                $"the {artifact.UnitId} artifact embeds the profile file verbatim");
             Assert.True(
                 artifact.Content.AsSpan().IndexOf(ua) >= 0,
-                $"the {artifact.Language} artifact carries the baked presentation marker");
+                $"the {artifact.UnitId} artifact carries the baked presentation marker");
         }
     }
 

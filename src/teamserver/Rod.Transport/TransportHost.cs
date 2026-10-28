@@ -509,7 +509,32 @@ public static class TransportHost
             throw new InvalidOperationException(
                 $"The configured go source directory '{goSourceDirectory}' does not exist.");
         buildUnits.Register(new Rod.BuildPipeline.PayloadBuild.GoBuildUnit(goSourceDirectory));
+        // The external build units (ADR-021): config-listed build-unit
+        // packages, each carrying the [unit] table the pipeline spawns. A
+        // missing section keeps the in-tree pair alone; anything listed but
+        // broken fails startup loudly, the same posture the source
+        // directories hold above.
+        var externalUnits = configuration?.GetSection(
+                Rod.BuildPipeline.PayloadBuild.ExternalBuildUnit.ExternalUnitsSectionKey)
+            .Get<string[]?>() ?? Array.Empty<string?>();
+        foreach (var entry in externalUnits)
+        {
+            if (string.IsNullOrWhiteSpace(entry))
+                throw new InvalidOperationException(
+                    "An entry in 'Build:ExternalUnits' is empty; each entry must be a build-unit package directory.");
+            buildUnits.Register(
+                Rod.BuildPipeline.PayloadBuild.ExternalBuildUnit.Load(entry.Trim()));
+        }
         services.AddSingleton<IBuildUnitRegistry>(buildUnits);
+        // The installed-extension catalog (ADR-022): the config-listed
+        // packages a build request's extension names resolve against. An
+        // empty or missing section is the empty catalog -- no request may
+        // name an extension until its package is listed.
+        var extensionDirs = configuration?.GetSection(
+                Rod.BuildPipeline.PayloadBuild.ExtensionCatalog.ExtensionsSectionKey)
+            .Get<string[]?>() ?? Array.Empty<string?>();
+        services.AddSingleton(
+            Rod.BuildPipeline.PayloadBuild.ExtensionCatalog.Load(extensionDirs.Where(d => !string.IsNullOrWhiteSpace(d))!));
         // The post-build transform chain (architecture.md Sec 6, the transform
         // seam): config-listed out-of-tree transforms under Build:Transforms,
         // the same explicit-list loading shape as Capabilities:Modules. A
@@ -528,7 +553,8 @@ public static class TransportHost
             sp.GetRequiredService<IBuildUnitRegistry>(),
             sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<PayloadTransformChain>(),
-            sp.GetRequiredService<Rod.BuildPipeline.PayloadBuild.BuildDiagnostics>()));
+            sp.GetRequiredService<Rod.BuildPipeline.PayloadBuild.BuildDiagnostics>(),
+            sp.GetRequiredService<Rod.BuildPipeline.PayloadBuild.ExtensionCatalog>()));
         // Background payload builds: the same build pipeline behind a job queue,
         // so a toolchain build neither holds a request open nor dies with a
         // browser refresh. Registered as the hosted service too so the worker

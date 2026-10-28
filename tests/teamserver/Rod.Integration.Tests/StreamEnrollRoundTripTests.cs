@@ -99,7 +99,7 @@ public class StreamEnrollRoundTripTests
     static Rod.Transport.Endpoints.PayloadEndpoints.BuildPayloadRequest EnrollRequest(
         string listenerId, string? mode = null)
         => new(
-            Language: null,
+            Unit: null,
             Class: null,
             TargetOs: null,
             TargetArch: null,

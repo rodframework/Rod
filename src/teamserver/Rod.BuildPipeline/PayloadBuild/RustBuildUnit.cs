@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Runtime.InteropServices;
 using Rod.CoreState.Implants;
 
@@ -91,7 +92,7 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
     private readonly string _cargoBinary;
     private readonly string? _sharedTargetDir;
 
-    public Language Language => Language.Rust;
+    public string UnitId => BuildUnitIds.Rust;
 
     public RustBuildUnit(
         string? rustSourceDir = null,
@@ -212,7 +213,7 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
 
         var unavailable = sourceMissing || proto is null || !cargo.Found;
         var status = unavailable ? "unavailable" : anyTargetMissing ? "partial" : "ready";
-        return new BuildUnitEnvironmentReport(Language.ToString(), status, findings, targets);
+        return new BuildUnitEnvironmentReport(UnitId, status, findings, targets);
     }
 
     // The proto tree's location, without the build's copying: the same
@@ -322,6 +323,13 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
         if (!Directory.Exists(_rustSourceDir))
             throw new BuildUnitFailureException($"Rust implant source tree not found at '{_rustSourceDir}'.");
 
+        // The loader tier is a no_std fetch stub and compiles nothing in;
+        // the gate stands before any staging so the refusal is the cheap
+        // one, not a cargo error.
+        if (@params.Kind == PayloadKind.Loader && @params.Extensions is { Count: > 0 })
+            throw new InvalidOperationException(
+                "The loader tier is a no_std fetch stub and compiles no extensions in; build the implant tier for extension selection.");
+
         var triple = MapTriple(@params.Target);
 
         // The format axis over the target: an android target deploys
@@ -372,10 +380,21 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
             if (@params.Kind == PayloadKind.Loader)
                 return await BuildLoaderAsync(@params, triple, stagingDir, targetDir, cancellationToken);
 
+            // The compiled-in extension overlays (ADR-022): each extension
+            // crate stages under modules_ext/<name>/ beside the implant's
+            // own module crates (same relative layout it was authored
+            // against, so its path dependencies resolve), the implant's
+            // staged Cargo.toml gains the dependency, and the generated
+            // src/extensions.rs registers the crate's verbs. The loader tier
+            // is a no_std fetch stub and compiles nothing in.
+            var extensionVerbs = StageExtensions(@params, stagingDir);
+
             // The bake: the profile file staged into the crate root, the one
             // language-neutral write every unit performs -- the crate's
-            // src/baked.rs embeds it verbatim via include_str!.
-            ProfileBake.WriteFile(@params, stagingDir);
+            // src/baked.rs embeds it verbatim via include_str!. The
+            // extensions' verbs ride the bake so the artifact advertises
+            // what it carries.
+            ProfileBake.WriteFile(@params, stagingDir, extensionVerbs);
 
             // The android branch: the carrier crate beside the implant (the
             // loader's sibling) is the cdylib the package's
@@ -467,7 +486,7 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
 
             var content = await File.ReadAllBytesAsync(binaryPath, cancellationToken);
             return BuildArtifact.Of(
-                Language,
+                UnitId,
                 artifactId: Guid.NewGuid(),
                 @params,
                 content,
@@ -592,7 +611,7 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
 
         var content = await File.ReadAllBytesAsync(binaryPath, cancellationToken);
         return BuildArtifact.Of(
-            Language,
+            UnitId,
             artifactId,
             @params,
             content,
@@ -673,7 +692,7 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
         {
             var so = await File.ReadAllBytesAsync(soPath, cancellationToken);
             return BuildArtifact.Of(
-                Language,
+                UnitId,
                 Guid.NewGuid(),
                 @params,
                 so,
@@ -779,7 +798,7 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
 
             var apk = await File.ReadAllBytesAsync(signed, cancellationToken);
             return BuildArtifact.Of(
-                Language,
+                UnitId,
                 Guid.NewGuid(),
                 @params,
                 apk,
@@ -1142,6 +1161,118 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
     // Recursively copies the crate, skipping target/ (cargo's build output)
     // so a stale build never leaks in. Cargo.lock rides along: the lock pins
     // the dependency set, keeping per-build compiles reproducible.
+    /// <summary>
+    /// Stages the build's compiled-in extensions into the staged tree and
+    /// regenerates the extension registry the implant dispatches through
+    /// (ADR-022). The overlay is a source merge, not a crate dependency:
+    /// an extension's sources compile as modules inside the implant crate
+    /// itself (under src/extensions_impl/&lt;name&gt;/), which is what gives
+    /// the tier its reach -- the implant's own types sit behind plain
+    /// <c>crate::</c> paths -- and what keeps the dependency graph acyclic:
+    /// the implant never depends back on the extension. Answers the verbs
+    /// the overlays register, in request order -- the bake carries them so
+    /// the artifact advertises what it compiled in.
+    /// </summary>
+    private static IReadOnlyList<string> StageExtensions(BuildParams @params, string stagingDir)
+    {
+        if (@params.Extensions is not { Count: > 0 })
+            return Array.Empty<string>();
+
+        var verbs = new List<string>();
+        var entries = new List<(string Module, string Verb)>();
+        var modules = new StringBuilder();
+        var table = new StringBuilder();
+        foreach (var extension in @params.Extensions)
+        {
+            // The crate's src/ tree lands inside the implant's own module
+            // tree: lib.rs becomes the module's root (mod.rs) and any
+            // sibling submodules ride along verbatim -- an extension with
+            // private modules keeps them, because the whole directory
+            // moves.
+            var module = extension.Name.Replace('-', '_');
+            var destination = Path.Combine(stagingDir, "src", "extensions", "extensions_impl", module);
+            CopyTree(Path.Combine(extension.Directory, "src"), destination);
+            if (File.Exists(Path.Combine(destination, "lib.rs")))
+                File.Move(
+                    Path.Combine(destination, "lib.rs"),
+                    Path.Combine(destination, "mod.rs"));
+
+            modules.Append("    pub mod ").Append(module).AppendLine(";");
+            foreach (var verb in extension.Verbs)
+            {
+                verbs.Add(verb);
+                entries.Add((module, verb));
+            }
+        }
+
+        foreach (var (module, verb) in entries)
+            table.Append("        \"").Append(verb).Append("\" => Some(extensions_impl::")
+                .Append(module).Append("::rod_extension(\"")
+                .Append(verb).Append("\", arguments)),\n");
+
+        // The module tree: extensions.rs is a file module, so its child
+        // declarations resolve under src/extensions/ -- the declaration file
+        // beside the copied module directories, the layout rustc maps a
+        // file module's tree onto.
+        File.WriteAllText(
+            Path.Combine(stagingDir, "src", "extensions", "extensions_impl.rs"),
+            "// Generated by the rod-rust build unit (ADR-022); the next build regenerates it.\n"
+                + modules.ToString());
+
+        var registry = """
+            // Generated by the rod-rust build unit from the build request's extension
+            // list (ADR-022): each entry compiles a package's sources into this
+            // crate as a module under extensions_impl/ -- the implant-native tier,
+            // with the implant's own internals behind crate:: paths. Do not edit;
+            // the next build regenerates it.
+
+            use crate::handlers::HandlerOutput;
+
+            mod extensions_impl;
+
+            pub const EXTENSION_VERBS: &[&str] = &[
+            """ + string.Join(",\n", verbs.Select(v => $"    \"{v}\"")) + """
+            ];
+
+            pub fn dispatch(verb: &str, arguments: &str) -> Option<HandlerOutput> {
+                match verb {
+            """ + table.ToString() + """
+                _ => None,
+                }
+            }
+            """;
+        File.WriteAllText(Path.Combine(stagingDir, "src", "extensions.rs"), registry);
+        return verbs;
+    }
+
+    // The extension crate's [package] name: the identifier the generated
+    // registry and the dependency line both use.
+    private static string CrateName(string cargoToml, string fallbackName)
+    {
+        if (File.Exists(cargoToml))
+        {
+            var inPackage = false;
+            foreach (var line in File.ReadAllLines(cargoToml))
+            {
+                var trimmed = line.Trim();
+                if (trimmed.StartsWith('['))
+                {
+                    inPackage = trimmed == "[package]";
+                    continue;
+                }
+                if (inPackage && trimmed.StartsWith("name", StringComparison.Ordinal)
+                    && trimmed.Split('=', 2) is { Length: 2 } pair)
+                {
+                    var name = pair[1].Trim().Trim('"');
+                    if (name.Length > 0)
+                        return name;
+                }
+            }
+        }
+        throw new BuildUnitFailureException(
+            $"Extension '{fallbackName}' carries no readable [package] name in its Cargo.toml; the overlay cannot wire its crate.");
+    }
+
     private static void CopyTree(string source, string destination)
     {
         Directory.CreateDirectory(destination);

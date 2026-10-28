@@ -97,7 +97,7 @@ public class GoBuildUnitTests
         var artifact = await unit.BuildAsync(Params());
 
         Assert.True(artifact.Size > 0);
-        Assert.Equal(Language.Go, artifact.Language);
+        Assert.Equal(BuildUnitIds.Go, artifact.UnitId);
         Assert.Equal("application/octet-stream", artifact.ContentType);
     }
 }

@@ -286,7 +286,7 @@ public class RustImplantEndToEndTests
         var built = await env.Http.PostAsJsonAsync(
             $"/engagements/{env.EngagementId}/payloads",
             new PayloadEndpoints.BuildPayloadRequest(
-                Language: "rust",
+                Unit: "rod-rust",
                 Class: "Implant",
                 TargetOs: TestCell.Os,
                 TargetArch: TestCell.Arch,
@@ -580,7 +580,7 @@ public class RustImplantEndToEndTests
         var built = await env.Http.PostAsJsonAsync(
             $"/engagements/{env.EngagementId}/payloads",
             new PayloadEndpoints.BuildPayloadRequest(
-                Language: "rust",
+                Unit: "rod-rust",
                 Class: "Implant",
                 TargetOs: TestCell.Os,
                 TargetArch: TestCell.Arch,
@@ -864,7 +864,7 @@ public class RustImplantEndToEndTests
             var built = await env.Http.PostAsJsonAsync(
                 $"/engagements/{env.EngagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: "rust",
+                    Unit: "rod-rust",
                     Class: "Implant",
                     TargetOs: TestCell.Os,
                     TargetArch: TestCell.Arch,

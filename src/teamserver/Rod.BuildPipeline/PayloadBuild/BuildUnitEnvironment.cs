@@ -28,7 +28,7 @@ public interface IBuildUnitEnvironment
 /// usable unit.
 /// </summary>
 public sealed record BuildUnitEnvironmentReport(
-    string Language,
+    string UnitId,
     string Status,
     IReadOnlyList<BuildEnvironmentFinding> Findings,
     IReadOnlyList<BuildTargetReadiness> Targets);

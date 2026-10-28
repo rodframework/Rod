@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Rod.Audit;
 using Rod.Transport.Endpoints;
 using static Rod.Integration.Tests.EngagementSetup;
+using Rod.BuildPipeline.PayloadBuild;
 
 namespace Rod.Integration.Tests;
 
@@ -59,7 +60,7 @@ public class PayloadBuildTests
             var response = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: "Rust",
+                    Unit: BuildUnitIds.Rust,
                     Class: "Implant",
                     TargetOs: "linux",
                     TargetArch: "amd64",
@@ -74,7 +75,7 @@ public class PayloadBuildTests
             Assert.NotNull(body);
             Assert.False(string.IsNullOrWhiteSpace(body!.ArtifactId));
             Assert.Equal("Implant", body.Class);
-            Assert.Equal("Rust", body.Language);
+            Assert.Equal("Rust", body.UnitId);
             Assert.False(string.IsNullOrWhiteSpace(body.ContentType));
             Assert.True(body.Size > 0);
             // SHA-256 lowercase hex, 64 chars.
@@ -102,7 +103,7 @@ public class PayloadBuildTests
             var garbage = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: "Rust",
+                    Unit: BuildUnitIds.Rust,
                     Class: "Implant",
                     TargetOs: "linux",
                     TargetArch: "amd64",
@@ -118,7 +119,7 @@ public class PayloadBuildTests
             var garbageFallback = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: "Rust",
+                    Unit: BuildUnitIds.Rust,
                     Class: "Implant",
                     TargetOs: "linux",
                     TargetArch: "amd64",
@@ -151,7 +152,7 @@ public class PayloadBuildTests
             var tcpFrontWithDnsFallback = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: "Rust",
+                    Unit: BuildUnitIds.Rust,
                     Class: "Implant",
                     TargetOs: "linux",
                     TargetArch: "amd64",
@@ -166,7 +167,7 @@ public class PayloadBuildTests
             var tcpFrontWithWebFallback = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: "Rust",
+                    Unit: BuildUnitIds.Rust,
                     Class: "Implant",
                     TargetOs: "linux",
                     TargetArch: "amd64",
@@ -181,7 +182,7 @@ public class PayloadBuildTests
             var dnsFrontWithWebFallback = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: "Rust",
+                    Unit: BuildUnitIds.Rust,
                     Class: "Implant",
                     TargetOs: "linux",
                     TargetArch: "amd64",
@@ -214,7 +215,7 @@ public class PayloadBuildTests
             var response = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: "Rust",
+                    Unit: BuildUnitIds.Rust,
                     Class: "Implant",
                     TargetOs: "linux",
                     TargetArch: "amd64",
@@ -347,7 +348,7 @@ public class PayloadBuildTests
             var response = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: "Rust",
+                    Unit: BuildUnitIds.Rust,
                     Class: "Implant",
                     TargetOs: "linux",
                     TargetArch: "amd64",
@@ -379,7 +380,7 @@ public class PayloadBuildTests
             var response = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: "Rust",
+                    Unit: BuildUnitIds.Rust,
                     Class: "Implant",
                     TargetOs: "linux",
                     TargetArch: "amd64",
@@ -452,7 +453,7 @@ public class PayloadBuildTests
         var response = await client.PostAsJsonAsync(
             $"/engagements/{engagementId}/payloads",
             new PayloadEndpoints.BuildPayloadRequest(
-                Language: "Rust",
+                Unit: BuildUnitIds.Rust,
                 Class: "Implant",
                 TargetOs: "linux",
                 TargetArch: "amd64",
@@ -480,7 +481,7 @@ public class PayloadBuildTests
             var response = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: "Rust",
+                    Unit: BuildUnitIds.Rust,
                     Class: "Implant",
                     TargetOs: "linux",
                     TargetArch: "amd64",
@@ -518,7 +519,7 @@ public class PayloadBuildTests
             var response = await client.PostAsJsonAsync(
                 "/engagements/not-a-guid/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: null,
+                    Unit: null,
                     Class: null,
                     TargetOs: null,
                     TargetArch: null,
@@ -545,7 +546,7 @@ public class PayloadBuildTests
             var response = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: "Zig", // not a registered build language
+                    Unit: "Zig", // not a registered build language
                     Class: null,
                     TargetOs: null,
                     TargetArch: null,
@@ -572,7 +573,7 @@ public class PayloadBuildTests
             var response = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: null,
+                    Unit: null,
                     Class: null,
                     TargetOs: null,
                     TargetArch: null,
@@ -603,7 +604,7 @@ public class PayloadBuildTests
             var response = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: null,
+                    Unit: null,
                     Class: "Browser",
                     TargetOs: null,
                     TargetArch: null,
@@ -632,7 +633,7 @@ public class PayloadBuildTests
             var response = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: null,
+                    Unit: null,
                     Class: "Stager",
                     TargetOs: null,
                     TargetArch: null,
@@ -661,7 +662,7 @@ public class PayloadBuildTests
             var response = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: null,
+                    Unit: null,
                     Class: null,
                     TargetOs: null,
                     TargetArch: null,

@@ -327,7 +327,7 @@ public class WebShellTests
         Assert.Equal(script.Script, Encoding.UTF8.GetString(stored!.Content));
         Assert.Equal(script.Fingerprint, stored.Fingerprint);
         Assert.Equal("WebShell", stored.Class);
-        Assert.Equal("php", stored.Language);
+        Assert.Equal("php", stored.UnitId);
 
         // Generation registered nothing: the endpoint roster stays empty.
         var roster = await env.Http.GetFromJsonAsync<WebShellDto[]>(

@@ -27,6 +27,7 @@ public sealed class PayloadBuildService
     private readonly TimeProvider _clock;
     private readonly PayloadTransformChain _transforms;
     private readonly BuildDiagnostics? _diagnostics;
+    private readonly ExtensionCatalog? _extensions;
 
     // The ceiling on builds in flight. The background job queue is serial by
     // design, but the synchronous endpoint runs whatever arrives: N
@@ -84,19 +85,36 @@ public sealed class PayloadBuildService
     }
 
     /// <summary>
+    /// The extension-aware constructor (ADR-022): the composition root passes
+    /// the config-loaded <see cref="ExtensionCatalog"/> beside the
+    /// diagnostics, so a request naming extensions resolves them against the
+    /// installed packages -- the targeting gate is the catalog's to hold.
+    /// </summary>
+    public PayloadBuildService(
+        IBuildUnitRegistry buildUnits,
+        TimeProvider clock,
+        PayloadTransformChain transforms,
+        BuildDiagnostics diagnostics,
+        ExtensionCatalog extensions)
+        : this(buildUnits, clock, transforms, diagnostics)
+    {
+        _extensions = extensions;
+    }
+
+    /// <summary>
     /// Builds a payload for the request's engagement and class. The kill date is
     /// resolved at request time, so two builds of the same request still never
     /// share an artifact (the baked profile and the compiler see to that).
     /// Throws <see cref="InvalidOperationException"/> when no build unit is
-    /// registered for the requested language.
+    /// registered for the requested unit id.
     /// </summary>
     public async Task<BuildArtifact> BuildAsync(
         BuildRequest request,
         CancellationToken cancellationToken = default)
     {
-        var unit = _buildUnits.Find(request.Language)
+        var unit = _buildUnits.Find(request.Unit)
             ?? throw new InvalidOperationException(
-                $"No build unit registered for language {request.Language}.");
+                $"No build unit registered for unit id '{request.Unit}'.");
 
         // One gate for both callers (the serial job queue and the synchronous
         // endpoint), so the host never runs an unbounded set of toolchains.
@@ -133,6 +151,18 @@ public sealed class PayloadBuildService
     {
         var now = _clock.GetUtcNow();
 
+        // The extension overlays (ADR-022): resolved against the installed
+        // catalog with the unit's own id -- the hard targeting gate -- before
+        // anything assembles or compiles. A request naming extensions with no
+        // catalog configured is refused, not silently trimmed.
+        IReadOnlyList<ExtensionOverlay> overlays = Array.Empty<ExtensionOverlay>();
+        if (request.Extensions is { Count: > 0 })
+        {
+            overlays = (_extensions ?? throw new InvalidOperationException(
+                    "This deployment lists no extensions under Build:Extensions; remove them from the request or list their packages."))
+                .Resolve(request.Extensions, unit.UnitId);
+        }
+
         var @params = new BuildParams(
             request.EngagementId,
             request.RequestedBy,
@@ -151,7 +181,8 @@ public sealed class PayloadBuildService
             request.DeliversPayloadId,
             request.WireGuardPrivateKey,
             request.WireGuardArtifactPublicKey,
-            request.WireGuardServerPublicKey);
+            request.WireGuardServerPublicKey,
+            overlays);
 
         var built = await unit.BuildAsync(@params, cancellationToken);
 
@@ -163,7 +194,7 @@ public sealed class PayloadBuildService
         if (applied.Count == 0)
             return built;
 
-        return BuildArtifact.Of(unit.Language, built.ArtifactId, @params, content, built.ContentType, built.BuiltAt)
+        return BuildArtifact.Of(unit.UnitId, built.ArtifactId, @params, content, built.ContentType, built.BuiltAt)
             with
         {
             Transforms = applied
@@ -184,8 +215,8 @@ public sealed class PayloadBuildService
 
 /// <summary>
 /// Request to build a payload. <see cref="EngagementId"/> scopes and
-/// <see cref="RequestedBy"/> attributes the build; <see cref="Language"/> routes
-/// to the build unit; <see cref="Class"/> is the implant class to generate.
+/// <see cref="RequestedBy"/> attributes the build; <see cref="Unit"/> routes
+/// to the build unit by its open id; <see cref="Class"/> is the implant class to generate.
 /// <see cref="TokenSecret"/> is the enrollment credential the build bakes in
 /// (the transport layer mints it and attaches it here); null leaves the
 /// artifact credential-free. <see cref="TokenMaxUses"/> rides beside it as the
@@ -207,7 +238,7 @@ public sealed class PayloadBuildService
 public sealed record BuildRequest(
     EngagementId EngagementId,
     OperatorId RequestedBy,
-    Language Language,
+    string Unit,
     ImplantClass Class,
     TargetProfile Target,
     TransportProfile Transport,
@@ -225,4 +256,5 @@ public sealed record BuildRequest(
     Guid? DeliversPayloadId = null,
     byte[]? WireGuardPrivateKey = null,
     byte[]? WireGuardArtifactPublicKey = null,
-    byte[]? WireGuardServerPublicKey = null);
+    byte[]? WireGuardServerPublicKey = null,
+    IReadOnlyList<string>? Extensions = null);

@@ -43,7 +43,7 @@ public sealed class GoBuildUnit : IBuildUnit, IBuildUnitEnvironment
     private readonly string _goSourceDir;
     private readonly string _goBinary;
 
-    public Language Language => Language.Go;
+    public string UnitId => BuildUnitIds.Go;
 
     public GoBuildUnit(string? goSourceDir = null, string? goBinary = null)
     {
@@ -82,7 +82,7 @@ public sealed class GoBuildUnit : IBuildUnit, IBuildUnitEnvironment
                 $"'{_goBinary}' was not found on PATH -- every Go build fails until a Go toolchain is installed"));
 
         var status = !Directory.Exists(_goSourceDir) || !vendor || !go.Found ? "unavailable" : "ready";
-        return new BuildUnitEnvironmentReport(Language.ToString(), status, findings, Array.Empty<BuildTargetReadiness>());
+        return new BuildUnitEnvironmentReport(UnitId, status, findings, Array.Empty<BuildTargetReadiness>());
     }
 
     public async Task<BuildArtifact> BuildAsync(BuildParams @params, CancellationToken cancellationToken = default)
@@ -162,7 +162,7 @@ public sealed class GoBuildUnit : IBuildUnit, IBuildUnitEnvironment
 
             var content = await File.ReadAllBytesAsync(binaryPath, cancellationToken);
             return BuildArtifact.Of(
-                Language,
+                UnitId,
                 artifactId: Guid.NewGuid(),
                 @params,
                 content,

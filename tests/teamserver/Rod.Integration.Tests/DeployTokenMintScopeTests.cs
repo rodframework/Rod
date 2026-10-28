@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Rod.Audit;
 using Rod.Transport.Endpoints;
 using static Rod.Integration.Tests.EngagementSetup;
+using Rod.BuildPipeline.PayloadBuild;
 
 namespace Rod.Integration.Tests;
 
@@ -86,7 +87,7 @@ public class DeployTokenMintScopeTests
             var built = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Language: "Rust", Class: "Implant", TargetOs: "linux", TargetArch: "amd64",
+                    Unit: BuildUnitIds.Rust, Class: "Implant", TargetOs: "linux", TargetArch: "amd64",
                     ListenerId: frontId, UriPath: "/beacon",
                     SleepSeconds: 30, JitterSeconds: 10, KillDate: null));
             built.EnsureSuccessStatusCode();
