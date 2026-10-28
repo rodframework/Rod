@@ -7,7 +7,7 @@ edition = "2021"
 # record, covering what a managed runtime cannot -- 32-bit ARM musl IoT
 # Linux, static musl, small-footprint servers -- at a native binary's size.
 # Coupled to the teamserver only by the wire protocol (rod.proto) and the
-# baked profile format, both language-neutral contracts.
+# baked profile file, both language-neutral contracts.
 #
 # Like the retired .NET tree, this project is an EXTERNAL component: it is
 # not part of Rod.slnx. The Rust build unit compiles it per build request.

@@ -31,22 +31,6 @@ promotes it ahead of the standing order.
 
 ## Active
 
-Polyglot on-ramps first (serves architecture.md Sec 15.2, ADR-018 -- the
-designed last mile for any-language implants and plugins; ADR-017's CLI
-half -- the `requires` rows and the conformance report -- and its
-runtime half -- the issuance gate and the UI's loadable-set filter --
-shipped; the manifest-declared descriptor shipped too, and the in-tree
-thirteen server modules migrated onto it, their .NET halves deleted; the
-standalone conformance runner shipped as `rod conform <candidate>`, the
-same rig and report the in-tree acceptance runs; the linkable core
-shipped as the crate's `rod_core_*` C-ABI family, with the worked C
-shell passing the harness's every clause):
-
-- **Presentation profile file**: the baked profile's presentation keys
-  (URI shapes, User-Agent, headers, envelope shape) as a standalone file
-  contract any build unit consumes. _AC:_ one profile file drives both
-  in-tree build units' bakes with no unit-specific parsing.
-
 The module layer's standing line: capability modules advancing the
 ATT&CK coverage matrix (architecture.md Sec 15.1, Sec 5.4), in family
 batches ordered by matrix gap.

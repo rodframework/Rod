@@ -262,6 +262,8 @@ fn profile_from_abi(raw: &RodCoreProfile) -> Profile {
             mode => mode.to_string(),
         },
         enroll_path: "/implants/enroll".into(),
+        user_agent: String::new(),
+        headers: Vec::new(),
         request_timeout_seconds: 30.0,
         envelope: "none".into(),
         contact_envelope: if envelope_key.is_empty() {

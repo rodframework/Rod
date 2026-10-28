@@ -31,9 +31,13 @@ const (
 
 // Envelope is the HTTP poll carriage.
 type Envelope struct {
-	URL       string
-	Client    *http.Client
+	URL    string
+	Client *http.Client
+	// The User-Agent and headers the bake carries: an empty User-Agent
+	// strips the header entirely, and a headers entry wins any same-named
+	// set on the request -- the same precedence the enroll leg applies.
 	UserAgent string
+	Headers   map[string]string
 }
 
 // BeaconURL derives the fixed envelope route off an enroll URL's scheme
@@ -75,6 +79,9 @@ func (e *Envelope) Attempt(s *session.Session) (Attempt, error) {
 	// An empty baked User-Agent strips the header entirely -- the default
 	// Go user string is a fingerprint no baked profile asked for.
 	request.Header.Set("User-Agent", e.UserAgent)
+	for name, value := range e.Headers {
+		request.Header.Set(name, value)
+	}
 	response, err := e.Client.Do(request)
 	if err != nil {
 		return Dropped, err

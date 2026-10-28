@@ -332,6 +332,8 @@ mod tests {
             jitter_seconds: 10.0,
             mode: "poll".into(),
             enroll_path: "/implants/enroll".into(),
+            user_agent: String::new(),
+            headers: Vec::new(),
             request_timeout_seconds: 30.0,
             envelope: "none".into(),
             contact_envelope: contact_envelope.into(),

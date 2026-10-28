@@ -109,11 +109,12 @@ pub fn enroll(url: &str, profile: &Profile, keys: &KeyPair) -> Result<Enrollment
     };
 
     let agent = transport::build_agent(url, profile, profile.request_timeout_seconds);
-    let response = agent
-        .post(url)
-        .set("Content-Type", "application/json")
-        .send_string(&payload)
-        .map_err(|e| format!("enroll transport: {e}"))?;
+    let response = transport::apply_headers(
+        agent.post(url).set("Content-Type", "application/json"),
+        profile,
+    )
+    .send_string(&payload)
+    .map_err(|e| format!("enroll transport: {e}"))?;
     let status = response.status();
     let text = response
         .into_string()

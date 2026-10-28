@@ -1,7 +1,6 @@
 package profile
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"testing"
 	"time"
@@ -13,7 +12,7 @@ func bake(t *testing.T, m map[string]any) string {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(raw)
+	return string(raw)
 }
 
 func TestDecodeReadsTheContractKeys(t *testing.T) {
@@ -25,6 +24,8 @@ func TestDecodeReadsTheContractKeys(t *testing.T) {
 		"sleep":              "45s",
 		"jitter":             "5s",
 		"enrollPath":         "/enroll",
+		"userAgent":          "Mozilla/5.0 (rod)",
+		"headers":            map[string]string{"X-Cover": "v"},
 		"requestTimeout":     "20s",
 		"envelope":           "aesgcm",
 		"contactEnvelope":    "aesgcm",
@@ -50,6 +51,12 @@ func TestDecodeReadsTheContractKeys(t *testing.T) {
 	}
 	if len(p.FallbackEnrollURLs) != 1 {
 		t.Fatalf("fallback walk decoded wrong: %v", p.FallbackEnrollURLs)
+	}
+	if p.UserAgent != "Mozilla/5.0 (rod)" {
+		t.Fatalf("user agent decoded wrong: %q", p.UserAgent)
+	}
+	if len(p.Headers) != 1 || p.Headers["X-Cover"] != "v" {
+		t.Fatalf("presentation headers decoded wrong: %v", p.Headers)
 	}
 }
 

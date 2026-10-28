@@ -849,8 +849,10 @@ recorded.**
   drives cargo for the reference implant (Sec 12.2); `GoBuildUnit` drives
   the Go toolchain for the community-slot reference under
   `src/implant/go/` -- the same uniform build contract, the same baked
-  base64url profile (overwritten into the staging copy's `baked.go`),
-  vendored dependencies so a payload build never touches the network. The
+  profile file (`rod.profile.json` staged into the copy's root, embedded
+  by the tree's own `include_str!`/`go:embed` -- no unit-specific bake
+  code anywhere), vendored dependencies so a payload build never touches
+  the network. The
   teamserver drives each unit through the **uniform build contract** and is
   coupled to it only by that contract, so a community build unit in Go,
   C/C++, or Nim can register and compile against the same contract with no
@@ -2794,7 +2796,7 @@ family stays compiled-but-dormant on that leg: bionic below API 30
 carries no memfd_create to link and the app SELinux domain denies
 anonymous-fd exec, so the seam refuses rather than linking an artifact
 that cannot open. The wire protocol is the language-neutral product
-(rod.proto, the baked profile's base64url JSON, the sealed envelope); the
+(rod.proto, the baked profile file, the sealed envelope); the
 Rust implant is proven against it by the conformance harness (its
 reference candidate) and the end-to-end legs (dev-shape and
 pipeline-built, both contact modes; the android carrier rides the
@@ -3239,7 +3241,13 @@ the rig lifted into a shipped harness under `src/conformance/dotnet/`
 whose report and clause set are the in-tree rig's own, while the CLI
 keeps its zero-in-house-reference line). The baked profile's
 presentation keys travel as a standalone profile file any build unit
-consumes. (The manifest-declared descriptor this paragraph once carried
+consumes (shipped: `rod.profile.json`, the bake as a plain compact JSON
+document staged into the unit's tree -- one shared write both in-tree
+units perform verbatim, embedded by each tree's own compile-time
+mechanism, so an out-of-tree unit consumes the documented file without
+any teamserver code; the profile keys it carries are specified in
+[extending/implants.md](extending/implants.md)). (The
+manifest-declared descriptor this paragraph once carried
 shipped: the verb rows' descriptor half and the
 `Capabilities:DescriptorModules` loading path, with the in-tree set
 migrated onto it -- the server-side twin of the C-ABI seam's language

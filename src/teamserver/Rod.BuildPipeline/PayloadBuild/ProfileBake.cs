@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using Rod.CoreState;
 using Rod.CoreState.Implants;
@@ -7,9 +6,11 @@ namespace Rod.BuildPipeline.PayloadBuild;
 
 /// <summary>
 /// Renders the baked profile: the language-neutral wire contract every build
-/// unit emits, whatever language it compiles. The shape is a compact JSON
-/// map, base64-url-encoded without padding so it is safe to embed verbatim
-/// in a generated source file (a .NET string literal or a Rust one alike).
+/// unit emits, whatever language it compiles. The bake is a file contract --
+/// <see cref="FileName"/>, a plain compact JSON document every unit stages
+/// into its tree verbatim and every implant embeds at compile time
+/// (architecture.md Sec 5.1, Sec 15.2), so no unit parses, re-renders, or
+/// otherwise transforms it per language.
 ///
 /// The key set is what an implant consumes: the egress endpoints and their
 /// malleable knobs, the beacon cadence and fuse, the envelope settings, the
@@ -20,6 +21,15 @@ namespace Rod.BuildPipeline.PayloadBuild;
 /// </summary>
 public static class ProfileBake
 {
+    /// <summary>
+    /// The profile file's name in an implant tree. The same name in every
+    /// tree: the unit overwrites the checked-in (empty) stub in its staging
+    /// copy through <see cref="WriteFile"/>, and the tree's own embed
+    /// mechanism -- <c>include_str!</c>, <c>go:embed</c>, or a community
+    /// unit's equivalent -- carries the bytes into the artifact.
+    /// </summary>
+    public const string FileName = "rod.profile.json";
+
     public static string Render(BuildParams @params)
     {
         // The class's reduced verb set (architecture.md Sec 5.2) plus the
@@ -89,9 +99,21 @@ public static class ProfileBake
         // at its own enroll. Omitted entirely when absent.
         if (@params.TokenSecret is { } tokenSecret)
             map["token"] = tokenSecret;
-        var json = JsonSerializer.Serialize(map);
-        return Base64Url.Encode(Encoding.UTF8.GetBytes(json));
+        // No trailing newline and no encoding layer: the file's bytes are
+        // the canonical render, byte-identical across build units, so a
+        // staged file and its artifact's embedded copy compare equal.
+        return JsonSerializer.Serialize(map);
     }
+
+    /// <summary>
+    /// Stages the profile file into a tree's root: the one bake-write every
+    /// build unit performs, language-neutral by construction -- the unit
+    /// hands over its staging directory and nothing else. Out-of-tree units
+    /// produce the same bytes through the documented contract
+    /// (extending/implants.md, "The baked profile file").
+    /// </summary>
+    public static void WriteFile(BuildParams @params, string treeRoot) =>
+        File.WriteAllText(Path.Combine(treeRoot, FileName), Render(@params));
 
     // The headers as a sorted JSON-object value ({} when empty), so the
     // baked profile's byte output is stable regardless of dictionary

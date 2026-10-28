@@ -590,11 +590,11 @@ against a /24 may print freely.
 The build unit compiles the Rust crate through the uniform build contract
 (`Build:RustSourceDirectory` names your tree on an installed teamserver;
 unset keeps the repo walk-up): a hermetic staging copy, the per-artifact
-profile baked into `src/baked.rs`, and a `cargo build --release --target
-<triple>` for the requested target. Your tree is independent and disposable
--- coupled to the teamserver only by the wire contracts (rod.proto, the
-baked profile's base64url JSON, the sealed envelope), so a fork tracks the
-contract, not the teamserver's code.
+profile staged as `rod.profile.json` into the crate root, and a `cargo
+build --release --target <triple>` for the requested target. Your tree is
+independent and disposable -- coupled to the teamserver only by the wire
+contracts (rod.proto, the baked profile file, the sealed envelope), so a
+fork tracks the contract, not the teamserver's code.
 
 ## OPSEC metadata and ROE
 

@@ -33,6 +33,10 @@ pub struct Stream {
     authority: String,
     secure: bool,
     tls: Option<Arc<rustls::ClientConfig>>,
+    /// The baked presentation the handshake request presents (the same
+    /// UA-and-headers set the POST legs apply): non-empty entries only --
+    /// tungstenite's handshake sends no default User-Agent to hide.
+    presentation_headers: Vec<(String, String)>,
 }
 
 impl Stream {
@@ -59,6 +63,7 @@ impl Stream {
             authority,
             secure,
             tls,
+            presentation_headers: presentation_headers(profile),
         }
     }
 
@@ -76,6 +81,17 @@ impl Stream {
         .as_str()
         .into_client_request()
         .map_err(|e| ContactError::Transport(e.to_string()))?;
+        let mut request = request;
+        for (name, value) in &self.presentation_headers {
+            // A name or value the HTTP grammar refuses is a bake the shell
+            // never should have carried; skip it rather than fail the dial.
+            if let (Ok(name), Ok(value)) = (
+                tungstenite::http::HeaderName::from_bytes(name.as_bytes()),
+                tungstenite::http::HeaderValue::from_str(value),
+            ) {
+                request.headers_mut().insert(name, value);
+            }
+        }
 
         let socket: Box<dyn ReadWrite> = match &self.tls {
             Some(config) => {
@@ -97,6 +113,18 @@ impl Stream {
             .map(|(socket, _)| socket)
             .map_err(|e| ContactError::Transport(format!("websocket handshake: {e}")))
     }
+}
+
+/// The handshake's presentation entries: the baked headers plus the baked
+/// User-Agent (when set) ahead of them, so a headers entry naming
+/// "User-Agent" still wins -- the same precedence the POST legs hold.
+fn presentation_headers(profile: &Profile) -> Vec<(String, String)> {
+    let mut headers = Vec::with_capacity(profile.headers.len() + 1);
+    if !profile.user_agent.is_empty() {
+        headers.push(("User-Agent".to_string(), profile.user_agent.clone()));
+    }
+    headers.extend(profile.headers.iter().cloned());
+    headers
 }
 
 /// The stream shapes the session loop reads and writes: either carriage of

