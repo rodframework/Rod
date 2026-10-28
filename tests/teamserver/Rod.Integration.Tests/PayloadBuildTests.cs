@@ -75,7 +75,7 @@ public class PayloadBuildTests
             Assert.NotNull(body);
             Assert.False(string.IsNullOrWhiteSpace(body!.ArtifactId));
             Assert.Equal("Implant", body.Class);
-            Assert.Equal("Rust", body.UnitId);
+            Assert.Equal(BuildUnitIds.Rust, body.UnitId);
             Assert.False(string.IsNullOrWhiteSpace(body.ContentType));
             Assert.True(body.Size > 0);
             // SHA-256 lowercase hex, 64 chars.
@@ -534,7 +534,7 @@ public class PayloadBuildTests
     }
 
     [Fact]
-    public async Task BuildPayload_Returns400_ForUnknownLanguage()
+    public async Task BuildPayload_Returns400_ForAMalformedUnitId()
     {
         var (client, host, _) = AuthenticatedHost.Create();
         using (client)
@@ -546,7 +546,8 @@ public class PayloadBuildTests
             var response = await client.PostAsJsonAsync(
                 $"/engagements/{engagementId}/payloads",
                 new PayloadEndpoints.BuildPayloadRequest(
-                    Unit: "Zig", // not a registered build language
+                    Unit: "Not A Unit Id", // not a well-formed kebab id; an
+                    // unregistered-but-well-formed id is the job's own failure, not a 400
                     Class: null,
                     TargetOs: null,
                     TargetArch: null,

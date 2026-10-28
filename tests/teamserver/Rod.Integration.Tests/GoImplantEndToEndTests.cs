@@ -8,6 +8,7 @@ using Rod.Audit;
 using Rod.CoreState;
 using Rod.Transport;
 using Rod.Transport.Endpoints;
+using Rod.BuildPipeline.PayloadBuild;
 
 namespace Rod.Integration.Tests;
 
@@ -183,7 +184,7 @@ public class GoImplantEndToEndTests
         Assert.True(built.IsSuccessStatusCode, await built.Content.ReadAsStringAsync());
         var artifact = await built.Content.ReadFromJsonAsync<BuildBody>();
         Assert.NotNull(artifact);
-        Assert.Equal("Go", artifact!.Language);
+        Assert.Equal(BuildUnitIds.Go, artifact!.UnitId);
 
         var outDir = Path.Combine(Path.GetTempPath(), "rod-e2e-go-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(outDir);
@@ -352,7 +353,7 @@ public class GoImplantEndToEndTests
     {
         public string ArtifactId { get; set; } = "";
         public string EngagementId { get; set; } = "";
-        public string Language { get; set; } = "";
+        public string UnitId { get; set; } = "";
     }
 
     /// <summary>

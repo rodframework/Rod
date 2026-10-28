@@ -5030,14 +5030,14 @@
       },
       "BuildPayloadRequest": {
         "required": [
-          "language",
+          "unit",
           "class",
           "targetOs",
           "targetArch"
         ],
         "type": "object",
         "properties": {
-          "language": {
+          "unit": {
             "type": [
               "null",
               "string"
@@ -5202,6 +5202,15 @@
               "null",
               "string"
             ]
+          },
+          "extensions": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           },
           "trust": {
             "type": [

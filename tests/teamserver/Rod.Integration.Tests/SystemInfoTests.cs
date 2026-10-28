@@ -43,7 +43,7 @@ public class SystemInfoTests
         });
         Assert.Null(info.Persistence.PostgresTarget);
 
-        var rust = Assert.Single(info.BuildUnits, u => u.Language == "Rust");
+        var rust = Assert.Single(info.BuildUnits, u => u.UnitId == "rod-rust");
         Assert.Contains(rust.Status, new[] { "ready", "partial", "unavailable" });
         Assert.Contains(rust.Findings, f => f.Area == "source tree");
         Assert.Contains(rust.Findings, f => f.Area == "cargo");
@@ -89,7 +89,7 @@ public class SystemInfoTests
         var info = await client.GetFromJsonAsync<SystemInfoDto>("/system");
         // The registry carries more than one unit now; the cache finding is
         // the Rust unit's own.
-        var rust = Assert.Single(info!.BuildUnits, u => u.Language == "Rust");
+        var rust = Assert.Single(info!.BuildUnits, u => u.UnitId == "rod-rust");
         var finding = Assert.Single(rust.Findings, f => f.Area == "build cache");
         Assert.Equal("ok", finding.Level);
         Assert.Contains(cacheDir, finding.Detail);
@@ -138,7 +138,7 @@ public class SystemInfoTests
 
     private sealed class BuildUnitDto
     {
-        public string Language { get; set; } = "";
+        public string UnitId { get; set; } = "";
         public string Status { get; set; } = "";
         public List<FindingDto> Findings { get; set; } = [];
         public List<TargetDto> Targets { get; set; } = [];
