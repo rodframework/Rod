@@ -61,10 +61,6 @@ jobs:
         |FullyQualifiedName~Rod.Integration.Tests.RustImplantEndToEndTests.RustImplant_StreamsOverTheWebSocketBeacon_FromTheBake
         |FullyQualifiedName~Rod.Integration.Tests.GoImplantEndToEndTests.GoImplant_EnrollsRunsTasking_AndExfilsPastTheContactBudget
         |FullyQualifiedName~Rod.Integration.Tests.GoImplantEndToEndTests.GoImplant_BuildsThroughThePipeline_AndRunsFromTheBake
-      # One shared cargo target dir per cell: the first pipeline build pays
-      # the cold compile, every later leg only rebuilds the implant crate
-      # (the same discipline ci.yml's warm-up step holds).
-      ROD_RUST_TARGET_DIR: ${{ runner.temp }}/rod-rust-target
     steps:
       - uses: actions/checkout@v5
       - name: Setup .NET
@@ -96,6 +92,13 @@ jobs:
               choco install protobuf -y
               ;;
           esac
+          # One shared cargo target dir per cell: the first pipeline build
+          # pays the cold compile, every later leg only rebuilds the
+          # implant crate (the same discipline ci.yml's warm-up step
+          # holds). Written through GITHUB_ENV rather than a job-level env
+          # entry because the runner context is not available there, and
+          # GITHUB_ENV reaches every later step in the cell.
+          echo "ROD_RUST_TARGET_DIR=${RUNNER_TEMP}/rod-rust-target" >> "$GITHUB_ENV"
       - name: Build
         run: dotnet build Rod.slnx --configuration Release
       - name: Run the cell's e2e legs
