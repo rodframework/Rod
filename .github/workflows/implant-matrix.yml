@@ -7,16 +7,19 @@ name: implant-matrix
 # against a live teamserver, and a dispatched task completes. The harness is
 # host-aware (TestCell), so the same five legs prove every cell.
 #
-# Nightly, not per push: the mac and windows cells bill at 10x/2x and their
-# cold cargo builds run long, the same environment-sensitive family the
-# ci.yml implant-toolchain lane already treats as a scheduled verdict. The
-# badge in the README carries this workflow's standing status.
+# Weekly, not per push or nightly: six cells of a full solution build plus
+# cold cargo compiles is a heavy standing load, and the same five e2e
+# families already run nightly on ubuntu in ci.yml's scheduled extended
+# lane -- the matrix is the cross-OS confirmation of a contract the nightly
+# witnesses on one OS every night. The badge in the README carries this
+# workflow's standing status.
 
 on:
   schedule:
-    # After ci.yml's 03:00 full-lane pass, so the two nightly verdicts land
-    # in order: the push lanes first, then the matrix.
-    - cron: '0 5 * * *'
+    # Mondays 05:00 UTC, after ci.yml's 03:00 nightly full-lane pass: the
+    # week's first nightly lands its ubuntu verdict, then the matrix adds
+    # the cross-OS cells on top of it.
+    - cron: '0 5 * * 1'
   workflow_dispatch:
 
 permissions:

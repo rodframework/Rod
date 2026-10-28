@@ -11,8 +11,8 @@ name: modules
 # Asset-module test projects (the content half's .NET trees) run only here,
 # when a module tree or the shared build settings they compile under
 # change. The nightly schedule keeps a standing verdict, the same
-# discipline ci.yml's extended lane and the implant matrix carry; ci.yml's
-# core lane excludes the Rod.Modules.* tests to match.
+# discipline ci.yml's extended lane carries nightly and the implant matrix
+# weekly; ci.yml's core lane excludes the Rod.Modules.* tests to match.
 
 on:
   push:
@@ -30,8 +30,8 @@ on:
       - 'Directory.Packages.props'
       - '.github/workflows/modules.yml'
   schedule:
-    # Between ci.yml's 03:00 full-lane pass and the 05:00 implant matrix, so
-    # the three scheduled verdicts land in order.
+    # After ci.yml's 03:00 nightly full-lane pass and before the weekly
+    # implant matrix's 05:00 run, so the scheduled verdicts land in order.
     - cron: '0 4 * * *'
   workflow_dispatch:
 
