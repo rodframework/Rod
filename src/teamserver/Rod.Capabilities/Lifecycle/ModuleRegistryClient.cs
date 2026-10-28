@@ -48,6 +48,9 @@ public sealed class ModuleRegistryClient
             var entries = new List<RegistryEntry>();
             foreach (var file in Directory.GetFiles(folder, "*.json").OrderBy(p => p, StringComparer.Ordinal))
             {
+                // The roll-up is a name list, not an entry.
+                if (Path.GetFileName(file).Equals("registry.json", StringComparison.OrdinalIgnoreCase))
+                    continue;
                 var entry = await ReadEntryFileAsync(file, cancellationToken);
                 if (entry is not null)
                     entries.Add(entry);

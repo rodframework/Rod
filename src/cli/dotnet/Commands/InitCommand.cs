@@ -120,9 +120,9 @@ public static class InitCommand
                     //
                     // rod_plugin!({{pascal}});
                     """);
-                    var bin = Path.Combine(directory, "bin");
-                    Directory.CreateDirectory(bin);
-                    var artifact = Path.Combine(bin, $"{name}-linux-amd64");
+                    var artifacts = Path.Combine(directory, "plugin");
+                    Directory.CreateDirectory(artifacts);
+                    var artifact = Path.Combine(artifacts, $"{name}-linux-amd64");
                     File.WriteAllText(artifact, $$"""
                     #!/bin/sh
                     # Placeholder for the exec-v1 artifact the manifest's

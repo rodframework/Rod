@@ -75,6 +75,10 @@ public sealed class RegistryStore
 
         foreach (var file in Directory.GetFiles(folder, "*.json").OrderBy(p => p, StringComparer.Ordinal))
         {
+            // The all-entries roll-up (registry.json) is a name list, not an
+            // entry; skip it by name.
+            if (Path.GetFileName(file).Equals("registry.json", StringComparison.OrdinalIgnoreCase))
+                continue;
             var entry = RegistryJson.LoadEntry(file);
             if (entry is null)
                 continue;
@@ -132,7 +136,24 @@ public sealed class RegistryStore
         }
 
         File.WriteAllText(entryPath, RegistryJson.SaveEntry(entry));
+        WriteRollUp();
         return entry;
+    }
+
+    // The all-entries roll-up the server-side browser reads over https
+    // (ADR-023): one registry.json beside the per-module files, a sorted
+    // name list -- small on purpose, the entries stay authoritative in
+    // their own files.
+    private void WriteRollUp()
+    {
+        var names = Directory.GetFiles(Path.Combine(Root, ModulesFolder), "*.json")
+            .Where(f => !Path.GetFileName(f).Equals("registry.json", StringComparison.OrdinalIgnoreCase))
+            .Select(f => RegistryJson.LoadEntry(f)?.Name)
+            .Where(n => !string.IsNullOrEmpty(n))
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToList();
+        var rollUp = Path.Combine(Root, ModulesFolder, "registry.json");
+        File.WriteAllText(rollUp, System.Text.Json.JsonSerializer.Serialize(names, RegistryJson.Options) + "\n");
     }
 
     private static string CloneOrUpdate(string url)

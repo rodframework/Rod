@@ -588,7 +588,7 @@ public static class ManifestToml
             sb.AppendLine("[[plugin.artifacts]]");
             sb.AppendLine("platform = \"linux\"");
             sb.AppendLine("arch = \"amd64\"");
-            sb.AppendLine($"path = {Quote($"bin/{name}-linux-amd64")}");
+            sb.AppendLine($"path = {Quote($"plugin/{name}-linux-amd64")}");
             sb.AppendLine("abi = \"exec-v1\"");
             sb.AppendLine();
         }

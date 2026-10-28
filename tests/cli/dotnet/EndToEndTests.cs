@@ -451,6 +451,47 @@ public class EndToEndTests
         Assert.Contains("FAIL demo-sweep@1.0.0", tampered.Output);
     }
 
+    [Fact]
+    public void PluginPackages_MirrorTheirArtifactsIntoTheIndex()
+    {
+        // ADR-020's packaging half: the scaffold's sample artifact row rides
+        // the manifest, the placeholder binary rides the package, and the
+        // index mirrors platform/arch/path/abi so the server-side browser
+        // answers "which loaders does this plugin ride" without unpacking.
+        using var root = new TempRoot();
+        var plugin = root["demo-plugin"];
+        var registry = root["registry"];
+        CliRun.Run("mod", "init", "demo-plugin", "--path", plugin, "--entry", "plugin");
+        Author(plugin, "1.0.0", payload: null);
+        var publish = CliRun.Run("mod", "publish", "--path", plugin, "--registry", registry);
+        Assert.True(publish.Code == 0, publish.Error);
+
+        var entry = Rod.Packaging.RegistryJson.LoadEntry(
+            Path.Combine(registry, "modules", "demo-plugin.json"));
+        var version = entry!.Versions.Single(v => v.Version == "1.0.0");
+        var artifact = Assert.Single(version.PluginArtifacts!);
+        Assert.Equal("linux", artifact.Platform);
+        Assert.Equal("amd64", artifact.Arch);
+        Assert.Equal("plugin/demo-plugin-linux-amd64", artifact.Path);
+        Assert.Equal("exec-v1", artifact.Abi);
+        Assert.Equal(["plugin-loader/exec-v1"], version.Compatibility.Requires);
+
+        // The all-entries roll-up the https browser reads (ADR-023).
+        var rollUp = System.Text.Json.JsonSerializer.Deserialize<string[]>(
+            File.ReadAllText(Path.Combine(registry, "modules", "registry.json")))
+            ?? [];
+        Assert.Contains("demo-plugin", rollUp);
+
+        // A reserved ABI is a refusal: nothing ships a loader for it yet.
+        var manifestPath = Path.Combine(plugin, "rod-module.toml");
+        File.WriteAllText(manifestPath,
+            File.ReadAllText(manifestPath).Replace("abi = \"exec-v1\"", "abi = \"coff-v1\"")
+                .Replace("plugin-loader/exec-v1", "plugin-loader/coff-v1"));
+        var reserved = CliRun.Run("mod", "publish", "--path", plugin, "--registry", registry);
+        Assert.Equal(RodCli.ExitUsage, reserved.Code);
+        Assert.Contains("reserved", reserved.Error);
+    }
+
     private static void Author(string module, string version, string? payload, string teamserver = "1.0.0", string? description = null)
     {
         // Regex edits rather than Replace(): the scaffold fills version and

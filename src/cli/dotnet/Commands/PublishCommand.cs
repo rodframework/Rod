@@ -54,6 +54,21 @@ public static class PublishCommand
         if (selection.Files.Count <= 1
             && !(manifest.Entry == ModuleEntryKind.Server && manifest.Verbs.Any(v => v.IsDescriptor)))
             throw new CliError("the package would be empty beyond the manifest; check the [package] rules.");
+        // A plugin package's artifacts must ride the package: every
+        // [[plugin.artifacts]] path the manifest names has to be in the
+        // selection, and its ABI has to be one a reference loader ships --
+        // a reserved name (coff-v1, wasm-v1) publishes a binary nothing
+        // can load yet.
+        foreach (var artifact in manifest.PluginArtifacts)
+        {
+            if (!PluginAbis.IsLoadable(artifact.Abi))
+                throw new CliError(
+                    $"plugin artifact '{artifact.Path}' declares ABI '{artifact.Abi}', a reserved name no reference loader ships yet; " +
+                    "the loadable set is: " + string.Join(", ", PluginAbis.Loadable) + ".");
+            if (!selection.Files.Contains(artifact.Path))
+                throw new CliError(
+                    $"plugin artifact '{artifact.Path}' is not in the package; check the [package] rules (the path must ride the selection).");
+        }
 
         var distDirectory = Path.GetFullPath(parsed.Value("out") ?? Path.Combine(moduleDirectory, "dist"));
         Directory.CreateDirectory(distDirectory);
@@ -93,7 +108,12 @@ public static class PublishCommand
             Compatibility: new RegistryVersion.CompatibilityInfo(
                 manifest.TeamserverMin.ToString(),
                 manifest.Targets
-                    .Select(t => new RegistryVersion.TargetInfo(t.ImplantClass, t.Platform, t.Arch))
+                    .Select(t => new RegistryVersion.TargetInfo(
+                        t.ImplantClass,
+                        t.Platform,
+                        t.Arch,
+                        t.BuildUnit,
+                        t.UnitRange?.ToString()))
                     .ToList(),
                 Requires: manifest.Requires.Count == 0 ? null : manifest.Requires.ToList()),
             Verbs: manifest.Verbs
@@ -106,6 +126,13 @@ public static class PublishCommand
             Assets: manifest.Assets.Count == 0
                 ? null
                 : manifest.Assets.Select(a => a.Name).ToList(),
+            PluginArtifacts: manifest.PluginArtifacts.Count == 0
+                ? null
+                : manifest.PluginArtifacts
+                    .Select(a => new RegistryVersion.PluginArtifactInfo(
+                        a.Platform, a.Arch, a.Path, a.Abi))
+                    .ToList(),
+            UnitId: manifest.Unit?.Id,
             Conformance: manifest.Conformance is { } report
                 ? new RegistryVersion.ConformanceInfo(
                     report.Tier,

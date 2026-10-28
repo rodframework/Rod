@@ -128,11 +128,25 @@ public static class InfoCommand
             output.WriteLine($"  ATT&CK: {string.Join(" ", entry.Attack)}");
         output.WriteLine($"  min teamserver: {version.Compatibility.Teamserver}");
         foreach (var target in version.Compatibility.Targets)
-            output.WriteLine($"    {target.ImplantClass}/{target.Platform}/{target.Arch}");
+        {
+            var unit = target.BuildUnit is null
+                ? ""
+                : $" (compiles into {target.BuildUnit}"
+                    + (target.UnitRange is null ? "" : $" >= {target.UnitRange}") + ")";
+            output.WriteLine($"    {target.ImplantClass}/{target.Platform}/{target.Arch}{unit}");
+        }
         // The compatibility rows (ADR-017): what the hosting implant must
         // support, and -- for a build unit -- what its candidate proved.
         if (version.Compatibility.Requires is { Count: > 0 } requires)
             output.WriteLine($"  requires on the target: {string.Join(" ", requires)}");
+        // The plugin tier's face (ADR-020): which prebuilt halves ship, and
+        // the loader ABI each rides; and the external build contract's id
+        // (ADR-021), when the entry is a unit.
+        if (version.PluginArtifacts is { Count: > 0 } artifacts)
+            foreach (var artifact in artifacts)
+                output.WriteLine($"    artifact {artifact.Platform}/{artifact.Arch} {artifact.Path} ({artifact.Abi})");
+        if (!string.IsNullOrEmpty(version.UnitId))
+            output.WriteLine($"  build unit: {version.UnitId}");
         if (version.Conformance is { } conformance)
         {
             output.WriteLine($"  conformance: Tier {conformance.Tier} (harness {conformance.Harness}, {conformance.Date})");
