@@ -154,9 +154,23 @@ public class RedirectorControlChannelTests : IAsyncLifetime
         await SendAsync(socket, new { type = "heartbeat", version = "1.1.0", commit = "def456" });
         await SendAsync(socket, new { type = "ack", digest = enrolled.GetProperty("rules").GetProperty("digest").GetString() });
 
-        var node = (await _fleet.ListNodesAsync()).Single();
-        Assert.Equal("1.1.0", node.ReportedVersion);
-        Assert.Equal("def456", node.ReportedCommit);
+        // The endpoint touches the record from its receive loop, a task
+        // this assertion does not wait for: poll until both stamps land
+        // rather than racing the loop's scheduling.
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
+        string? version = null;
+        string? commit = null;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var node = (await _fleet.ListNodesAsync()).Single();
+            version = node.ReportedVersion;
+            commit = node.ReportedCommit;
+            if (version == "1.1.0" && commit == "def456")
+                break;
+            await Task.Delay(20);
+        }
+        Assert.Equal("1.1.0", version);
+        Assert.Equal("def456", commit);
     }
 
     [Fact]
