@@ -1,8 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Rod.Cli.Manifest;
 
-namespace Rod.Cli.Registry;
+namespace Rod.Packaging;
 
 /// <summary>
 /// The registry index's data model: one JSON file per module under

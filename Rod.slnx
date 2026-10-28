@@ -4,6 +4,7 @@
     <Project Path="src/teamserver/Rod.BuildPipeline/Rod.BuildPipeline.csproj" />
     <Project Path="src/teamserver/Rod.CoreState/Rod.CoreState.csproj" />
     <Project Path="src/teamserver/Rod.Operators/Rod.Operators.csproj" />
+    <Project Path="src/teamserver/Rod.Packaging/Rod.Packaging.csproj" />
     <Project Path="src/teamserver/Rod.Persistence/Rod.Persistence.csproj" />
     <Project Path="src/teamserver/Rod.Protocol/Rod.Protocol.csproj" />
     <Project Path="src/teamserver/Rod.TeamServer/Rod.TeamServer.csproj" />

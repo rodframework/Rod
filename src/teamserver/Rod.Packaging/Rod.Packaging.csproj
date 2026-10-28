@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The module-packaging contract library (architecture.md Sec 15.2): the
+       manifest grammar, the canonical form, the Ed25519 trust chain, the
+       registry index and lock-file models, and the deterministic package
+       zip: every file contract the module ecosystem rides. An inner-ring
+       project like Rod.Protocol: it depends on nothing in-house, and both
+       consumers, the rod CLI and the teamserver's module loader, share
+       this one implementation, so verification logic is never stated twice. -->
+  <PropertyGroup>
+    <RootNamespace>Rod.Packaging</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Manifest parsing: rod-module.toml (ADR-009). -->
+    <PackageReference Include="Tomlyn" />
+    <!-- Ed25519 for manifest signatures: the BCL has no Ed25519, and every
+         comparable trust design in the field (minisign, TUF) settled on it;
+         pure managed, so the contract carries no native dependency. -->
+    <PackageReference Include="BouncyCastle.Cryptography" />
+  </ItemGroup>
+
+</Project>

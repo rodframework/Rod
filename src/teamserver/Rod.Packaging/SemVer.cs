@@ -1,4 +1,4 @@
-namespace Rod.Cli;
+namespace Rod.Packaging;
 
 /// <summary>
 /// A SemVer 2.0 version restricted to what the module ecosystem needs:

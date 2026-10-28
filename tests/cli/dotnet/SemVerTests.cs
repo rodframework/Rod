@@ -1,3 +1,4 @@
+using Rod.Packaging;
 namespace Rod.Cli.Tests;
 
 public class SemVerTests

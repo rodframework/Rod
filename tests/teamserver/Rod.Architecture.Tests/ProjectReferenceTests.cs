@@ -48,6 +48,7 @@ public class ProjectReferenceTests
             ["Rod.Audit"] = [],
             ["Rod.CoreState"] = [],
             ["Rod.Protocol"] = [],
+            ["Rod.Packaging"] = [],
             ["Rod.BuildPipeline"] = ["Rod.CoreState"],
             ["Rod.Capabilities"] = ["Rod.CoreState", "Rod.Audit"],
             ["Rod.Operators"] = ["Rod.CoreState", "Rod.Audit"],

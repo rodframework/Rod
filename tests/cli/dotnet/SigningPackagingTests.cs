@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
-using Rod.Cli.Packaging;
-using Rod.Cli.Signing;
+
+using Rod.Packaging;
 
 namespace Rod.Cli.Tests;
 
@@ -61,7 +61,7 @@ public class PackagingTests
         foreach (var name in new[] { "a", "b" })
         {
             Directory.CreateDirectory(root[name, "src"]);
-            File.WriteAllText(root[name, Manifest.ManifestToml.FileName], "placeholder manifest");
+            File.WriteAllText(root[name, ManifestToml.FileName], "placeholder manifest");
             File.WriteAllText(root[name, "src", "payload.cs"], "payload bytes");
         }
 
@@ -80,7 +80,7 @@ public class PackagingTests
         Directory.CreateDirectory(root["src"]);
         Directory.CreateDirectory(root["bin"]);
         Directory.CreateDirectory(root["dist"]);
-        File.WriteAllText(root[Manifest.ManifestToml.FileName], "manifest");
+        File.WriteAllText(root[ManifestToml.FileName], "manifest");
         File.WriteAllText(root["src", "a.cs"], "a");
         File.WriteAllText(root["bin", "junk.dll"], "junk");
         File.WriteAllText(root["dist", "old.zip"], "old");

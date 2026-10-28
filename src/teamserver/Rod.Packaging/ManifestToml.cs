@@ -2,7 +2,7 @@ using System.Text;
 using Tomlyn;
 using Tomlyn.Serialization;
 
-namespace Rod.Cli.Manifest;
+namespace Rod.Packaging;
 
 /// <summary>
 /// Reads and writes <c>rod-module.toml</c>. Reading deserializes into a

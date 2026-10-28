@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Rod.Packaging;
 
 namespace Rod.Cli.Registry;
 

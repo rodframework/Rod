@@ -13,15 +13,17 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\cli\dotnet\Rod.Cli.csproj" />
-    <!-- Test-only: pins the CLI's manifest vocabulary equal to the
-         teamserver's runtime copy (Rod.CoreState's WireCapabilities) without
-         the CLI itself taking an in-house reference; the vocabulary is a
-         file contract the two sides state independently. -->
+    <ProjectReference Include="..\..\..\src\teamserver\Rod.Packaging\Rod.Packaging.csproj" />
+    <!-- Test-only: pins the packaging contract library's wire-capability
+         vocabulary equal to the teamserver's runtime copy
+         (Rod.CoreState's WireCapabilities); the runtime gate cannot live in
+         the contract library without CoreState taking a leaf reference, so
+         the two sets stay pinned by this bridge. -->
     <ProjectReference Include="..\..\..\src\teamserver\Rod.CoreState\Rod.CoreState.csproj" />
-    <!-- Test-only: pins the CLI's manifest descriptor vocabularies equal to
-         the teamserver's descriptor loader enumerations (Rod.Capabilities)
-         without the CLI itself taking an in-house reference; the closed
-         sets are file contracts the two sides state independently. -->
+    <!-- Test-only: pins Rod.Packaging's descriptor vocabularies equal to the
+         teamserver's descriptor loader enumerations (Rod.Capabilities); the
+         enums cannot be shared without the contract library taking a kernel
+         reference, so the closed sets stay pinned by this bridge. -->
     <ProjectReference Include="..\..\..\src\teamserver\Rod.Capabilities\Rod.Capabilities.csproj" />
   </ItemGroup>
 

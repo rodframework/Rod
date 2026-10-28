@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Rod.Cli.Manifest;
+namespace Rod.Packaging;
 
 /// <summary>
 /// The canonical form of a module: the deterministic serialization that

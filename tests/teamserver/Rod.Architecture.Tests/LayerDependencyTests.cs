@@ -34,6 +34,10 @@ public class LayerDependencyTests
     // Rod.Protocol ships only generated bindings (package rod.v1 -> namespace
     // Rod.V1), so the anchor type is a generated message, not a Layers marker.
     private static readonly Assembly Protocol = typeof(ProtocolVersion).Assembly;
+    // Rod.Packaging carries no Layers marker either; SemVer is its smallest
+    // stable contract type, so it anchors the assembly the same way a
+    // generated message anchors Protocol.
+    private static readonly Assembly Packaging = typeof(Rod.Packaging.SemVer).Assembly;
 
     // Every in-house layer base namespace. A type that references any of these
     // namespaces has a dependency on that layer.
@@ -41,7 +45,7 @@ public class LayerDependencyTests
     {
         "Rod.Audit", "Rod.BuildPipeline", "Rod.CoreState",
         "Rod.Operators", "Rod.Persistence", "Rod.Protocol",
-        "Rod.Capabilities", "Rod.Transport"
+        "Rod.Capabilities", "Rod.Transport", "Rod.Packaging"
     };
 
     // Inner ring: the layer may use only itself. Any reference to another
@@ -120,6 +124,15 @@ public class LayerDependencyTests
     [Fact]
     public void Protocol_Dependencies_PointInwardOnly()
         => AssertNoDependencies(Protocol, nameof(Protocol), "Rod.Protocol");
+
+    // Rod.Packaging is the module-packaging contract (manifest grammar,
+    // canonical form, signing chain, registry/lock models, package zip):
+    // an inner-ring project beside Protocol, so a reference from it to any
+    // layer is a contract inversion -- the library both the CLI and the
+    // teamserver consume must stay leaf-shaped.
+    [Fact]
+    public void Packaging_Dependencies_PointInwardOnly()
+        => AssertNoDependencies(Packaging, nameof(Packaging), "Rod.Packaging");
 
     // Protocol types must never leak into core (AGENTS.md Sec 5).
     [Fact]

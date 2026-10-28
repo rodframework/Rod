@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace Rod.Cli.Manifest;
+namespace Rod.Packaging;
 
 /// <summary>
 /// The entry kind a module ships as (architecture.md Sec 15.2): a
@@ -91,10 +91,11 @@ public sealed record PackageRules(IReadOnlyList<string> Include, IReadOnlyList<s
 /// parameter-kind, and output-kind names, each the lowercase spelling of the
 /// teamserver's own enumeration (<c>CapabilityCategory</c>,
 /// <c>VerbParameterKind</c>, <c>VerbOutputKind</c> in Rod.Capabilities).
-/// Closed sets stated independently on both sides -- the CLI validates
-/// manifests, the teamserver loads them -- and pinned equal by a test in
-/// Rod.Cli.Tests; they grow additively, and an unknown name is a refused
-/// manifest, never a silent mismatch.
+/// The sets live here once and every consumer reads them -- the rod CLI
+/// validates manifests against this library, and the teamserver loads
+/// manifests through it; a test pins them equal to the teamserver's
+/// descriptor enumerations, and an unknown name is a refused manifest,
+/// never a silent mismatch.
 /// </summary>
 public static class ManifestVocabularies
 {

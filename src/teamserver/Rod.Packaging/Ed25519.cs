@@ -5,7 +5,7 @@ using Org.BouncyCastle.Crypto.Generators;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Security;
 
-namespace Rod.Cli.Signing;
+namespace Rod.Packaging;
 
 /// <summary>
 /// Ed25519 signing over the manifest's canonical form (architecture.md

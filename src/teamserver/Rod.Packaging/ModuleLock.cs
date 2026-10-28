@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Rod.Cli;
+namespace Rod.Packaging;
 
 /// <summary>
 /// The install root's lock file (<c>rod.modules.lock.json</c>): the record

@@ -1,8 +1,8 @@
 using System.Security.Cryptography;
-using Rod.Cli.Manifest;
-using Rod.Cli.Packaging;
+using Rod.Packaging;
+
 using Rod.Cli.Registry;
-using Rod.Cli.Signing;
+
 
 namespace Rod.Cli.Commands;
 

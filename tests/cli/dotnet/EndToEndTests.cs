@@ -1,3 +1,4 @@
+using Rod.Packaging;
 using System.Text.Json;
 
 namespace Rod.Cli.Tests;
@@ -25,8 +26,8 @@ public class EndToEndTests
         var init = CliRun.Run("mod", "init", "demo-sweep", "--path", module, "--entry", "server");
         Assert.True(init.Code == 0, init.Error);
         Assert.True(File.Exists(Path.Combine(module, "rod-module.toml")));
-        Assert.True(File.Exists(Path.Combine(module, Rod.Cli.Signing.KeyFiles.SecretFileName)));
-        Assert.True(File.Exists(Path.Combine(module, Rod.Cli.Signing.KeyFiles.PublicFileName)));
+        Assert.True(File.Exists(Path.Combine(module, Rod.Packaging.KeyFiles.SecretFileName)));
+        Assert.True(File.Exists(Path.Combine(module, Rod.Packaging.KeyFiles.PublicFileName)));
 
         // Author the module: a real license, a version, a payload file.
         var manifestPath = Path.Combine(module, "rod-module.toml");
@@ -341,7 +342,7 @@ public class EndToEndTests
         Assert.True(publish.Code == 0, publish.Error);
 
         // The index entry carries the row's techniques beside the version matrix.
-        var entry = Rod.Cli.Registry.RegistryJson.LoadEntry(
+        var entry = Rod.Packaging.RegistryJson.LoadEntry(
             Path.Combine(registry, "modules", "demo-sweep.json"));
         var row = Assert.Single(
             entry!.Versions.Single(v => v.Version == "1.0.0").Verbs!,
@@ -379,7 +380,7 @@ public class EndToEndTests
         Assert.True(publish.Code == 0, publish.Error);
 
         // The index mirrors the requirement set beside the target matrix.
-        var entry = Rod.Cli.Registry.RegistryJson.LoadEntry(
+        var entry = Rod.Packaging.RegistryJson.LoadEntry(
             Path.Combine(registry, "modules", "demo-sweep.json"));
         Assert.Equal(["plugin-loader", "exfil-chunks"],
             entry!.Versions.Single(v => v.Version == "1.0.0").Compatibility.Requires);
@@ -411,7 +412,7 @@ public class EndToEndTests
         var unitPublish = CliRun.Run("mod", "publish", "--path", unit, "--registry", registry);
         Assert.True(unitPublish.Code == 0, unitPublish.Error);
 
-        var unitEntry = Rod.Cli.Registry.RegistryJson.LoadEntry(
+        var unitEntry = Rod.Packaging.RegistryJson.LoadEntry(
             Path.Combine(registry, "modules", "demo-agent.json"));
         var report = unitEntry!.Versions[0].Conformance;
         Assert.NotNull(report);

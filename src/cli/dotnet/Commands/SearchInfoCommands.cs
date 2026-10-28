@@ -1,4 +1,5 @@
 using Rod.Cli.Registry;
+using Rod.Packaging;
 
 namespace Rod.Cli.Commands;
 

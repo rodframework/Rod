@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Rod.Cli.Manifest;
+using Rod.Packaging;
 
 namespace Rod.Cli.Commands;
 

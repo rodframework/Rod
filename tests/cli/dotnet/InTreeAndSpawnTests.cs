@@ -1,4 +1,4 @@
-using Rod.Cli.Manifest;
+using Rod.Packaging;
 
 namespace Rod.Cli.Tests;
 
@@ -97,13 +97,13 @@ public class InTreeModuleTests
         var install = root["install"];
 
         Directory.CreateDirectory(keyDirectory);
-        Rod.Cli.Signing.KeyFiles.Generate(keyDirectory);
+        Rod.Packaging.KeyFiles.Generate(keyDirectory);
 
         // The tree's module directory carries build output (bin/, obj/);
         // the packaging rules must keep it out of the package, and the
         // dist output lands in the temp root, never in the tree.
         var publish = CliRun.Run("mod", "publish", "--path", module, "--registry", registry,
-            "--key", Path.Combine(keyDirectory, Rod.Cli.Signing.KeyFiles.SecretFileName),
+            "--key", Path.Combine(keyDirectory, Rod.Packaging.KeyFiles.SecretFileName),
             "--out", root["dist"]);
         Assert.True(publish.Code == 0, publish.Error);
 

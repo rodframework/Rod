@@ -2,7 +2,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 
-namespace Rod.Cli.Packaging;
+namespace Rod.Packaging;
 
 /// <summary>
 /// Package assembly for <c>rod mod publish</c> and disassembly for
@@ -33,7 +33,7 @@ public static class ModulePackage
     /// everything under the module directory the include/exclude rules
     /// admit. Symlinks are skipped -- a package that followed them would
     /// pack whatever the link happens to point at.</summary>
-    public static Selection SelectFiles(string moduleRoot, Manifest.PackageRules? rules)
+    public static Selection SelectFiles(string moduleRoot, PackageRules? rules)
     {
         var include = rules?.Include.Count > 0 ? rules.Include : ["**"];
         var exclude = (rules?.Exclude ?? []).Concat(HardExcludes).Distinct(StringComparer.Ordinal).ToArray();
@@ -45,7 +45,7 @@ public static class ModulePackage
             if (info.LinkTarget is not null)
                 continue;
             var relative = Path.GetRelativePath(moduleRoot, file).Replace('\\', '/');
-            if (relative == Manifest.ManifestToml.FileName)
+            if (relative == ManifestToml.FileName)
             {
                 files.Add(relative);
                 continue;

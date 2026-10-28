@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\..\src\teamserver\Rod.Capabilities\Rod.Capabilities.csproj" />
     <ProjectReference Include="..\..\..\src\teamserver\Rod.Persistence\Rod.Persistence.csproj" />
     <ProjectReference Include="..\..\..\src\teamserver\Rod.Protocol\Rod.Protocol.csproj" />
+    <ProjectReference Include="..\..\..\src\teamserver\Rod.Packaging\Rod.Packaging.csproj" />
   </ItemGroup>
 
 </Project>

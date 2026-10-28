@@ -1,10 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- The operator CLI (architecture.md Sec 15.3, ADR-002): the `rod mod`
-       module-lifecycle suite. It references nothing in-house: like the
-       redirector, it couples to the platform only through file contracts,
-       here the module manifest, the registry index, and the lock file,
-       so it builds and ships on its own, outside the layer matrix. -->
+       module-lifecycle suite. It references exactly one in-house project:
+       Rod.Packaging, the packaging contract library holding the manifest
+       grammar, the canonical form, the signing chain, the registry index,
+       and the lock file. Every other coupling stays a file contract, so
+       the CLI still builds and ships on its own, outside the layer
+       matrix. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <AssemblyName>rod</AssemblyName>
@@ -13,12 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Manifest parsing: rod-module.toml (ADR-009). -->
-    <PackageReference Include="Tomlyn" />
-    <!-- Ed25519 for manifest signatures: the BCL has no Ed25519, and every
-         comparable trust design in the field (minisign, TUF) settled on it;
-         pure managed, so the CLI carries no native dependency. -->
-    <PackageReference Include="BouncyCastle.Cryptography" />
+    <ProjectReference Include="..\..\teamserver\Rod.Packaging\Rod.Packaging.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,4 +1,4 @@
-using Rod.Cli.Manifest;
+using Rod.Packaging;
 
 namespace Rod.Cli.Tests;
 

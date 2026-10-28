@@ -1,19 +1,19 @@
-using Rod.Cli.Manifest;
+using Rod.Packaging;
 
 namespace Rod.Cli.Tests;
 
 /// <summary>
-/// The descriptor vocabularies are file contracts the two sides of the
-/// module ecosystem state independently: the CLI validates manifest verb
-/// rows (category, parameter kind, output kind) at publish, the
+/// The descriptor vocabularies are file contracts: Rod.Packaging states the
+/// manifest spellings once (category, parameter kind, output kind), and the
 /// teamserver's descriptor loader parses the same names into its own
 /// enumerations (Rod.Capabilities' <c>CapabilityCategory</c>,
-/// <c>VerbParameterKind</c>, <c>VerbOutputKind</c>) at startup. The CLI
-/// references nothing in-house by design, so this test project -- and only
-/// this test project -- bridges the two copies and fails when either side
-/// grows without the other. The manifest spellings are lowercase kebab;
-/// the enums are PascalCase, and the loader's name resolution ignores case
-/// and separators, so the comparison normalizes the same way.
+/// <c>VerbParameterKind</c>, <c>VerbOutputKind</c>) at startup. The two
+/// sides cannot share the enums without the contract library taking a
+/// kernel reference, so this test project -- and only this test project --
+/// bridges the sets and fails when either side grows without the other.
+/// The manifest spellings are lowercase kebab; the enums are PascalCase,
+/// and the loader's name resolution ignores case and separators, so the
+/// comparison normalizes the same way.
 /// </summary>
 public class DescriptorVocabularyParityTests
 {
