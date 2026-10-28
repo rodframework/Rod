@@ -16,6 +16,7 @@ using Rod.Capabilities.Persist;
 using Rod.Capabilities.Recon;
 using Rod.Capabilities.Registry;
 using Rod.Capabilities.Tunnel;
+using Rod.Capabilities.Lifecycle;
 
 namespace Rod.Capabilities;
 
@@ -143,7 +144,34 @@ public static class RodCapabilitiesHost
         // open-not-on posture holds until an operator lists modules.
         if (configuration is not null)
         {
-            services.Replace(ServiceDescriptor.Singleton<IModuleAssetStore>(ModuleAssetStore.Load(configuration)));
+            var assetStore = ModuleAssetStore.Load(configuration);
+            services.Replace(ServiceDescriptor.Singleton<IModuleAssetStore>(assetStore));
+            services.AddSingleton(assetStore);
+        }
+
+
+        // The module lifecycle (ADR-023): the store every installed package
+        // lands under, the registry browser, and the service that verifies,
+        // adopts, and hot-registers them. The composition root may re-register
+        // the lifecycle with the build-side hooks injected (it is the only
+        // place both layers are visible); this registration keeps a working
+        // default for hosts that wire none.
+        if (!string.IsNullOrWhiteSpace(configuration?[Lifecycle.ModuleStore.StoreSectionKey]))
+        {
+            services.AddSingleton(new Rod.Capabilities.Lifecycle.ModuleStore(
+                configuration[ModuleStore.StoreSectionKey]!));
+            services.AddSingleton<Rod.Capabilities.Lifecycle.ModuleLifecycleService>(sp =>
+                new Rod.Capabilities.Lifecycle.ModuleLifecycleService(
+                    sp.GetRequiredService<Rod.Capabilities.Lifecycle.ModuleStore>(),
+                    sp.GetRequiredService<ICapabilityRegistry>(),
+                    sp.GetRequiredService<Rod.Audit.IAuditStore>(),
+                    sp.GetRequiredService<TimeProvider>(),
+                    sp.GetService<Rod.Capabilities.Registry.ModuleAssetStore>()));
+        }
+        if (!string.IsNullOrWhiteSpace(configuration?[Rod.Capabilities.Lifecycle.ModuleRegistryClient.RegistrySectionKey]))
+        {
+            services.AddSingleton(new Rod.Capabilities.Lifecycle.ModuleRegistryClient(
+                configuration[Rod.Capabilities.Lifecycle.ModuleRegistryClient.RegistrySectionKey]!));
         }
 
         return services;

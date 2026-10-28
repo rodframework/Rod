@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Rod.CoreState\Rod.CoreState.csproj" />
     <ProjectReference Include="..\Rod.Packaging\Rod.Packaging.csproj" />
+    <ProjectReference Include="..\Rod.Audit\Rod.Audit.csproj" />
   </ItemGroup>
 
 

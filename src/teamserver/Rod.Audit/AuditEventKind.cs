@@ -729,4 +729,20 @@ public enum AuditEventKind
     /// evidence.
     /// </summary>
     RangeFleetStopped,
+
+    /// <summary>
+    /// An operator installed a module package into the deployment's store
+    /// (ADR-023): the payload names the module and version; the trust chain
+    /// that admitted it (digest, signature, pinned key) is the store's lock
+    /// beside this event. Deployment-global: chains under the empty
+    /// engagement id.
+    /// </summary>
+    ModuleInstalled,
+
+    /// <summary>
+    /// An operator removed an installed module package (ADR-023): the verbs
+    /// it registered stay with their last registration (another module may
+    /// own them), its assets and build-side registrations retract.
+    /// </summary>
+    ModuleRemoved,
 }

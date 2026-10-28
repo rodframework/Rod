@@ -108,6 +108,38 @@ public sealed class ExtensionCatalog
     /// <summary>The empty catalog: no request may name an extension.</summary>
     public static ExtensionCatalog Empty { get; } = new();
 
+    private readonly object _mutation = new();
+
+    /// <summary>
+    /// Admits one more installed extension package at run time (ADR-023's
+    /// hot-registration half): the same validation <see cref="Load"/> holds,
+    /// applied to a single directory. The lifecycle service calls this
+    /// through the composition root's hook; the empty-catalog singleton the
+    /// composition registers when nothing is listed is the same object, so
+    /// an install widens it.
+    /// </summary>
+    public void Add(string directory)
+    {
+        // Reuses Load's gates by loading a one-entry catalog and merging it
+        // under the mutation lock.
+        var admitted = Load([directory]);
+        lock (_mutation)
+        {
+            foreach (var (name, _, manifest) in admitted.All)
+                _extensions[name] = new InstalledExtension(manifest, Path.GetFullPath(directory));
+        }
+    }
+
+    /// <summary>Retracts an installed extension package from the
+    /// catalog.</summary>
+    public void Remove(string name)
+    {
+        lock (_mutation)
+        {
+            _extensions.Remove(name);
+        }
+    }
+
     /// <summary>Every installed extension, name-sorted -- the picker's
     /// source.</summary>
     public IReadOnlyList<(string Name, string Directory, ModuleManifest Manifest)> All

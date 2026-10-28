@@ -62,7 +62,7 @@ public sealed class ModuleAssetStore : IModuleAssetStore
                 throw new InvalidOperationException(
                     $"An entry in '{AssetModulesSectionKey}' is empty; each entry must be a module directory path.");
 
-            store.LoadModule(Rooted(entry.Trim()));
+            store.LoadModuleDirectory(Rooted(entry.Trim()));
         }
         return store;
     }
@@ -76,7 +76,26 @@ public sealed class ModuleAssetStore : IModuleAssetStore
     public bool TryRead(string moduleName, string assetName, out ModuleAsset asset)
         => _assets.TryGetValue(moduleName + "\n" + assetName, out asset!);
 
-    private void LoadModule(string directory)
+    /// <summary>Loads one more asset module into the live store -- the
+    /// hot-registration half the module lifecycle drives. Throws on the
+    /// same shapes <see cref="Load""/> refuses at startup.</summary>
+    public void LoadModule(string directory)
+    {
+        LoadModuleDirectory(directory);
+    }
+
+    /// <summary>Retracts a module's assets from the live store (its
+    /// directories may be gone already; the map forgets either
+    /// way).</summary>
+    public void RemoveModule(string moduleName)
+    {
+        var prefix = moduleName + "\n";
+        var keys = _assets.Keys.Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
+        foreach (var key in keys)
+            _assets.Remove(key);
+    }
+
+    private void LoadModuleDirectory(string directory)
     {
         var manifestPath = Path.Combine(directory, ManifestToml.FileName);
         if (!File.Exists(manifestPath))

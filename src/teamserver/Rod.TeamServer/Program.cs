@@ -54,6 +54,45 @@ builder.Services.AddRodOperators(builder.Configuration);
 // LayerDependencyTests), so the composition root assembles it here -- the same
 // reason as AddRodOperators.
 builder.Services.AddRodCapabilities(builder.Configuration);
+// The module lifecycle's build-side hooks (ADR-023): the capabilities layer
+// cannot reference the build pipeline, so the hook that registers an
+// installed external unit (into the build units) or extension package (into
+// the catalog) is wired here -- the one composition point where both layers
+// are visible. Registered as a post-configuration so it replaces the
+// hook-less default AddRodCapabilities installed when a store is
+// configured.
+if (!string.IsNullOrWhiteSpace(builder.Configuration[Rod.Capabilities.Lifecycle.ModuleStore.StoreSectionKey]))
+{
+    builder.Services.AddSingleton<Rod.Capabilities.Lifecycle.ModuleLifecycleService>(sp =>
+    {
+        return new Rod.Capabilities.Lifecycle.ModuleLifecycleService(
+            sp.GetRequiredService<Rod.Capabilities.Lifecycle.ModuleStore>(),
+            sp.GetRequiredService<Rod.Capabilities.Registry.ICapabilityRegistry>(),
+            sp.GetRequiredService<Rod.Audit.IAuditStore>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetService<Rod.Capabilities.Registry.ModuleAssetStore>(),
+            registerBuildSide: (name, directory) =>
+            {
+                var (manifest, errors) = Rod.Packaging.ManifestToml.LoadFile(
+                    System.IO.Path.Combine(directory, Rod.Packaging.ManifestToml.FileName));
+                if (manifest is null)
+                    throw new InvalidOperationException(
+                        $"The installed package for '{name}' lost its manifest: {string.Join(" ", errors)}");
+                if (manifest.Entry == Rod.Packaging.ModuleEntryKind.BuildUnit)
+                    sp.GetRequiredService<Rod.BuildPipeline.PayloadBuild.IBuildUnitRegistry>()
+                        .Register(Rod.BuildPipeline.PayloadBuild.ExternalBuildUnit.Load(directory));
+                if (manifest.Entry == Rod.Packaging.ModuleEntryKind.Extension)
+                    sp.GetRequiredService<Rod.BuildPipeline.PayloadBuild.ExtensionCatalog>()
+                        .Add(directory);
+                return Task.CompletedTask;
+            },
+            unregisterBuildSide: name =>
+            {
+                sp.GetRequiredService<Rod.BuildPipeline.PayloadBuild.ExtensionCatalog>().Remove(name);
+                return Task.CompletedTask;
+            });
+    });
+}
 // Wire the durable PostgreSQL store (architecture.md Sec 12, ADR 0003):
 // when ConnectionStrings:Postgres is set, this registers the EF Core
 // DbContext and replaces the in-memory core-state ports whose durable adapters
@@ -190,6 +229,10 @@ app.MapBuildStampEndpoints();
 // capability category as tasking from the registry rather than a hardcoded verb
 // table.
 app.MapCapabilityEndpoints();
+// The module lifecycle endpoints (ADR-023): browse, install, uninstall --
+// the operator console's day-2 module workflow. Mapped from the
+// capabilities layer for the same layer-separation reason as the catalog.
+Rod.Capabilities.Endpoints.ModuleEndpoints.MapRodModuleEndpoints(app);
 // The built-in diagnostics endpoint (architecture.md Sec 15.3, ADR-008):
 // mapped from the composition root for the same layer-separation reason as
 // the catalog above -- its five dimensions live across transport, core
@@ -220,6 +263,15 @@ app.MapGet("/", async context =>
     await using var stream = index.CreateReadStream();
     await stream.CopyToAsync(context.Response.Body, context.RequestAborted);
 });
+
+// Seed the module registries from the installed store (ADR-023): every
+// package the lock carries registers the same way a fresh install would,
+// so a restart and an install land in one state. Best-effort ordering
+// against the hosted services is fine -- installs re-register idempotently.
+if (app.Services.GetService<Rod.Capabilities.Lifecycle.ModuleLifecycleService>() is { } moduleLifecycle)
+{
+    await moduleLifecycle.SeedFromStoreAsync();
+}
 
 app.Run();
 return 0;

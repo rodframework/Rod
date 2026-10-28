@@ -152,7 +152,7 @@ public static class DescriptorModuleLoader
                 attributes,
                 parameters,
                 output,
-                row.Techniques?.ToList() ?? []),
+                row.Techniques is { Count: > 0 } techniques ? techniques.ToList() : null),
             name,
             requires);
     }
