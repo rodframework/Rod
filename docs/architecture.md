@@ -141,12 +141,14 @@ in-house. The dependency rule is enforced by architecture tests.
 
 ### 4.2 External components
 
-- **Build units.** The in-tree build unit is Rust (`Rod.BuildPipeline`'s
-  `RustBuildUnit`). It compiles the reference implant on demand and owns its
-  toolchain, coupled to the teamserver only by the build contract. Other
-  languages (Go, C/C++, Nim) stay available through that same contract and the
-  `Language` enum, supplied as out-of-tree community units -- the project
-  maintains one in-tree reference, not one per language (Sec 12.2).
+- **Build units.** The in-tree units are Rust and Go (`Rod.BuildPipeline`'s
+  `RustBuildUnit` and `GoBuildUnit`, claiming the open ids `rod-rust` and
+  `rod-go`). A build request routes to its unit by that id -- an open
+  kebab-case vocabulary, not an enum (ADR-021) -- and a community unit for
+  any language is a package whose manifest declares its `[unit]` table,
+  listed under `Build:ExternalUnits` and spawned through the external
+  build contract: the teamserver compiles none of it. The project keeps
+  its in-tree references, not one per language (Sec 12.2).
 - **Implants.** Target-resident, disposable, speaking the wire protocol and
   independent of the teamserver language. (Sec. 5.) The **reference Rust
   implant** lives in the `src/implant/rust` crate: a benign, readable
@@ -723,7 +725,17 @@ string-out work a module shape holds naturally. The channel verbs and the
 file/exec core stay compiled, because a plugin cannot own a live channel or
 a carriage.
 
-**The boundary is ABI-stable, not compiler-stable.** A Rust dylib
+****The loaders are named ABIs (ADR-020).** The two shapes the reference
+implant ships are contracts a plugin package names, not one family: the
+out-of-process stdio loader is `plugin-loader/exec-v1`, the in-process
+C-ABI map is `plugin-loader/native-v1`, and a session's handshake
+advertisement states which loaders the build hosts -- beside its verbs --
+so the runtime requirement gate checks the loader a plugin needs, not
+merely that some loader exists. `plugin-loader/coff-v1` and
+`plugin-loader/wasm-v1` are reserved names: tiers the vocabulary can
+speak about before any reference implant ships their loaders.
+
+The boundary is ABI-stable, not compiler-stable.** A Rust dylib
 boundary is not stable across compiler versions (the reason Sec 5.3 keeps
 handler registration compile-time), so neither module shape couples the
 module to the host's compiler. On Windows the interface is a handful of
@@ -748,9 +760,14 @@ the SDK is the documented authority:
 - `rod_plugin_init() -> u32` -- construct the plugin and register its verb
   table; answers the verb count.
 - `rod_plugin_verb_name(index) -> RodStr` -- the verb at an index.
-- `rod_plugin_run(index, RodStr, &mut RodStr) -> i32` -- execute one verb
-  under the shared string grammar; 0 is success, 1 a handler failure whose
-  output string carries the cause, negative a shim error. Panics are
+- `rod_plugin_run(index, RodStr, &mut RodStr, &mut RodArtifact) -> i32` --
+  execute one verb under the shared string grammar; 0 is success, 1 a
+  handler failure whose output string carries the cause, negative a shim
+  error. The fourth parameter is ABI 2's artifact return: a verb may hand
+  the session a named, typed byte run (a minidump, a hive, a screenshot)
+  that flows into the artifact store through the same exfil arm a
+  compiled handler's run rides -- the collection long tail's whole reason
+  to exist as plugins. A null name pointer is the absent run. Panics are
   fenced at the boundary: the shim catches and reports, they never unwind
   into the host.
 - `rod_plugin_free(ptr, len)` -- module-allocated strings die in the
@@ -856,7 +873,7 @@ recorded.**
   teamserver drives each unit through the **uniform build contract** and is
   coupled to it only by that contract, so a community build unit in Go,
   C/C++, or Nim can register and compile against the same contract with no
-  in-language coupling (the `Language` enum keeps those slots, Sec 12.2).
+  in-language coupling (the open unit-id vocabulary routes them, Sec 6).
   The Rust unit maps the target onto a cargo triple and
   refuses the stager class (retired with the .NET tree) with the fix
   named at parse time.
@@ -891,14 +908,19 @@ recorded.**
   transport profile, and beacon parameters (mode, sleep, jitter, kill date).
   They are produced at request time so each artifact is unique -- this is
   essential for OPSEC. No key material crosses the build contract (Sec 5.1).
-- **The implant-side extension seam is the crate fork.** The overlay the
-  .NET unit once compiled (`Build:ImplantExtensionDirectory`, a directory of
-  `.cs` handler sources) retired with the .NET implant it compiled. The Rust
-  seam is the source tree itself: an operator points the unit at a fork that
-  carries the extra handlers (`Build:RustSourceDirectory` names the tree on
-  an installed teamserver), coupled to the teamserver only by the wire
-  contracts -- no fork of the teamserver ([extending/modules.md](extending/modules.md)).
-  The C-ABI plugin module (Sec 5.4) is the follow-on that drops the rebuild.
+- **The compiled-in extension seam (ADR-022).** Between the crate fork and
+  the loadable plugin sits the extension tier: an implant-native package
+  whose sources the build unit compiles *into* the artifact itself -- a
+  source merge under `modules_ext/`, the implant's own types behind plain
+  `crate::` paths, which is the tier's whole reach and what keeps the
+  dependency graph acyclic. A build request names its extensions; the
+  catalog holds the hard targeting gate (the package's manifest rows must
+  name the request's unit), and the unit regenerates the extension
+  registry the dispatch chain reads: compiled core, then extensions, then
+  runtime plugins. The fork remains the escape hatch for changes the
+  overlay cannot express (`Build:RustSourceDirectory` names the tree on an
+  installed teamserver); the C-ABI plugin module (Sec 5.4) remains the
+  no-rebuild tier beneath both.
 - **The bake names the transport each build dials.** The egress walk the
   profile bakes names URL shapes, and the implant picks its contact client
   by the dial's scheme at run: an `http(s)://` front runs the envelope POST
@@ -3045,17 +3067,25 @@ the trust chain is signatures, not platform vouching. Both of Mythic's
 decoupling axes survive in Rod's own shape: transport providers and
 implant languages are independent seams.
 
-**Three extension points, one manifest, one CLI.** Server-side capability
-modules (the `ICapabilityModule` contract), implant-side modules (the
-C-ABI symbol family on Windows, the musl stdio byte protocol on Linux,
-Sec 5.4), and build units (new implant languages) share the manifest shape
-and the `rod mod` commands. A developer runs `rod mod init` (a template
-repository), implements, signs, and `rod mod publish` (a pull request
-against the index); an operator runs `rod mod search` and
-`rod mod install name@version`, with signature and compatibility verified
-at install and a lock file recording what landed. OPSEC metadata ("lands
-on disk" / "memory only") shows at search and install, carrying the
-per-verb OPSEC labeling into the catalog. **Shipped** (the `rod` CLI,
+**Five entry kinds, one manifest, one CLI, two consoles (ADR-020 through
+ADR-023).** Server-side descriptor modules, portable plugin packages
+(prebuilt artifact rows, each naming its loader ABI), implant-native
+extensions (compiled into a build, targeting its unit), external build
+units (the `[unit]` table a new language registers by), and asset
+modules share the manifest shape and the `rod mod` commands. A developer
+runs `rod mod init` (a template repository for every kind), implements,
+signs, and `rod mod publish` (a pull request against the index, which
+maintains the `registry.json` roll-up beside the per-module files); an
+operator installs from either console -- the CLI against a checkout, or
+the teamserver's module marketplace (`/modules`), which fetches from the
+same static index, verifies through the same Rod.Packaging chain, pins
+the same keys into the same lock-file format under `Modules:Store`, and
+hot-registers without a restart, every action audit-chained
+(`ModuleInstalled`/`ModuleRemoved`). The marketplace installs data
+packages only: the in-proc assembly path stays a deployment owner's
+config-listed decision. OPSEC metadata ("lands on disk" / "memory only")
+shows at search and install, carrying the per-verb OPSEC labeling into
+the catalog. **Shipped** (the `rod` CLI,
 `src/cli/dotnet/`, standing beside the tree with no in-house references --
 its contracts are files): the manifest, the canonical form, the signing
 chain, the six commands, and the reference module
@@ -3253,10 +3283,12 @@ shipped: the verb rows' descriptor half and the
 migrated onto it -- the server-side twin of the C-ABI seam's language
 freedom, now the default authoring path.)
 
-There is **no carry-over from existing ecosystems**: no BOF/COFF execution
-layer, no Armory migration. The ecosystem accumulates from zero, quality
-before quantity -- slowly, but every new module pays interest into the
-contracts. The trilogy's acceptance bar: a module the framework never
+There is **no carry-over from existing ecosystems**: no Armory migration,
+and no BOF/COFF execution layer today -- the `plugin-loader/coff-v1` name
+is reserved for exactly that tier, so the vocabulary can speak about the
+ecosystem's existing corpus before any reference implant ships its loader.
+The ecosystem accumulates from zero, quality before quantity -- slowly,
+but every new module pays interest into the contracts. The trilogy's acceptance bar: a module the framework never
 anticipated goes from `rod mod init` to full UI interaction
 (schema-rendered form, structured products landing in the right stores)
 with **zero framework changes**.
@@ -3543,3 +3575,7 @@ Where the program touches the existing layers:
 | 017 | Compatibility collapse: capability `requires` + conformance report in the module contract | Sec 15.2 |
 | 018 | Polyglot on-ramps: linkable core, standalone conformance runner, manifest-declared descriptors | Sec 15.2 |
 | 019 | Pre-freeze posture: contracts iterate freely, breaking changes land as rewrites, until the first semver release | Sec 15 |
+| 020 | Plugin portability tiers: named loader ABIs (`plugin-loader/exec-v1` and kin, coff/wasm reserved), the artifact return on ABI 2, plugin packages with prebuilt artifact rows | Sec 5.4, Sec 15.2 |
+| 021 | Open build unit ids and the external build contract: `[unit]` tables, `Build:ExternalUnits`, the request/result file contract -- a new language registers a package, not a recompile | Sec 6, Sec 15.2 |
+| 022 | The compiled-in extension tier: source-merge overlays under `modules_ext/`, build-unit targeting rows as the hard gate, the dispatch chain core -> extensions -> plugins | Sec 5.3, Sec 6 |
+| 023 | `Rod.Packaging` as the one packaging-contract library, and the server-side module lifecycle: store, registry browser, verified hot-registering installs, the operator console's marketplace | Sec 15.2 |

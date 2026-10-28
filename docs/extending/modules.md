@@ -17,6 +17,39 @@ the tree's own modules live under `modules/` (server-side) and
 operator's module takes, and a kernel change must answer *why it cannot be a
 module* ([architecture.md Sec 15.1](../architecture.md)).
 
+## The five entry kinds (manifest v4, ADRs 020-023)
+
+One manifest shape, five ways to ship:
+
+- **`server`** -- descriptor rows are the whole module: the verbs register
+  from the manifest alone, zero code (ADR-018's default authoring path).
+- **`plugin`** -- the portable implant-side tier: prebuilt execution
+  halves as `[[plugin.artifacts]]` rows (platform, arch, path, and the
+  loader `abi` -- `exec-v1` or `native-v1`; `coff-v1`/`wasm-v1` are
+  reserved names publish refuses until their loaders ship), with the
+  requirement rows pinned to the artifacts' ABI union. The operator
+  console's install surfaces and the `/modules/{name}/artifact` fetch
+  pick the platform-matched row for a `module.load` task's content.
+- **`extension`** -- the implant-native tier (ADR-022): sources a build
+  unit compiles *into* the artifact. Every `[[compatibility.targets]]`
+  row must name its `build-unit` (optionally a `unit-range` floor) -- the
+  hard gate the build-time catalog holds. For `rod-rust` the overlay is a
+  source merge: the package's `src/` tree compiles as modules inside the
+  implant crate (the implant's types behind `crate::` paths -- the
+  tier's reach, and what keeps the graph acyclic), and the unit
+  regenerates the registry the dispatch chain reads: compiled core,
+  extensions, then runtime plugins.
+- **`build-unit`** -- the external build contract (ADR-021): the
+  `[unit]` table (`id`, `command`, optional `timeout-minutes`) the
+  pipeline spawns under `Build:ExternalUnits`. A new implant language
+  registers a package, not a recompile.
+- **`assets`** -- pure content (ADR unchanged since the first asset
+  modules).
+
+The canonical form is `rod-module-manifest-v4`: the targets carry
+`build-unit`/`unit-floor`, plugin artifact rows ride one line per
+target, and the `[unit]` table rides the signature like every field.
+
 ## The two halves of a capability
 
 A capability verb has a server-side half (who may issue it) and an
