@@ -169,11 +169,15 @@ jobs:
             dotnet test Rod.slnx --configuration Release --no-build --settings ci.runsettings --filter "$CORE_RETRY_FILTER" --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type full
           fi
       - name: Test (implant-toolchain lane)
-        # Non-blocking by design: this lane carries the environment-sensitive
-        # family -- cargo compiles, real implant processes, and the conformance
-        # harness against a live teamserver -- whose failures are worth triage
-        # without being worth a red run on every push. The nightly schedule
-        # gives it a standing verdict.
+        # Skipped on push: the lane's minutes buy an advisory verdict the
+        # nightly schedule re-derives anyway, and a push's blocking signal
+        # is the core lane above. Where it does run it stays non-blocking:
+        # this lane carries the environment-sensitive family -- cargo
+        # compiles, real implant processes, and the conformance harness
+        # against a live teamserver -- whose failures are worth triage
+        # without being worth a red run. PR runs keep it (a verdict before
+        # main), and the nightly schedule gives the standing verdict.
+        if: github.event_name != 'push'
         id: test_extended
         continue-on-error: true
         run: >-
