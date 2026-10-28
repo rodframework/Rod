@@ -321,7 +321,7 @@ id -- Enter opens the session console; campaigns and recon assets --
 Enter opens the detail page), verbs (the capability registry; Enter
 opens the verb's dialog), and task snippets (Enter runs). Slot jumps
 (`g` 1-7) and the density toggle round out the keyboard leg; see
-[Navigation](#navigation--the-seven-slots). Matching scores a
+[Navigation](#navigation-the-seven-slots). Matching scores a
 subsequence -- a prefix beats a word start beats a substring beats
 scattered letters -- and implant entries tie-break online-first, so the
 shortest reach lands on the live box.
@@ -1303,7 +1303,7 @@ one glance before the first build is ever queued.
   reading mode is the handoff digest (see
   [Handoff digest](#handoff-digest)) -- the windowed watch-resume read
   of the same trail. The watch's live read of it is the
-  [timeline](#timeline--the-overview-main-screen) on the overview slot;
+  [timeline](#timeline-the-overview-main-screen) on the overview slot;
   the narrative rendering lives as the Report's timeline section, and
   the standalone `/timeline` endpoint stays a scripting deliverable.
 - **Report** -- the whole engagement as a reproducible JSON/Markdown export,
