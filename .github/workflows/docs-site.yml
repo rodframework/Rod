@@ -36,9 +36,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           # Pinned like every toolchain in these workflows.
           python-version: '3.13'
@@ -64,9 +64,14 @@ jobs:
       - name: Build (strict)
         run: mkdocs build --strict
       - name: Upload the pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: site
+          # v4 dropped dotfiles from the artifact by default; keep them
+          # in so the .nojekyll marker the action writes into the path
+          # still rides the artifact, the v3 behavior this site deployed
+          # with.
+          include-hidden-files: true
 
   deploy:
     name: Deploy to Pages
@@ -78,4 +83,4 @@ jobs:
     steps:
       - name: Deploy
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

@@ -71,7 +71,7 @@ jobs:
         # arm compiles through the unit when the toolchain is present
         # (self-skipping otherwise). Pinned like every toolchain here; the
         # module's go directive (1.25) stays behind the pinned toolchain.
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.26.x'
           # The module cache setup-go keys on go.sum is dead weight here:
@@ -222,7 +222,7 @@ jobs:
         # last entry names the hung test) under TestResults; they only survive
         # the runner if they are uploaded before the job tears down.
         if: steps.test_core.outcome == 'failure' || steps.test_extended.outcome == 'failure'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: test-diagnostics
           path: '**/TestResults/**'
@@ -353,7 +353,7 @@ jobs:
         # lets a runner image roll the toolchain under an unchanged tree.
         # The module cache is off for the same reason the build-and-test
         # job turns it off: the unit vendors its dependencies.
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.26.x'
           cache: false

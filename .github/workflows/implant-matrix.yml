@@ -70,7 +70,7 @@ jobs:
         uses: actions/setup-dotnet@v5
         # Version comes from global.json (pinned to 10.0.110).
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.26.x'
       - name: Install the cell's native toolchain pieces
@@ -115,7 +115,7 @@ jobs:
           --logger trx
       - name: Upload test diagnostics
         if: failure()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: matrix-diagnostics-${{ matrix.cell }}
           path: '**/TestResults/**'
