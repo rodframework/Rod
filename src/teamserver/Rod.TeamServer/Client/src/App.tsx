@@ -13,6 +13,7 @@ import { EngagementsView } from './views/EngagementsView'
 import { HomeView } from './views/HomeView'
 import { SettingsView } from './views/SettingsView'
 import { SystemView } from './views/SystemView'
+import { ModulesMarketplaceView } from './views/ModulesMarketplaceView'
 import { RedirectorsView } from './views/RedirectorsView'
 import { CoverageView } from './views/CoverageView'
 import { DiagnosticsView } from './views/DiagnosticsView'
@@ -48,6 +49,7 @@ type Route =
   | { kind: 'coverage' }
   | { kind: 'settings' }
   | { kind: 'system' }
+  | { kind: 'modules' }
   | { kind: 'redirectors' }
   | { kind: 'diagnostics' }
 
@@ -91,6 +93,7 @@ function parseHash(): Route {
   if (/^\/coverage\/?$/.test(hash)) return { kind: 'coverage' }
   if (/^\/settings\/?$/.test(hash)) return { kind: 'settings' }
   if (/^\/system\/?$/.test(hash)) return { kind: 'system' }
+  if (/^\/modules\/?$/.test(hash)) return { kind: 'modules' }
   if (/^\/diagnostics\/?$/.test(hash)) return { kind: 'diagnostics' }
   // Everything else -- the bare hash, #/home, and any unrecognized link --
   // lands on the dashboard, so the console opens and falls back somewhere
@@ -285,6 +288,7 @@ function Topbar({
         {route.kind === 'engagement' && <EngagementCrumb engagementId={route.engagementId} />}
         {(route.kind === 'settings' ||
           route.kind === 'system' ||
+          route.kind === 'modules' ||
           route.kind === 'redirectors' ||
           route.kind === 'diagnostics') && (
           <span className="current">
@@ -387,6 +391,14 @@ function Topbar({
         >
           <Icon name="cpu" />
           <span className="label">System</span>
+        </a>
+        <a
+          className={`topbar-link${route.kind === 'modules' ? ' active' : ''}`}
+          href="#/modules"
+          title="The module ecosystem: what this deployment holds and the registry it pulls from -- installs are verified, audit-chained, and live"
+        >
+          <Icon name="package" />
+          <span className="label">Modules</span>
         </a>
         {operator.role === 'admin' && (
           <a
@@ -612,6 +624,8 @@ function App() {
             <EngagementsView />
           ) : route.kind === 'settings' ? (
             <SettingsView operator={operator} />
+          ) : route.kind === 'modules' ? (
+            <ModulesMarketplaceView />
           ) : route.kind === 'system' ? (
             <SystemView />
           ) : route.kind === 'redirectors' ? (

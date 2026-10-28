@@ -20,11 +20,11 @@ public class PayloadJobTests
     // The record's positional parameters are required up front; nulls keep a
     // minimal request (server defaults apply).
     private static PayloadEndpoints.BuildPayloadRequest Request(
-        string language = "Rust",
+        string unit = "rod-rust",
         string @class = "Implant",
         string? mode = null,
         string? listenerId = null)
-        => new(language, @class, TargetOs: null, TargetArch: null, ListenerId: listenerId,
+        => new(unit, @class, TargetOs: null, TargetArch: null, ListenerId: listenerId,
             UriPath: null, SleepSeconds: null, JitterSeconds: null, KillDate: null, Mode: mode);
 
     // Every build names its front: an engagement-scoped https listener is the
@@ -136,7 +136,7 @@ public class PayloadJobTests
 
         var accepted = await client.PostAsJsonAsync(
             $"/engagements/{engagementId}/payload-jobs",
-            Request(language: "Go", listenerId: frontId));
+            Request(unit: "rod-go", listenerId: frontId));
         Assert.Equal(HttpStatusCode.Accepted, accepted.StatusCode);
         var job = await accepted.Content.ReadFromJsonAsync<PayloadJobEndpoints.PayloadJobResponse>();
         Assert.NotNull(job);
@@ -154,7 +154,7 @@ public class PayloadJobTests
             $"/engagements/{engagementId}/payload-jobs",
             // Nim is the still-empty community slot; Go carries its in-tree
             // reference unit now, so it would build.
-            Request(language: "Nim", listenerId: frontId));
+            Request(unit: "community-nim", listenerId: frontId));
         Assert.Equal(HttpStatusCode.Accepted, accepted.StatusCode);
         var job = await accepted.Content.ReadFromJsonAsync<PayloadJobEndpoints.PayloadJobResponse>();
         Assert.NotNull(job);

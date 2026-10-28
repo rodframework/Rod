@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   type BuildJob,
+  type InstalledModule,
   type ListenerSummary,
   type PayloadSummary,
   enqueueBuildJob,
   listBuildJobs,
+  listInstalledModules,
   listListeners,
   listPayloads,
   revokeDeployToken,
@@ -31,7 +33,7 @@ import { WebShellGenerateForm } from '../components/WebShellGenerateForm'
 // WebShellGenerateForm beside the implant form under one toggle.
 //
 // The form offers only what the pipeline actually delivers: the in-tree Rust
-// unit (no language picker for units that are not registered), the full
+// unit (no unit picker until a second unit registers), the full
 // implant alone (the stager class retired with the .NET trees, delivery
 // rides the launcher one-liners, so no class picker either), this
 // engagement's family listeners (http/https/tcp/dns/doh all serve
@@ -334,6 +336,31 @@ export function PayloadBuildView({
     }
   }, [active, refreshJobs])
 
+  // The compiled-in extension picks (ADR-022): installed extension
+  // packages offered as checkboxes beside the listener pick. The
+  // server-side targeting gate refuses a pick this unit cannot compile,
+  // so the list stays honest without the client filtering.
+  const [installedExtensions, setInstalledExtensions] = useState<InstalledModule[]>([])
+  const [pickedExtensions, setPickedExtensions] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!active)
+      return
+    let cancelled = false
+    listInstalledModules()
+      .then((modules) => {
+        if (!cancelled)
+          setInstalledExtensions(modules.filter((m) => m.entry === 'extension'))
+      })
+      .catch(() => {
+        // No module store configured: the picker stays empty, the same
+        // open-not-on default every module seam keeps.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [active])
+
   const onRevokeToken = async (tokenId: string) => {
     if (!window.confirm(`Revoke baked token ${tokenId.slice(0, 8)}? The credential stops working immediately; a deployed artifact that has not enrolled yet will not be able to.`))
       return
@@ -368,7 +395,8 @@ export function PayloadBuildView({
       await enqueueBuildJob(engagementId, {
         // Language rides empty: the server defaults to the in-tree Rust unit,
         // and no other unit is registered to pick.
-        language: null,
+        unit: null,
+        extensions: pickedExtensions.size > 0 ? [...pickedExtensions] : [],
         // Class rides empty the same way: the server defaults to the full
         // implant, and the stager class is retired.
         class: null,
@@ -525,6 +553,32 @@ export function PayloadBuildView({
                 )}
               </select>
             </label>
+            {installedExtensions.length > 0 && (
+              <fieldset className="fieldSet">
+                <legend>Compiled-in extensions</legend>
+                {/* The implant-native tier (ADR-022): each pick compiles its
+                    sources into the artifact, per build. The server-side
+                    targeting gate refuses a pick this unit cannot compile,
+                    with the fix named. */}
+                {installedExtensions.map((extension) => (
+                  <label key={extension.name} className="checkboxRow">
+                    <input
+                      type="checkbox"
+                      checked={pickedExtensions.has(extension.name)}
+                      onChange={(e) => {
+                        const next = new Set(pickedExtensions)
+                        if (e.target.checked)
+                          next.add(extension.name)
+                        else
+                          next.delete(extension.name)
+                        setPickedExtensions(next)
+                      }}
+                    />
+                    {extension.name} <span className="dim">({extension.version})</span>
+                  </label>
+                ))}
+              </fieldset>
+            )}
             <label>
               OS
               {/* The build unit maps these onto a runtime identifier and refuses
@@ -830,7 +884,7 @@ export function PayloadBuildView({
                       <td title={job.jobId}>{new Date(job.requestedAt).toLocaleString()}</td>
                       <td>
                         <code>
-                          {job.language} {job.target}
+                          {job.unit} {job.target}
                         </code>
                       </td>
                       <td>

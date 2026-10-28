@@ -104,6 +104,11 @@ public enum LiveEventKind
     /// </summary>
     PayloadFetched,
 
+    /// <summary>A build finished into a stored artifact (Sec 6): the
+    /// operator-attributed completion the build strip and the timeline
+    /// render live, without polling.</summary>
+    PayloadBuilt,
+
     /// <summary>
     /// An operator took the claim on an interaction surface
     /// (architecture.md Sec 4.5) -- a live channel task's typing half or a

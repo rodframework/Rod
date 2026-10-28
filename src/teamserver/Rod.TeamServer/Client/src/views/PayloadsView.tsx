@@ -193,7 +193,7 @@ export function PayloadsView({
                     const q = filter.trim().toLowerCase()
                     if (!q) return true
                     const front = frontFor(p.endpoint, listeners)
-                    return [p.class, p.language, p.kind, p.target, p.build?.format, p.endpoint, front?.name, p.fingerprint].some(
+                    return [p.class, p.unitId, p.kind, p.target, p.build?.format, p.endpoint, front?.name, p.fingerprint].some(
                       (v) => v?.toLowerCase().includes(q),
                     )
                   })
@@ -225,7 +225,7 @@ export function PayloadsView({
                           <td>{new Date(p.builtAt).toLocaleString()}</td>
                           <td>
                             <code>
-                              {p.language} · {kindLabel(p.class)}
+                              {p.unitId} · {kindLabel(p.class)}
                               {p.kind === 'loader' && (
                                 <span
                                   className="muted"

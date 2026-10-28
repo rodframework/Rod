@@ -4367,3 +4367,49 @@ button.palette-trigger {
   padding: 8px 10px;
   margin: 0;
 }
+
+/* The module marketplace (ADR-023): two columns -- what the deployment
+   holds, and the registry it pulls from. */
+.twoColumn {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.moduleList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.moduleList li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border, #333);
+}
+
+.moduleList li:last-child {
+  border-bottom: none;
+}
+
+.fieldSet {
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

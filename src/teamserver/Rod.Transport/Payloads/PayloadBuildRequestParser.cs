@@ -60,7 +60,7 @@ internal static class PayloadBuildRequestParser
         // The default keeps a minimal request valid (the in-tree Rust unit, an
         // Implant-class build, linux/amd64).
         if (!TryParseUnit(body.Unit, out var unit))
-            return (null, "Unit is not recognized; the in-tree ids are 'rod-rust' and 'rod-go'.");
+            return (null, "Unit must be a kebab-case build unit id (the in-tree members are 'rod-rust' and 'rod-go'); an unlisted id fails its build with the registration named.");
         // The stager class is retired with the .NET trees: delivery rides the
         // launcher one-liners (the disk families plus the in-memory memfd
         // family), which fetch the payload over the same token-gated route a
@@ -564,11 +564,11 @@ internal static class PayloadBuildRequestParser
         return profile;
     }
 
-    // The unit id parse: the open vocabulary's in-tree members, with a
-    // fallback when the field is absent so a minimal request stays valid (the
-    // Rust reference unit). An external unit's id arrives here the moment its
-    // package is listed -- no code change, which is the whole point of the
-    // open vocabulary (ADR-021).
+    // The unit id parse: the form only (kebab-case), never the registration
+    // -- the open vocabulary's whole point (ADR-021). A well-formed id this
+    // deployment has no unit for is accepted here and fails its build with
+    // "No build unit registered for unit id ...", the layer that actually
+    // knows. Absent defaults to the in-tree Rust reference unit.
     private static bool TryParseUnit(string? text, out string unit)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -577,18 +577,9 @@ internal static class PayloadBuildRequestParser
             return true;
         }
         var trimmed = text.Trim();
-        if (string.Equals(trimmed, BuildUnitIds.Rust, StringComparison.OrdinalIgnoreCase))
-        {
-            unit = BuildUnitIds.Rust;
-            return true;
-        }
-        if (string.Equals(trimmed, BuildUnitIds.Go, StringComparison.OrdinalIgnoreCase))
-        {
-            unit = BuildUnitIds.Go;
-            return true;
-        }
-        unit = BuildUnitIds.Rust;
-        return false;
+        unit = trimmed;
+        return System.Text.RegularExpressions.Regex.IsMatch(
+            trimmed, "^[a-z0-9][a-z0-9-]{0,63}$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 
     // The extension names a build selects: blanks dropped so a trailing

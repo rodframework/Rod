@@ -24,7 +24,7 @@ export function deliverable(p: PayloadSummary): boolean {
 }
 
 export function payloadLabel(p: PayloadSummary): string {
-  const target = p.target ?? p.language
+  const target = p.target ?? p.unitId
   return [
     // The wire class reads as noise for the only implant class there is;
     // the other kinds (a web-shell script) still stand out.

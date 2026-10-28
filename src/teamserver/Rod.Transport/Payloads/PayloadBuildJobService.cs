@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Rod.Audit;
 using Rod.BuildPipeline.PayloadBuild;
 using Rod.CoreState.Operators;
+using Rod.CoreState.Live;
 
 namespace Rod.Transport.Payloads;
 
@@ -34,6 +35,7 @@ public sealed class PayloadBuildJobService : IHostedService
     private readonly PayloadBuildService _builds;
     private readonly IPayloadStore _payloads;
     private readonly IAuditStore _audit;
+    private readonly ILiveEventBus _events;
     private readonly TimeProvider _clock;
     private readonly ILogger<PayloadBuildJobService> _logger;
     private readonly CancellationTokenSource _stopping = new();
@@ -43,12 +45,14 @@ public sealed class PayloadBuildJobService : IHostedService
         PayloadBuildService builds,
         IPayloadStore payloads,
         IAuditStore audit,
+        ILiveEventBus events,
         TimeProvider clock,
         ILogger<PayloadBuildJobService> logger)
     {
         _builds = builds;
         _payloads = payloads;
         _audit = audit;
+        _events = events;
         _clock = clock;
         _logger = logger;
     }
@@ -144,6 +148,22 @@ public sealed class PayloadBuildJobService : IHostedService
                 var response = await PayloadBuildRecorder.RecordAsync(
                     artifact, job.RequestedBy, _payloads, _audit, stoppingToken).ConfigureAwait(false);
                 job.MarkCompleted(response, _clock.GetUtcNow());
+                // The completion rides the live bus (Sec 6): connected
+                // consoles learn the artifact landed without polling the
+                // job list -- best-effort like every bus publish.
+                try
+                {
+                    await _events.PublishAsync(LiveEvent.PayloadBuilt(
+                        job.Request.EngagementId,
+                        job.RequestedBy,
+                        $"{artifact.UnitId} {artifact.Params.Target.OperatingSystem}/{artifact.Params.Target.Architecture} {response.Fingerprint[..12]}",
+                        _clock.GetUtcNow())).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // The bus is best-effort by contract; a dropped
+                    // notification costs a poll, nothing more.
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

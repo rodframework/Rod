@@ -145,6 +145,7 @@ export function EngagementView({
       // A launcher credential was spent by an actual download: the kept
       // rows' budgets and the audit trail both move on it.
       onPayloadFetched: () => setTick((t) => t + 1),
+      onPayloadBuilt: () => setTick((t) => t + 1),
       onCampaignActivity: () => setTick((t) => t + 1),
       // A comment or chat row moved: the mutable surfaces refetch on the
       // same beat everything else does.

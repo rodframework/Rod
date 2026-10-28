@@ -158,6 +158,20 @@ public sealed record LiveEvent(
         => new(engagement, kind, OperatorId.Empty, ImplantId: null, TaskId: null, payload, at);
 
     /// <summary>
+    /// Builds a payload-built event: a build job finished into a stored
+    /// artifact (architecture.md Sec 6), attributed to the operator that
+    /// requested the build. The payload names the unit, target, and
+    /// fingerprint for direct rendering -- the console's build strip and
+    /// the timeline no longer need polling to learn a build landed.
+    /// </summary>
+    public static LiveEvent PayloadBuilt(
+        EngagementId engagement,
+        OperatorId operatorId,
+        string payload,
+        DateTimeOffset at)
+        => new(engagement, LiveEventKind.PayloadBuilt, operatorId, ImplantId: null, TaskId: null, payload, at);
+
+    /// <summary>
     /// Builds a payload-fetched event: an artifact was fetched over an
     /// engagement front's delivery route (architecture.md Sec 6), spending one
     /// use of the launcher credential it presented. System-initiated (the

@@ -136,10 +136,10 @@ export function SystemView() {
           <div className="card">
             <h3>Build units</h3>
             {info.buildUnits.map((unit) => (
-              <div key={unit.language} className="system-unit">
+              <div key={unit.unitId} className="system-unit">
                 <h4>
                   <span className={unitStatusClass(unit.status)}>{unit.status}</span>{' '}
-                  {unit.language} build unit
+                  {unit.unitId} build unit
                 </h4>
                 <ul className="system-findings">
                   {unit.findings.map((f) => (

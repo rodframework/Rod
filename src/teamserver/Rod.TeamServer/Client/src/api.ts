@@ -846,6 +846,7 @@ export interface EngagementStreamHandlers {
   onShellSessionOpened?: (payload: string) => void
   onShellSessionEnded?: (payload: string) => void
   onPayloadFetched?: (payload: string) => void
+  onPayloadBuilt?: (payload: string) => void
   onCampaignActivity?: (payload: string) => void
   // A comment or chat row moved (added, edited, deleted, a channel created,
   // a message sent): collaboration surfaces refetch on it.
@@ -939,6 +940,10 @@ export function subscribeToEngagement(
   source.addEventListener('PayloadFetched', (e) => {
     const payload = parse((e as MessageEvent).data)
     handlers.onPayloadFetched?.(payload?.payload ?? '')
+  })
+  source.addEventListener('PayloadBuilt', (e) => {
+    const payload = parse((e as MessageEvent).data)
+    handlers.onPayloadBuilt?.(payload?.payload ?? '')
   })
   source.addEventListener('CampaignActivity', (e) => {
     const payload = parse((e as MessageEvent).data)
@@ -2630,7 +2635,11 @@ export async function listOnline(engagementId: string): Promise<PresenceRecord[]
 // through a rebuild + redeploy.
 
 export interface BuildPayloadInput {
-  language: string | null
+  unit: string | null
+  // The compiled-in extensions (ADR-022): installed extension packages by
+  // name; the server-side targeting gate refuses a pick this unit cannot
+  // compile.
+  extensions: string[] | null
   class: string | null
   targetOs: string | null
   targetArch: string | null
@@ -2684,7 +2693,7 @@ export interface BuildPayloadResult {
   artifactId: string
   engagementId: string
   class: string
-  language: string
+  unitId: string
   contentType: string
   fingerprint: string
   size: number
@@ -2713,7 +2722,7 @@ export interface BuildJob {
   startedAt: string | null
   completedAt: string | null
   class: string
-  language: string
+  unit: string
   target: string
   endpoint: string
   mode: string
@@ -2733,6 +2742,62 @@ export async function enqueueBuildJob(
   return jsonOrThrow(response)
 }
 
+// --- Module lifecycle (ADR-023) ---------------------------------
+//
+// The operator console's module workflow: browse the registry, install a
+// package (verified through the trust chain server side, hot-registered,
+// audit-chained), and uninstall. The surface installs data packages only;
+// in-proc assemblies stay a deployment owner's config decision.
+
+export interface InstalledModule {
+  name: string
+  version: string
+  entry: string
+  fingerprint: string
+  installedAt: string
+}
+
+export interface RegistryEntrySummary {
+  name: string
+  entry: string
+  description: string | null
+  license: string
+  latest: string | null
+}
+
+export async function listInstalledModules(): Promise<InstalledModule[]> {
+  return jsonOrThrow(await fetch('modules'))
+}
+
+export async function listRegistryModules(): Promise<RegistryEntrySummary[]> {
+  return jsonOrThrow(await fetch('modules/registry'))
+}
+
+export async function installModule(name: string, version: string | null): Promise<unknown> {
+  return jsonOrThrow(
+    await fetch('modules/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, version }),
+    }),
+  )
+}
+
+export async function uninstallModule(name: string): Promise<void> {
+  const response = await fetch(`modules/${encodeURIComponent(name)}/uninstall`, { method: 'POST' })
+  if (!response.ok)
+    throw new Error(await response.text())
+}
+
+export async function fetchModuleArtifact(name: string, platform: string, arch: string): Promise<Blob> {
+  const response = await fetch(
+    `modules/${encodeURIComponent(name)}/artifact?platform=${encodeURIComponent(platform)}&arch=${encodeURIComponent(arch)}`,
+  )
+  if (!response.ok)
+    throw new Error(await response.text())
+  return response.blob()
+}
+
 export async function listBuildJobs(engagementId: string): Promise<BuildJob[]> {
   return jsonOrThrow(await fetch(`engagements/${engagementId}/payload-jobs`))
 }
@@ -2748,7 +2813,7 @@ export async function listBuildJobs(engagementId: string): Promise<BuildJob[]> {
 export interface PayloadSummary {
   artifactId: string
   class: string
-  language: string
+  unitId: string
   target: string | null
   endpoint: string | null
   contentType: string
@@ -2839,7 +2904,7 @@ export interface SystemInfo {
 }
 
 export interface BuildUnitEnvironment {
-  language: string
+  unitId: string
   // ready | partial | unavailable
   status: string
   findings: { level: string; area: string; detail: string }[]
