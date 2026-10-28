@@ -1104,9 +1104,19 @@ mod tests {
 
     #[test]
     fn the_posture_line_is_alone_when_info_finds_nothing() {
-        // A host with no domain posture and no resolver: the info scope
-        // answers the honest local line and nothing else.
-        let output = domainenum("info").expect("the sweep runs");
+        // A host with no domain posture: DC discovery has no domain to ask
+        // about, so the info scope answers the posture line alone. The
+        // context is built rather than read because the live read pulls the
+        // host's own /etc sources -- a search list there would hand the
+        // sweep a posture this test never chose.
+        let context = context::DomainContext {
+            host: "host".into(),
+            ..context::DomainContext::default()
+        };
+        let mut rows = Rows::new();
+        rows.push(posture_line(&context));
+        info_rows(&context, &mut rows);
+        let output = rows.finish(&context.host).join("\n");
         assert_eq!(output.lines().count(), 1, "{output}");
     }
 
