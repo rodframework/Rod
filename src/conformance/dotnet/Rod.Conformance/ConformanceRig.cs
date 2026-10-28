@@ -21,6 +21,7 @@ using Rod.Audit;
 using Rod.Transport;
 using Rod.V1;
 using Task = System.Threading.Tasks.Task;
+using Rod.Capabilities;
 
 namespace Rod.Conformance;
 
@@ -111,6 +112,8 @@ public sealed class ConformanceRig : IAsyncDisposable
     public const string ChunkClause = "chunk.discipline";
     public const string SignatureClause = "signature.verification";
     public const string KillDateClause = "kill-date.refusal";
+    public const string PluginLoadClause = "plugin.load-exec-v1";
+    public const string PluginArtifactClause = "plugin.artifact-return";
 
     private static readonly TimeSpan ObserveDeadline = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan KillDateGrace = TimeSpan.FromSeconds(8);
@@ -163,8 +166,15 @@ public sealed class ConformanceRig : IAsyncDisposable
         // their console logging cleared: a rig run's observable is the
         // per-clause report, and the standalone runner prints exactly that
         // and nothing else on stdout.
-        var host = TransportHost.CreateHostBuilder().ConfigureWebHost(web => web
+        var host = TransportHost.CreateHostBuilder()
+            .ConfigureWebHost(web => web
                 .ConfigureKestrel(kestrel => kestrel.ListenLocalhost(enrollPort)))
+            .ConfigureServices((context, services) =>
+                // The capabilities layer the composition root wires (the
+                // registry-backed resolver swaps ride with it): the fixture
+                // plugin's verbs register into the same registry a module
+                // package's rows land in.
+                RodCapabilitiesHost.AddRodCapabilities(services, context.Configuration))
             .ConfigureLogging(logging => logging.ClearProviders())
             .Build();
 
@@ -175,6 +185,21 @@ public sealed class ConformanceRig : IAsyncDisposable
                 OperatorId.New(), "conformance", DateTimeOffset.UtcNow,
                 DeploymentRole.Member));
         }
+        // The fixture plugin's verbs must clear the dispatch gate, so the
+        // rig registers their descriptors before any candidate contacts --
+        // the same registration a module package's manifest rows carry.
+        {
+            var registry = host.Services.GetRequiredService<Rod.Capabilities.Registry.ICapabilityRegistry>();
+            await registry.RegisterAsync(new Rod.Capabilities.Registry.ManifestDescriptorModule(
+                Rod.Capabilities.CapabilityDescriptor.Of(
+                    "conform.plugin", Rod.Capabilities.CapabilityCategory.Core,
+                    "1.0.0", new Dictionary<string, string>(), [], null, null)));
+            await registry.RegisterAsync(new Rod.Capabilities.Registry.ManifestDescriptorModule(
+                Rod.Capabilities.CapabilityDescriptor.Of(
+                    "conform.artifact", Rod.Capabilities.CapabilityCategory.Collect,
+                    "1.0.0", new Dictionary<string, string>(), [], null, null)));
+        }
+
         await host.StartAsync();
 
         // The rig fronts are plain HTTP, so no candidate pins a CA; the
@@ -227,7 +252,7 @@ public sealed class ConformanceRig : IAsyncDisposable
     /// (signature verification), and a past kill date (self-termination
     /// before any contact).
     /// </summary>
-    public async Task<ConformanceReport> RunAsync(IImplantCandidate candidate)
+    public async Task<ConformanceReport> RunAsync(IImplantCandidate candidate, byte[]? execPlugin = null)
     {
         var clauses = new List<ConformanceClause>();
 
@@ -296,6 +321,98 @@ public sealed class ConformanceRig : IAsyncDisposable
                 finally
                 {
                     try { File.Delete(path); } catch { }
+                }
+
+                // The plugin tier (extending/implants.md, Tier 2; ADR-020):
+                // exercised only when the caller supplies the exec-v1
+                // fixture module's bytes -- the clauses name the loader ABI
+                // a portable plugin rides. A candidate that hosts the family
+                // stages the module through the task's own content, widens
+                // its advertisement, and answers the verbs the module
+                // registers; the artifact clause additionally proves the
+                // ABI 2 return flows into the artifact store byte-for-byte.
+                if (execPlugin is { Length: > 0 })
+                {
+                    var loadedVerbListed = false;
+                    try
+                    {
+                        // The load task's own report carries the verdict: the
+                        // loader's "module conform loaded: <verbs>" line, so
+                        // the poll reads one task instead of issuing new
+                        // ones.
+                        var hash = Convert.ToHexStringLower(
+                            System.Security.Cryptography.SHA256.HashData(execPlugin));
+                        var load = await _taskService.IssueAsync(new IssueTaskCommand(
+                            engagement.EngagementId, implant, _operator, "module.load",
+                            $"conform sha256:{hash}", execPlugin.Length));
+                        // The staged bytes bind to their task as an artifact,
+                        // the same first-class object the task endpoint's
+                        // typed arm produces: the beacon stream serves the
+                        // implant's StagedPull from exactly this record.
+                        await _artifacts.SaveAsync(new Artifact(
+                            ArtifactId: Guid.NewGuid(),
+                            EngagementId: engagement.EngagementId.Value,
+                            TaskId: load.TaskId.Value,
+                            OperatorId: _operator.Value,
+                            Name: "staged-" + load.TaskId.Value.ToString("N"),
+                            ContentType: "application/octet-stream",
+                            Content: execPlugin,
+                            Size: execPlugin.Length,
+                            StoredAt: DateTimeOffset.UtcNow));
+                        loadedVerbListed = await UntilAsync(ObserveDeadline, async () =>
+                        {
+                            var task = await _taskRecords.FindAsync(load.TaskId);
+                            return task is { Status: Rod.CoreState.Tasks.TaskStatus.Completed }
+                                && task.Outcome == Rod.CoreState.Tasks.TaskOutcome.Succeeded
+                                && (task.Output ?? "").Contains("conform");
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        clauses.Add(new ConformanceClause(PluginLoadClause, false,
+                            $"issuing the module.load task failed: {ex.Message}"));
+                    }
+
+                    if (!loadedVerbListed)
+                    {
+                        clauses.Add(new ConformanceClause(PluginLoadClause, false,
+                            "the module.load task never completed with the module's load report (staging refused, hash mismatch, or the loader family absent)"));
+                    }
+
+                    if (loadedVerbListed)
+                    {
+                        var pluginMarker = "conform-" + Guid.NewGuid().ToString("N")[..8];
+                        var pluginIssued = await _taskService.IssueAsync(new IssueTaskCommand(
+                            engagement.EngagementId, implant, _operator, "conform.plugin", pluginMarker));
+                        var answered = await UntilAsync(ObserveDeadline, async () =>
+                        {
+                            var task = await _taskRecords.FindAsync(pluginIssued.TaskId);
+                            return task is { Status: Rod.CoreState.Tasks.TaskStatus.Completed }
+                                && task.Outcome == Rod.CoreState.Tasks.TaskOutcome.Succeeded
+                                && task.Output?.Contains(pluginMarker) == true;
+                        });
+                        clauses.Add(new ConformanceClause(PluginLoadClause, answered,
+                            answered ? "the exec-v1 fixture staged through module.load and its verb answered with the marker"
+                                     : "the module staged but its verb never answered with the marker (advertisement not widened, or dispatch refused)"));
+
+                        var payload = Convert.ToHexString(RandomNumberGenerator.GetBytes(2048)).ToLowerInvariant();
+                        // The fixture's artifact run carries its argument
+                        // string as the bytes: the comparison expects the
+                        // hex string verbatim, not its decoding.
+                        var expected = System.Text.Encoding.UTF8.GetBytes(payload);
+                        var run = await _taskService.IssueAsync(new IssueTaskCommand(
+                            engagement.EngagementId, implant, _operator, "conform.artifact", payload));
+                        var artifact = await UntilAsync(ObserveDeadline, async () =>
+                        {
+                            var stored = (await _artifacts.ForTaskAsync(run.TaskId.Value))
+                                .FirstOrDefault(a => a.Name == "conform.bin");
+                            return stored is { Content.Length: > 0 }
+                                && stored.Content.AsSpan().SequenceEqual(expected);
+                        });
+                        clauses.Add(new ConformanceClause(PluginArtifactClause, artifact,
+                            artifact ? "the module's artifact run returned byte-for-byte through the exfil arm"
+                                     : "the artifact verb completed but no byte-equal conform.bin artifact arrived (ABI 2 return unimplemented, or the run was dropped)"));
+                    }
                 }
             }
         }

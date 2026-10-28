@@ -45,6 +45,7 @@ public static class Program
     {
         string? candidate = null;
         var selftest = false;
+        string? pluginPath = null;
         var environment = new Dictionary<string, string>(StringComparer.Ordinal);
         var defectNames = new List<string>();
         for (var i = 0; i < args.Length; i++)
@@ -57,6 +58,13 @@ public static class Program
                     return ExitOk;
                 case "--selftest":
                     selftest = true;
+                    break;
+                case "--plugin":
+                    pluginPath = i + 1 < args.Length ? args[++i] : null;
+                    if (string.IsNullOrEmpty(pluginPath))
+                        throw new RunnerError("--plugin needs a value (the exec-v1 fixture module's path).");
+                    if (!File.Exists(pluginPath))
+                        throw new RunnerError($"the plugin '{pluginPath}' does not exist.");
                     break;
                 case "--env":
                 case "--defect":
@@ -90,6 +98,9 @@ public static class Program
                 "name a candidate path, or pass --selftest to run the harness's own minimal implant -- exactly one.");
         if (!selftest && !File.Exists(candidate))
             throw new RunnerError($"the candidate '{candidate}' does not exist.");
+        // The plugin clauses are opt-in: --plugin names the exec-v1 fixture
+        // module (modules/conform's release binary) whose staging the two
+        // Tier 2 clauses read.
 
         if (!ImplantDefects.TryParse(defectNames, out var defects, out var unknown))
             throw new RunnerError(
@@ -101,7 +112,9 @@ public static class Program
             : new ProcessCandidate(candidate!, environment);
         using (instance)
         {
-            var report = await rig.RunAsync(instance);
+            var report = await rig.RunAsync(
+                instance,
+                pluginPath is null ? null : await File.ReadAllBytesAsync(pluginPath));
             // The report is the whole stdout: byte-identical to what the
             // in-tree rig renders, so the two are diffable as-is.
             Console.Out.WriteLine(report);

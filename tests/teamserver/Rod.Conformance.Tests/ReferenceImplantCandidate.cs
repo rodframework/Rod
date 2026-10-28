@@ -28,7 +28,7 @@ public sealed class ReferenceImplantCandidate : IImplantCandidate
             ["ROD_JITTER"] = "0",
             ["ROD_MODE"] = "poll",
             ["ROD_ENVELOPE"] = "none",
-            ["ROD_VERBS"] = "shell.exec,file.pull,fs.list,beacon.sleep,proc.kill",
+            ["ROD_VERBS"] = "shell.exec,file.pull,fs.list,beacon.sleep,proc.kill,module.load,module.unload,module.list",
         };
 
     /// <summary>The compiled reference implant binary, cargo's release output.</summary>
