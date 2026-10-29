@@ -1084,4 +1084,90 @@ public class CanonicalFormTests
         Assert.StartsWith("name=demo-sweep\n", form[(CanonicalForm.VersionLine.Length + 1)..]);
     }
 
+    // The freeze golden (ADR-019, executed at v1.0.0): one manifest
+    // exercising every line kind the form knows, pinned as whole bytes.
+    // The per-line Contains tests above pin each shape; this one pins the
+    // line ORDER -- the order is part of the signed bytes, so a reorder
+    // breaks every published package's signature even when every line
+    // still reads right. Updating this string is a contract change: it
+    // rides a canonical-form version bump, never a silent edit.
+    [Fact]
+    public void TheForm_IsByteFrozenForAReferenceManifest()
+    {
+        var manifest = new ModuleManifest
+        {
+            Name = "golden-demo",
+            Version = new SemVer(1, 2, 3, null),
+            Entry = ModuleEntryKind.Plugin,
+            License = "MIT",
+            Description = "The freeze golden.",
+            Homepage = "https://example.test",
+            TeamserverMin = new SemVer(1, 0, 0, null),
+            Targets =
+            [
+                new TargetMatrix("implant", "windows", "amd64"),
+                new TargetMatrix("implant", "linux", "amd64", BuildUnit: "rod-rust", UnitRange: new SemVer(1, 2, 0, null)),
+            ],
+            Opsec = new OpsecMetadata(false, "Memory only."),
+            Techniques = ["t1082", "T1005"],
+            Requires = ["staged-uploads", "plugin-loader/exec-v1"],
+            Conformance = new ConformanceReport(2, new SemVer(1, 0, 0, null), "2026-01-15",
+                ["task.round-trip", "enroll.public-key-and-token"]),
+            Verbs =
+            [
+                new VerbDeclaration("golden.run", new SemVer(0, 2, 0, null), new SemVer(1, 1, 0, null), ["T1005"],
+                    Category: "recon",
+                    Opsec: new Dictionary<string, bool> { ["touches-network"] = true },
+                    Parameters:
+                    [
+                        new VerbParameterDeclaration("host", "Host", "string", Required: true, Placeholder: "10.0.0.7"),
+                        new VerbParameterDeclaration("mode", "Mode", "enum", Choices: ["fast", "slow"]),
+                    ],
+                    Output: new VerbOutputDeclaration("enumeration", "One finding per line.")),
+                new VerbDeclaration("golden.walk", new SemVer(0, 1, 0, null), null, null),
+            ],
+            Assets = [new AssetDeclaration("z-page", "assets/z.html"), new AssetDeclaration("hook", "assets/hook.js")],
+            PluginArtifacts =
+            [
+                new PluginArtifact("linux", "arm64", "bin/golden-arm", "exec-v1"),
+                new PluginArtifact("linux", "amd64", "bin/golden-linux", "exec-v1"),
+            ],
+        };
+        var digests = new Dictionary<string, string>
+        {
+            ["bin/golden-linux"] = "bb",
+            ["bin/golden-arm"] = "aa",
+        };
+
+        Assert.Equal("""
+            rod-module-manifest-v4
+            name=golden-demo
+            version=1.2.3
+            entry=plugin
+            license=MIT
+            description=The freeze golden.
+            homepage=https://example.test
+            teamserver=1.0.0
+            lands-on-disk=false
+            opsec-notes=Memory only.
+            techniques=T1005,T1082
+            targets=implant/linux/amd64 unit=rod-rust unit-floor=1.2.0,implant/windows/amd64
+            unit=-
+            plugin-artifact/linux/amd64=path=bin/golden-linux abi=exec-v1
+            plugin-artifact/linux/arm64=path=bin/golden-arm abi=exec-v1
+            requires=plugin-loader/exec-v1,staged-uploads
+            conformance=2/1.0.0/2026-01-15
+            conformance-clauses=enroll.public-key-and-token,task.round-trip
+            verb/golden.run=0.2.0 teamserver=1.1.0 techniques=T1005 category=recon opsec=touches-network=true
+            param/golden.run/host=kind=string required=true trailing=false inline=true choices=- label=Host placeholder=10.0.0.7 help=-
+            param/golden.run/mode=kind=enum required=false trailing=false inline=true choices=fast,slow label=Mode placeholder=- help=-
+            output/golden.run=kind=enumeration help=One finding per line.
+            verb/golden.walk=0.1.0
+            asset/hook=assets/hook.js
+            asset/z-page=assets/z.html
+            file/bin/golden-arm=aa
+            file/bin/golden-linux=bb
+            """, CanonicalForm.Build(manifest, digests));
+    }
+
 }
