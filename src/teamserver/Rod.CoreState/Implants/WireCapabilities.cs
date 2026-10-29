@@ -20,9 +20,11 @@ namespace Rod.CoreState.Implants;
 /// The loader family carries an ABI suffix naming the loading contract a
 /// plugin's artifact was built against (ADR-020): <c>exec-v1</c> is the
 /// out-of-process stdio loader, <c>native-v1</c> the in-process
-/// <c>rod_plugin_*</c> C ABI, and <c>coff-v1</c>/<c>wasm-v1</c> are reserved
-/// for loaders no reference implant ships yet -- the vocabulary is the
-/// opening, the loaders land with their implants.
+/// <c>rod_plugin_*</c> C ABI, <c>coff-v1</c> the Windows COFF object
+/// loader (the BOF corpus, against a Beacon-compatible host table), and
+/// <c>wasm-v1</c> is reserved for a loader no reference implant ships
+/// yet -- the vocabulary is the opening, the loaders land with their
+/// implants.
 /// </para>
 /// </remarks>
 public static class WireCapabilities
@@ -44,9 +46,10 @@ public static class WireCapabilities
     public const string PluginLoaderNative = PluginLoaderPrefix + "native-v1";
 
     /// <summary>
-    /// The COFF/BOF loader ABI. Reserved: no in-tree implant ships a COFF
-    /// loader yet; the name exists so manifests, the registry, and the
-    /// catalog can speak about the tier before it lands.
+    /// The COFF/BOF loader ABI: the Windows floor loads a bare COFF object
+    /// (the BOF corpus's shape) against a Beacon-compatible host table --
+    /// architecture.md Sec 5.4, the loading contract extending/modules.md
+    /// documents.
     /// </summary>
     public const string PluginLoaderCoff = PluginLoaderPrefix + "coff-v1";
 

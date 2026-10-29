@@ -50,12 +50,14 @@ public static class ModuleEntryKindNames
 /// contract the artifact was built against, not the implant that hosts it.
 /// <c>exec-v1</c> is the out-of-process stdio loader (a self-contained
 /// executable run per exchange), <c>native-v1</c> the in-process
-/// <c>rod_plugin_*</c> C ABI (a library the implant maps and calls);
-/// <c>coff-v1</c> and <c>wasm-v1</c> are reserved -- the names exist so the
-/// manifests, the registry, and the catalog can speak about the tiers
-/// before any reference implant ships their loaders. <see cref="Loadable"/>
-/// names the ABIs the in-tree reference loaders accept today; publishing an
-/// artifact under a reserved ABI is refused until its loader lands.
+/// <c>rod_plugin_*</c> C ABI (a library the implant maps and calls), and
+/// <c>coff-v1</c> the Windows COFF object loader (a bare BOF the implant
+/// relocates against a Beacon-compatible host table). <c>wasm-v1</c> is
+/// reserved -- the name exists so the manifests, the registry, and the
+/// catalog can speak about the tier before any reference implant ships its
+/// loader. <see cref="Loadable"/> names the ABIs the in-tree reference
+/// loaders accept today; publishing an artifact under a reserved ABI is
+/// refused until its loader lands.
 /// </summary>
 public static class PluginAbis
 {
@@ -68,7 +70,7 @@ public static class PluginAbis
     public static readonly IReadOnlyList<string> Known = [Exec, Native, Coff, Wasm];
 
     /// <summary>The ABIs with a reference loader shipped today.</summary>
-    public static readonly IReadOnlyList<string> Loadable = [Exec, Native];
+    public static readonly IReadOnlyList<string> Loadable = [Exec, Native, Coff];
 
     public static bool IsKnown(string name)
         => Known.Contains(name, StringComparer.Ordinal);
@@ -102,7 +104,8 @@ public static class WireCapabilities
     /// family).</summary>
     public const string PluginLoaderNative = PluginLoaderPrefix + "native-v1";
 
-    /// <summary>The COFF/BOF loader ABI. Reserved.</summary>
+    /// <summary>The COFF/BOF loader ABI: the Windows floor loads a bare
+    /// COFF object against a Beacon-compatible host table.</summary>
     public const string PluginLoaderCoff = PluginLoaderPrefix + "coff-v1";
 
     /// <summary>The wasm loader ABI. Reserved.</summary>

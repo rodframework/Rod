@@ -57,8 +57,8 @@ public static class PublishCommand
         // A plugin package's artifacts must ride the package: every
         // [[plugin.artifacts]] path the manifest names has to be in the
         // selection, and its ABI has to be one a reference loader ships --
-        // a reserved name (coff-v1, wasm-v1) publishes a binary nothing
-        // can load yet.
+        // a reserved name (wasm-v1) publishes a binary nothing can load
+        // yet.
         foreach (var artifact in manifest.PluginArtifacts)
         {
             if (!PluginAbis.IsLoadable(artifact.Abi))

@@ -482,14 +482,45 @@ public class EndToEndTests
             ?? [];
         Assert.Contains("demo-plugin", rollUp);
 
-        // A reserved ABI is a refusal: nothing ships a loader for it yet.
+        // A reserved ABI is a refusal: nothing ships a loader for it yet
+        // (coff-v1 joined the loadable set when its reference loader
+        // landed, so the refusal keeps its pin on wasm-v1).
         var manifestPath = Path.Combine(plugin, "rod-module.toml");
         File.WriteAllText(manifestPath,
-            File.ReadAllText(manifestPath).Replace("abi = \"exec-v1\"", "abi = \"coff-v1\"")
-                .Replace("plugin-loader/exec-v1", "plugin-loader/coff-v1"));
+            File.ReadAllText(manifestPath).Replace("abi = \"exec-v1\"", "abi = \"wasm-v1\"")
+                .Replace("plugin-loader/exec-v1", "plugin-loader/wasm-v1"));
         var reserved = CliRun.Run("mod", "publish", "--path", plugin, "--registry", registry);
         Assert.Equal(RodCli.ExitUsage, reserved.Code);
         Assert.Contains("reserved", reserved.Error);
+
+        // A coff-v1 row now publishes: the Windows loader ships, so the
+        // package carries a BOF beside its exec half and the requires row
+        // widens to the artifacts' ABI union.
+        Author(plugin, "1.0.1", payload: null);
+        var coff = Path.Combine(plugin, "plugin", "demo-plugin-windows-amd64.o");
+        File.WriteAllText(coff, "placeholder object bytes");
+        File.WriteAllText(manifestPath, File.ReadAllText(manifestPath)
+            .Replace("abi = \"wasm-v1\"", "abi = \"exec-v1\"")
+            .Replace("requires = [\"plugin-loader/wasm-v1\"]",
+                "requires = [\"plugin-loader/exec-v1\", \"plugin-loader/coff-v1\"]")
+            + """
+
+              [[plugin.artifacts]]
+              platform = "windows"
+              arch = "amd64"
+              path = "plugin/demo-plugin-windows-amd64.o"
+              abi = "coff-v1"
+              """);
+        var bof = CliRun.Run("mod", "publish", "--path", plugin, "--registry", registry);
+        Assert.True(bof.Code == 0, bof.Error);
+        var bofVersion = Rod.Packaging.RegistryJson.LoadEntry(
+            Path.Combine(registry, "modules", "demo-plugin.json"))!
+            .Versions.Single(v => v.Version == "1.0.1");
+        Assert.Contains(bofVersion.PluginArtifacts!, row =>
+            row.Platform == "windows" && row.Arch == "amd64" && row.Abi == "coff-v1");
+        Assert.Equal(
+            ["plugin-loader/exec-v1", "plugin-loader/coff-v1"],
+            bofVersion.Compatibility.Requires);
     }
 
     private static void Author(string module, string version, string? payload, string teamserver = "1.0.0", string? description = null)

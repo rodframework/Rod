@@ -484,10 +484,10 @@ public static class ManifestToml
         sb.AppendLine("[compatibility]");
         sb.AppendLine($"teamserver = {Quote(teamserverMin.ToString())}  # minimum teamserver version");
         sb.AppendLine("# Wire capabilities the hosting implant must support (the closed");
-        sb.AppendLine("# vocabulary: plugin-loader/exec-v1, plugin-loader/native-v1, the");
-        sb.AppendLine("# reserved coff/wasm tiers, exfil-chunks, staged-uploads). The");
-        sb.AppendLine("# implant's handshake advertisement is the runtime truth; this row");
-        sb.AppendLine("# is the store's static filter.");
+        sb.AppendLine("# vocabulary: plugin-loader/exec-v1, plugin-loader/native-v1,");
+        sb.AppendLine("# plugin-loader/coff-v1, the reserved wasm tier, exfil-chunks,");
+        sb.AppendLine("# staged-uploads). The implant's handshake advertisement is the");
+        sb.AppendLine("# runtime truth; this row is the store's static filter.");
         if (entry == ModuleEntryKind.Plugin)
         {
             // A plugin's requirement rows are its artifacts' ABI union (the
@@ -584,7 +584,7 @@ public static class ManifestToml
             // store's static filter.
             sb.AppendLine("# The plugin's prebuilt execution halves (ADR-020): one row per target,");
             sb.AppendLine("# the ABI naming the loading contract (exec-v1 out-of-process, native-v1");
-            sb.AppendLine("# in-process rod_plugin_*; coff-v1/wasm-v1 are reserved).");
+            sb.AppendLine("# in-process rod_plugin_*, coff-v1 the Windows BOF; wasm-v1 is reserved).");
             sb.AppendLine("[[plugin.artifacts]]");
             sb.AppendLine("platform = \"linux\"");
             sb.AppendLine("arch = \"amd64\"");
