@@ -1,24 +1,27 @@
-# The domain-discovery module manifest (architecture.md Sec 15.2,
-# ADR-009): the module line's first tradecraft entry rides the same
-# package format, canonical form, and signature chain hostenum rides,
-# exercised by the CLI's end-to-end tests exactly like a
-# template-repository module.
+# The domainenum module's v4 plugin package (architecture.md Sec 15.2,
+# ADRs 009/020): the module line's first tradecraft entry rides the same
+# package format, canonical form, and signature chain an external module
+# rides, exercised by the CLI's end-to-end tests exactly like a
+# template-repository module. The package carries the server-side
+# descriptor rows and the Linux exec-shape artifact an implant loads
+# through module.load -- build.sh puts the binary at plugin/ before `rod
+# mod publish` packs it.
 
 [module]
 name = "domainenum"
-version = "1.1.0"
-entry = "server"
+version = "1.2.0"
+entry = "plugin"
 license = "Apache-2.0"
-description = "Domain discovery, both halves: local domain posture, DC location (logon server / DNS SRV), and the anonymous LDAP root DSE; and over an authenticated LDAP bind, domain users, groups, ACLs, SPN objects, and trusts -- recon.domainenum's execution half lives at src/implant/rust/modules/domainenum."
+description = "Domain discovery, both halves: local domain posture, DC location (logon server / DNS SRV), and the anonymous LDAP root DSE; and over an authenticated LDAP bind, domain users, groups, ACLs, SPN objects, and trusts -- recon.domainenum's execution half packed as the artifact an implant loads through module.load."
 
 [compatibility]
 teamserver = "1.0.0"
 
-# The capability requirements (ADR-017): the pair's execution half is a
-# plugin the target loads through the module family, so the hosting implant
-# must advertise the loader. The implant's handshake advertisement is the
+# A plugin's requirement rows are exactly its artifacts' ABI union
+# (ADR-020): the Linux artifact is the exec shape, so the hosting implant
+# must advertise that loader. The implant's handshake advertisement is the
 # runtime truth; this row is the store's static filter.
-requires = ["plugin-loader/exec-v1", "plugin-loader/native-v1"]
+requires = ["plugin-loader/exec-v1"]
 
 # The verb version matrix (architecture.md Sec 15.2), now the descriptor
 # row itself (ADR-018): the verb iterates
@@ -28,6 +31,8 @@ requires = ["plugin-loader/exec-v1", "plugin-loader/native-v1"]
 # -- with the module-level [attack] list as their validated
 # roll-up. v1.1 widened the row from the credential-free pair to carry
 # the authenticated half's account and group discovery techniques.
+# The row is unchanged from the 1.1.0 descriptor-only package; 1.2.0 is
+# the tier change that packs the artifact beside it.
 [[verbs]]
 name = "recon.domainenum"
 version = "1.1.0"
@@ -57,35 +62,31 @@ output-help = "One JSON finding per line: the posture row, then DC rows (host, p
   help = "A $cred-<id> placeholder resolves to the stored secret at dispatch."
   trailing = true
 
-# Both delivery shapes run everywhere the seam compiles: the Linux
-# executable reads krb5/sssd/resolv and answers over DNS/LDAP, the
-# Windows cdylib reads the session environment for the same sweep.
+# The one target the artifact set covers: one prebuilt execution half per
+# platform and arch the package ships. A Windows artifact row joins when
+# a release builds one -- a target without its artifact is a claim the
+# package does not carry.
 [[compatibility.targets]]
 implant-class = "implant"
 platform = "linux"
 arch = "amd64"
-
-[[compatibility.targets]]
-implant-class = "implant"
-platform = "linux"
-arch = "arm64"
-
-[[compatibility.targets]]
-implant-class = "implant"
-platform = "windows"
-arch = "amd64"
-
-[[compatibility.targets]]
-implant-class = "implant"
-platform = "windows"
-arch = "arm64"
 
 [opsec]
 lands-on-disk = true
-notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content: through a memfd on Linux (nothing on disk), mapped in memory on Windows. The sweep sends DNS and LDAP packets to the domain's own servers -- network-visible to the DC. The authenticated scopes bind with the task's credential over simple bind on the cleartext port: the secret crosses the implant-to-DC path in the open unless the site seals it, and a wrong password counts toward the account's lockout."
+notes = "Server side, the package lands as descriptor rows and one artifact file under the module store -- no code runs in the teamserver. On the target, the implant half loads from staged task content: through a memfd on Linux (nothing on disk), mapped in memory on Windows. The sweep sends DNS and LDAP packets to the domain's own servers -- network-visible to the DC. The authenticated scopes bind with the task's credential over simple bind on the cleartext port: the secret crosses the implant-to-DC path in the open unless the site seals it, and a wrong password counts toward the account's lockout."
 
 [attack]
 techniques = ["T1018", "T1482", "T1087.002", "T1069.002"]
 
+# The artifact is build output -- build.sh copies the cargo binary into
+# plugin/ before a publish; nothing there is committed. The rules admit
+# the manifest and the plugin directory only, so the tree's build script
+# never rides the package.
 [package]
-include = ["rod-module.toml"]
+include = ["rod-module.toml", "plugin/**"]
+
+[[plugin.artifacts]]
+platform = "linux"
+arch = "amd64"
+path = "plugin/domainenum-linux-amd64"
+abi = "exec-v1"

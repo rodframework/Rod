@@ -1,24 +1,27 @@
-# The services module manifest (architecture.md Sec 15.2): the
-# persistence family's second entry rides the same package format,
-# canonical form, and signature chain hostenum, domainenum, and runkeys
-# ride, exercised by the CLI's end-to-end tests exactly like a
-# template-repository module.
+# The services module's v4 plugin package (architecture.md Sec 15.2,
+# ADR-020): the persistence family's second entry rides the same package
+# format, canonical form, and signature chain an external module rides,
+# exercised by the CLI's end-to-end tests exactly like a template-
+# repository module. The package carries the server-side descriptor rows
+# and the Linux exec-shape artifact an implant loads through module.load
+# -- build.sh puts the binary at plugin/ before `rod mod publish` packs
+# it.
 
 [module]
 name = "services"
-version = "1.0.0"
-entry = "server"
+version = "1.1.0"
+entry = "plugin"
 license = "Apache-2.0"
-description = "Windows service seats: install, remove, and list the SCM database's WIN32 service records -- persist.services's execution half lives at src/implant/rust/modules/services."
+description = "Windows service seats: install, remove, and list the SCM database's WIN32 service records -- persist.services's execution half packed as the artifact an implant loads through module.load."
 
 [compatibility]
 teamserver = "1.0.0"
 
-# The capability requirements (ADR-017): the pair's execution half is a
-# plugin the target loads through the module family, so the hosting implant
-# must advertise the loader. The implant's handshake advertisement is the
+# A plugin's requirement rows are exactly its artifacts' ABI union
+# (ADR-020): the Linux artifact is the exec shape, so the hosting implant
+# must advertise that loader. The implant's handshake advertisement is the
 # runtime truth; this row is the store's static filter.
-requires = ["plugin-loader/exec-v1", "plugin-loader/native-v1"]
+requires = ["plugin-loader/exec-v1"]
 
 # The verb version matrix (architecture.md Sec 15.2), now the descriptor
 # row itself (ADR-018): the verb iterates
@@ -30,6 +33,8 @@ requires = ["plugin-loader/exec-v1", "plugin-loader/native-v1"]
 # catalog carries its parent (T1543) under persist.install and the
 # matrix renders the sub-technique by id alone, the same way the
 # run-keys row renders.
+# The row is unchanged from the 1.0.0 descriptor-only package; 1.1.0 is
+# the tier change that packs the artifact beside it.
 [[verbs]]
 name = "persist.services"
 version = "1.0.0"
@@ -60,25 +65,31 @@ output-help = "One row per seat on list (service name, binary path, start kind),
   help = "The command line the SCM runs as the service's binary path; install only."
   trailing = true
 
-# The seat exists only on Windows: the manifest claims the two Windows
-# targets and no others, so the module loads nowhere the technique has
-# nothing to address.
+# The one target the artifact set covers: one prebuilt execution half per
+# platform and arch the package ships. A Windows artifact row joins when
+# a release builds one -- a target without its artifact is a claim the
+# package does not carry.
 [[compatibility.targets]]
 implant-class = "implant"
-platform = "windows"
+platform = "linux"
 arch = "amd64"
-
-[[compatibility.targets]]
-implant-class = "implant"
-platform = "windows"
-arch = "arm64"
 
 [opsec]
 lands-on-disk = true
-notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content, mapped in memory on Windows -- nothing on disk itself. Every write needs an elevated implant: the SCM grants service creation and deletion to the administrator alone. The seat is one record in the SCM database (HKLM\\SYSTEM\\CurrentControlSet\\Services on disk) with its command line as plain text any blue-team reader sees, Windows logs the installation as Event 7045, and the service runs at every boot while it sits."
+notes = "Server side, the package lands as descriptor rows and one artifact file under the module store -- no code runs in the teamserver. On the target, the implant half loads from staged task content, mapped in memory on Windows -- nothing on disk itself. Every write needs an elevated implant: the SCM grants service creation and deletion to the administrator alone. The seat is one record in the SCM database (HKLM\\SYSTEM\\CurrentControlSet\\Services on disk) with its command line as plain text any blue-team reader sees, Windows logs the installation as Event 7045, and the service runs at every boot while it sits."
 
 [attack]
 techniques = ["T1543.003"]
 
+# The artifact is build output -- build.sh copies the cargo binary into
+# plugin/ before a publish; nothing there is committed. The rules admit
+# the manifest and the plugin directory only, so the tree's build script
+# never rides the package.
 [package]
-include = ["rod-module.toml"]
+include = ["rod-module.toml", "plugin/**"]
+
+[[plugin.artifacts]]
+platform = "linux"
+arch = "amd64"
+path = "plugin/services-linux-amd64"
+abi = "exec-v1"

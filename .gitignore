@@ -22,11 +22,11 @@ src/implant/rust/plugin-sdk/target/
 src/implant/rust/modules/*/target/
 src/implant/rust/carrier/target/
 
-# The reference plugin's build and publish output (modules/hostenum):
-# build.sh copies the cargo-built binary into plugin/ before a publish,
-# and rod mod publish defaults its --out to dist/ -- the artifact rides
-# signed packages, never the tree.
-modules/hostenum/plugin/
+# The plugin packages' build and publish output (modules/*/): build.sh
+# copies the cargo-built binary into plugin/ before a publish, and rod mod
+# publish defaults its --out to dist/ -- the artifact rides signed
+# packages, never the tree.
+modules/*/plugin/
 modules/*/dist/
 
 # Operator UI: the Vite build output is produced by `npm run build` (CI does it

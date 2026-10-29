@@ -1,24 +1,27 @@
-# The browser module manifest (architecture.md Sec 15.2): the
-# credential collection family's third entry rides the same package
-# format, canonical form, and signature chain the nine modules before
-# it ride, exercised by the CLI's end-to-end tests exactly like a
-# template-repository module.
+# The browser module's v4 plugin package (architecture.md Sec 15.2,
+# ADR-020): the credential collection family's third entry rides the
+# same package format, canonical form, and signature chain an external
+# module rides, exercised by the CLI's end-to-end tests exactly like a
+# template-repository module. The package carries the server-side
+# descriptor rows and the Linux exec-shape artifact an implant loads
+# through module.load -- build.sh puts the binary at plugin/ before `rod
+# mod publish` packs it.
 
 [module]
 name = "browser"
-version = "1.0.0"
-entry = "server"
+version = "1.1.0"
+entry = "plugin"
 license = "Apache-2.0"
-description = "Chromium login stores: list the logins Chrome and Edge carry or export them with their passwords unsealed under the profile's DPAPI-fetched key -- collect.browser's execution half lives at src/implant/rust/modules/browser."
+description = "Chromium login stores: list the logins Chrome and Edge carry or export them with their passwords unsealed under the profile's DPAPI-fetched key -- collect.browser's execution half packed as the artifact an implant loads through module.load."
 
 [compatibility]
 teamserver = "1.0.0"
 
-# The capability requirements (ADR-017): the pair's execution half is a
-# plugin the target loads through the module family, so the hosting implant
-# must advertise the loader. The implant's handshake advertisement is the
+# A plugin's requirement rows are exactly its artifacts' ABI union
+# (ADR-020): the Linux artifact is the exec shape, so the hosting implant
+# must advertise that loader. The implant's handshake advertisement is the
 # runtime truth; this row is the store's static filter.
-requires = ["plugin-loader/exec-v1", "plugin-loader/native-v1"]
+requires = ["plugin-loader/exec-v1"]
 
 # The verb version matrix (architecture.md Sec 15.2), now the descriptor
 # row itself (ADR-018): the verb iterates
@@ -31,6 +34,8 @@ requires = ["plugin-loader/exec-v1", "plugin-loader/native-v1"]
 # carries the technique with its name and the parent (T1555) under
 # collect.cred, so the matrix renders this row beside the family's
 # other carriers by id alone.
+# The row is unchanged from the 1.0.0 descriptor-only package; 1.1.0 is
+# the tier change that packs the artifact beside it.
 [[verbs]]
 name = "collect.browser"
 version = "1.0.0"
@@ -54,25 +59,31 @@ output-help = "One JSON credential row per login (kind, principal, host, source)
   help = "Which Chromium store to sweep; empty probes both Chrome and Edge."
   choices = ["chrome", "edge", "all"]
 
-# The stores exist only on Windows: the manifest claims the two Windows
-# targets and no others, so the module loads nowhere the technique has
-# nothing to read.
+# The one target the artifact set covers: one prebuilt execution half per
+# platform and arch the package ships. A Windows artifact row joins when
+# a release builds one -- a target without its artifact is a claim the
+# package does not carry.
 [[compatibility.targets]]
 implant-class = "implant"
-platform = "windows"
+platform = "linux"
 arch = "amd64"
-
-[[compatibility.targets]]
-implant-class = "implant"
-platform = "windows"
-arch = "arm64"
 
 [opsec]
 lands-on-disk = false
-notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content and nothing it does lands on disk: the stores and the key are read where they sit, the passwords unseal in the implant process's memory, and the rows ride the task's channel back (the secrets through the credential rows the board renders masked). The sweep reads the login stores of the user the implant runs as -- a store sealed under another user's masterkeys refuses naming the mismatch, a live browser's write-ahead log may hold rows newer than the main file this read answers for, and passwords under the newer app-bound (v20) form report named rather than forced. The verb rides the per-engagement module load -- never a default profile."
+notes = "Server side, the package lands as descriptor rows and one artifact file under the module store -- no code runs in the teamserver. On the target, the implant half loads from staged task content and nothing it does lands on disk: the stores and the key are read where they sit, the passwords unseal in the implant process's memory, and the rows ride the task's channel back (the secrets through the credential rows the board renders masked). The sweep reads the login stores of the user the implant runs as -- a store sealed under another user's masterkeys refuses naming the mismatch, a live browser's write-ahead log may hold rows newer than the main file this read answers for, and passwords under the newer app-bound (v20) form report named rather than forced. The verb rides the per-engagement module load -- never a default profile."
 
 [attack]
 techniques = ["T1555.003"]
 
+# The artifact is build output -- build.sh copies the cargo binary into
+# plugin/ before a publish; nothing there is committed. The rules admit
+# the manifest and the plugin directory only, so the tree's build script
+# never rides the package.
 [package]
-include = ["rod-module.toml"]
+include = ["rod-module.toml", "plugin/**"]
+
+[[plugin.artifacts]]
+platform = "linux"
+arch = "amd64"
+path = "plugin/browser-linux-amd64"
+abi = "exec-v1"

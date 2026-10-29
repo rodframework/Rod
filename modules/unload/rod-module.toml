@@ -1,24 +1,27 @@
-# The unload module manifest (architecture.md Sec 15.2): the
-# defense-evasion family's second entry rides the same package format,
-# canonical form, and signature chain the ten modules before it ride,
-# exercised by the CLI's end-to-end tests exactly like a
-# template-repository module.
+# The unload module's v4 plugin package (architecture.md Sec 15.2,
+# ADR-020): the defense-evasion family's second entry rides the same
+# package format, canonical form, and signature chain an external module
+# rides, exercised by the CLI's end-to-end tests exactly like a
+# template-repository module. The package carries the server-side
+# descriptor rows and the Linux exec-shape artifact an implant loads
+# through module.load -- build.sh puts the binary at plugin/ before `rod
+# mod publish` packs it.
 
 [module]
 name = "unload"
-version = "1.1.0"
-entry = "server"
+version = "1.2.0"
+entry = "plugin"
 license = "Apache-2.0"
-description = "The fresh-copy unhook at breadth: compare any loaded library's mapped .text against a fresh copy and restore it -- the KnownDlls section object the preferred source, the System32 disk file the fallback the row names, the named exports alone or the whole .text -- evasion.unload's execution half lives at src/implant/rust/modules/unload."
+description = "The fresh-copy unhook at breadth: compare any loaded library's mapped .text against a fresh copy and restore it -- the KnownDlls section object the preferred source, the System32 disk file the fallback the row names, the named exports alone or the whole .text -- evasion.unload's execution half packed as the artifact an implant loads through module.load."
 
 [compatibility]
 teamserver = "1.0.0"
 
-# The capability requirements (ADR-017): the pair's execution half is a
-# plugin the target loads through the module family, so the hosting implant
-# must advertise the loader. The implant's handshake advertisement is the
+# A plugin's requirement rows are exactly its artifacts' ABI union
+# (ADR-020): the Linux artifact is the exec shape, so the hosting implant
+# must advertise that loader. The implant's handshake advertisement is the
 # runtime truth; this row is the store's static filter.
-requires = ["plugin-loader/exec-v1", "plugin-loader/native-v1"]
+requires = ["plugin-loader/exec-v1"]
 
 # The verb version matrix (architecture.md Sec 15.2), now the descriptor
 # row itself (ADR-018): the verb iterates
@@ -32,6 +35,8 @@ requires = ["plugin-loader/exec-v1", "plugin-loader/native-v1"]
 # carrier beside the kernel's own row for the same verb and folds both
 # into the technique's carriers -- the same beside-a-kernel-carrier
 # shape the avoid row rides.
+# The row is unchanged from the 1.1.0 descriptor-only package; 1.2.0 is
+# the tier change that packs the artifact beside it.
 [[verbs]]
 name = "evasion.unload"
 version = "1.1.0"
@@ -63,25 +68,31 @@ output-help = "One row for the whole .text, or one row per named export: how man
   placeholder = "NtAllocateVirtualMemory,NtProtectVirtualMemory"
   trailing = true
 
-# The compare and the copy are byte arithmetic no architecture owns:
-# the manifest claims both Windows targets, and no others -- the
-# module loads nowhere the mapped libraries it addresses exist.
+# The one target the artifact set covers: one prebuilt execution half per
+# platform and arch the package ships. A Windows artifact row joins when
+# a release builds one -- a target without its artifact is a claim the
+# package does not carry.
 [[compatibility.targets]]
 implant-class = "implant"
-platform = "windows"
+platform = "linux"
 arch = "amd64"
-
-[[compatibility.targets]]
-implant-class = "implant"
-platform = "windows"
-arch = "arm64"
 
 [opsec]
 lands-on-disk = false
-notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content and nothing it does lands on disk: the fresh copy is read where it sits (the KnownDlls section object preferred -- the loader's own clean copy, read through no file at all; the System32 disk file the fallback the row names) and the restore rewrites pages of the implant process's own mapping -- copy-on-write makes them private, the effect dies with the process, and a new process maps fresh libraries. The bare task is the read (the differing-byte count, whole-text or per-function); the restore is the write the operator names. The compare trusts the fresh copy only as far as a build fingerprint carries (a patch-Tuesday drift refuses). Products that guard the mapped .text (periodic re-hooking, guard-page telemetry) are a live blue-team surface -- the wider the library list and the narrower the function list, the smaller the rewrite window a re-hook needs to notice; the verb is sensitive (Evasion category, modifies-defenses attribute), held out of unattended firing by the registry-backed policy, and the plugin rides the per-engagement module load -- never a default profile."
+notes = "Server side, the package lands as descriptor rows and one artifact file under the module store -- no code runs in the teamserver. On the target, the implant half loads from staged task content and nothing it does lands on disk: the fresh copy is read where it sits (the KnownDlls section object preferred -- the loader's own clean copy, read through no file at all; the System32 disk file the fallback the row names) and the restore rewrites pages of the implant process's own mapping -- copy-on-write makes them private, the effect dies with the process, and a new process maps fresh libraries. The bare task is the read (the differing-byte count, whole-text or per-function); the restore is the write the operator names. The compare trusts the fresh copy only as far as a build fingerprint carries (a patch-Tuesday drift refuses). Products that guard the mapped .text (periodic re-hooking, guard-page telemetry) are a live blue-team surface -- the wider the library list and the narrower the function list, the smaller the rewrite window a re-hook needs to notice; the verb is sensitive (Evasion category, modifies-defenses attribute), held out of unattended firing by the registry-backed policy, and the plugin rides the per-engagement module load -- never a default profile."
 
 [attack]
 techniques = ["T1562.001"]
 
+# The artifact is build output -- build.sh copies the cargo binary into
+# plugin/ before a publish; nothing there is committed. The rules admit
+# the manifest and the plugin directory only, so the tree's build script
+# never rides the package.
 [package]
-include = ["rod-module.toml"]
+include = ["rod-module.toml", "plugin/**"]
+
+[[plugin.artifacts]]
+platform = "linux"
+arch = "amd64"
+path = "plugin/unload-linux-amd64"
+abi = "exec-v1"

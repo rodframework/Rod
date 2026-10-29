@@ -1,24 +1,27 @@
-# The avoid module manifest (architecture.md Sec 15.2): the
-# defense-evasion family's first entry rides the same package format,
-# canonical form, and signature chain the eight modules before it ride,
-# exercised by the CLI's end-to-end tests exactly like a
-# template-repository module.
+# The avoid module's v4 plugin package (architecture.md Sec 15.2,
+# ADR-020): the defense-evasion family's first entry rides the same
+# package format, canonical form, and signature chain an external module
+# rides, exercised by the CLI's end-to-end tests exactly like a
+# template-repository module. The package carries the server-side
+# descriptor rows and the Linux exec-shape artifact an implant loads
+# through module.load -- build.sh puts the binary at plugin/ before `rod
+# mod publish` packs it.
 
 [module]
 name = "avoid"
-version = "1.0.0"
-entry = "server"
+version = "1.1.0"
+entry = "plugin"
 license = "Apache-2.0"
-description = "AMSI and ETW patching: replace the scan and telemetry entry points in this process's memory with failure and silence -- evasion.avoid's execution half lives at src/implant/rust/modules/avoid."
+description = "AMSI and ETW patching: replace the scan and telemetry entry points in this process's memory with failure and silence -- evasion.avoid's execution half packed as the artifact an implant loads through module.load."
 
 [compatibility]
 teamserver = "1.0.0"
 
-# The capability requirements (ADR-017): the pair's execution half is a
-# plugin the target loads through the module family, so the hosting implant
-# must advertise the loader. The implant's handshake advertisement is the
+# A plugin's requirement rows are exactly its artifacts' ABI union
+# (ADR-020): the Linux artifact is the exec shape, so the hosting implant
+# must advertise that loader. The implant's handshake advertisement is the
 # runtime truth; this row is the store's static filter.
-requires = ["plugin-loader/exec-v1", "plugin-loader/native-v1"]
+requires = ["plugin-loader/exec-v1"]
 
 # The verb version matrix (architecture.md Sec 15.2), now the descriptor
 # row itself (ADR-018): the verb iterates
@@ -30,6 +33,8 @@ requires = ["plugin-loader/exec-v1", "plugin-loader/native-v1"]
 # patch itself; the kernel catalog already carries the id under
 # evasion.unload, so this row renders beside a kernel carrier and the
 # matrix folds both into the technique's carriers.
+# The row is unchanged from the 1.0.0 descriptor-only package; 1.1.0 is
+# the tier change that packs the artifact beside it.
 [[verbs]]
 name = "evasion.avoid"
 version = "1.0.0"
@@ -47,21 +52,31 @@ output-help = "One row per patched entry point (the function and what its caller
   help = "What the task patches in this process: amsi, etw, or all."
   choices = ["amsi", "etw", "all"]
 
-# The patch stubs are x64 code in v1.0: the manifest claims the amd64
-# Windows target alone, and the arm64 encodings are the module's later
-# widening rather than a target declared on encodings it cannot stand
-# behind.
+# The one target the artifact set covers: one prebuilt execution half per
+# platform and arch the package ships. A Windows artifact row joins when
+# a release builds one -- a target without its artifact is a claim the
+# package does not carry.
 [[compatibility.targets]]
 implant-class = "implant"
-platform = "windows"
+platform = "linux"
 arch = "amd64"
 
 [opsec]
 lands-on-disk = false
-notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content and the patch lands in the process's own memory -- nothing on disk. The scope is exactly that process: the effect dies with it, and a new process loads fresh libraries. AMSI failure telemetry and ETW inline-hook detection are live blue-team surfaces; the verb is sensitive (Evasion category, modifies-defenses attribute), held out of unattended firing by the registry-backed policy, and the plugin rides the per-engagement module load -- never a default profile."
+notes = "Server side, the package lands as descriptor rows and one artifact file under the module store -- no code runs in the teamserver. On the target, the implant half loads from staged task content and the patch lands in the process's own memory -- nothing on disk. The scope is exactly that process: the effect dies with it, and a new process loads fresh libraries. AMSI failure telemetry and ETW inline-hook detection are live blue-team surfaces; the verb is sensitive (Evasion category, modifies-defenses attribute), held out of unattended firing by the registry-backed policy, and the plugin rides the per-engagement module load -- never a default profile."
 
 [attack]
 techniques = ["T1562.001"]
 
+# The artifact is build output -- build.sh copies the cargo binary into
+# plugin/ before a publish; nothing there is committed. The rules admit
+# the manifest and the plugin directory only, so the tree's build script
+# never rides the package.
 [package]
-include = ["rod-module.toml"]
+include = ["rod-module.toml", "plugin/**"]
+
+[[plugin.artifacts]]
+platform = "linux"
+arch = "amd64"
+path = "plugin/avoid-linux-amd64"
+abi = "exec-v1"

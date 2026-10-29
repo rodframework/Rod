@@ -1,24 +1,27 @@
-# The dpapi module manifest (architecture.md Sec 15.2): the
-# credential collection family's second entry rides the same package
-# format, canonical form, and signature chain the seven modules before
-# it ride, exercised by the CLI's end-to-end tests exactly like a
-# template-repository module.
+# The dpapi module's v4 plugin package (architecture.md Sec 15.2,
+# ADR-020): the credential collection family's second entry rides the
+# same package format, canonical form, and signature chain an external
+# module rides, exercised by the CLI's end-to-end tests exactly like a
+# template-repository module. The package carries the server-side
+# descriptor rows and the Linux exec-shape artifact an implant loads
+# through module.load -- build.sh puts the binary at plugin/ before `rod
+# mod publish` packs it.
 
 [module]
 name = "dpapi"
-version = "1.0.0"
-entry = "server"
+version = "1.1.0"
+entry = "plugin"
 license = "Apache-2.0"
-description = "DPAPI unsealing: unseal the task's base64 blob under the target user's own masterkeys and report the masterkey readiness facts -- collect.dpapi's execution half lives at src/implant/rust/modules/dpapi."
+description = "DPAPI unsealing: unseal the task's base64 blob under the target user's own masterkeys and report the masterkey readiness facts -- collect.dpapi's execution half packed as the artifact an implant loads through module.load."
 
 [compatibility]
 teamserver = "1.0.0"
 
-# The capability requirements (ADR-017): the pair's execution half is a
-# plugin the target loads through the module family, so the hosting implant
-# must advertise the loader. The implant's handshake advertisement is the
+# A plugin's requirement rows are exactly its artifacts' ABI union
+# (ADR-020): the Linux artifact is the exec shape, so the hosting implant
+# must advertise that loader. The implant's handshake advertisement is the
 # runtime truth; this row is the store's static filter.
-requires = ["plugin-loader/exec-v1", "plugin-loader/native-v1"]
+requires = ["plugin-loader/exec-v1"]
 
 # The verb version matrix (architecture.md Sec 15.2), now the descriptor
 # row itself (ADR-018): the verb iterates
@@ -32,6 +35,8 @@ requires = ["plugin-loader/exec-v1", "plugin-loader/native-v1"]
 # against this one's decryption half; the kernel catalog carries the
 # T1555 parent under collect.cred and the matrix renders this row
 # beside it, the same way the hostenum row renders.
+# The row is unchanged from the 1.0.0 descriptor-only package; 1.1.0 is
+# the tier change that packs the artifact beside it.
 [[verbs]]
 name = "collect.dpapi"
 version = "1.0.0"
@@ -55,25 +60,31 @@ output-help = "The masterkey SID rows on list, or the unsealed plaintext as text
   help = "The base64 DPAPI blob to unseal under the target user's masterkeys; unseal only."
   trailing = true
 
-# The technique exists only on Windows: the manifest claims the two
-# Windows targets and no others, so the module loads nowhere the
-# primitive has nothing to open.
+# The one target the artifact set covers: one prebuilt execution half per
+# platform and arch the package ships. A Windows artifact row joins when
+# a release builds one -- a target without its artifact is a claim the
+# package does not carry.
 [[compatibility.targets]]
 implant-class = "implant"
-platform = "windows"
+platform = "linux"
 arch = "amd64"
-
-[[compatibility.targets]]
-implant-class = "implant"
-platform = "windows"
-arch = "arm64"
 
 [opsec]
 lands-on-disk = false
-notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content and nothing it does lands on disk: the blob arrives as task text, the plaintext rides back the task's channel into the audit chain. The unseal runs under the masterkeys of the user the implant runs as -- a blob sealed by another user or another machine refuses, and DPAPI itself keeps no operation log. The verb rides the per-engagement module load -- never a default profile."
+notes = "Server side, the package lands as descriptor rows and one artifact file under the module store -- no code runs in the teamserver. On the target, the implant half loads from staged task content and nothing it does lands on disk: the blob arrives as task text, the plaintext rides back the task's channel into the audit chain. The unseal runs under the masterkeys of the user the implant runs as -- a blob sealed by another user or another machine refuses, and DPAPI itself keeps no operation log. The verb rides the per-engagement module load -- never a default profile."
 
 [attack]
 techniques = ["T1555"]
 
+# The artifact is build output -- build.sh copies the cargo binary into
+# plugin/ before a publish; nothing there is committed. The rules admit
+# the manifest and the plugin directory only, so the tree's build script
+# never rides the package.
 [package]
-include = ["rod-module.toml"]
+include = ["rod-module.toml", "plugin/**"]
+
+[[plugin.artifacts]]
+platform = "linux"
+arch = "amd64"
+path = "plugin/dpapi-linux-amd64"
+abi = "exec-v1"

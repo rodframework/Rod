@@ -49,6 +49,27 @@ public class InTreeModuleLoadingTests
             .OrderBy(d => d, StringComparer.Ordinal)
             .ToArray();
 
+    // The in-tree plugin pairs, verb to module name: the whole reference
+    // set rides the v4 plugin tier (ADR-020), and every package's
+    // requirement rows are its artifact ABI union -- one exec-shape
+    // artifact each, so one loader row each.
+    private static readonly (string Verb, string Module)[] PluginPairs =
+    [
+        ("recon.hostenum", "hostenum"),
+        ("recon.domainenum", "domainenum"),
+        ("persist.runkeys", "runkeys"),
+        ("persist.services", "services"),
+        ("persist.wmi", "wmi"),
+        ("persist.hijack", "hijack"),
+        ("collect.hives", "hives"),
+        ("collect.dpapi", "dpapi"),
+        ("evasion.avoid", "avoid"),
+        ("collect.browser", "browser"),
+        ("evasion.unload", "unload"),
+        ("collect.lsasecrets", "lsasecrets"),
+        ("collect.credman", "credman"),
+    ];
+
     [Fact]
     public async Task InTreeDescriptorModules_LoadThroughTheConfigListedPath()
     {
@@ -75,14 +96,23 @@ public class InTreeModuleLoadingTests
             // hostenum replaces its verb's placeholder: the manifest-listed
             // registration won, and the descriptor the row declared -- the
             // output kind, the techniques -- is what the registry holds.
-            // The requirement row is the plugin tier's ABI union (ADR-020):
-            // the package's one artifact is the exec shape.
             var hostenum = await registry.FindAsync("recon.hostenum");
             Assert.NotNull(hostenum);
             Assert.Equal("hostenum", hostenum!.Name);
-            Assert.Equal(["plugin-loader/exec-v1"], hostenum.Requires);
             Assert.Equal(VerbOutputKind.Enumeration, hostenum.Descriptor.Output!.Kind);
             Assert.Equal(["T1082"], hostenum.Descriptor.Techniques);
+
+            // Every plugin-tier package's requirement rows are its artifacts'
+            // ABI union (ADR-020), and the store's static filter reads them
+            // off the loaded rows: one exec-shape artifact per package, so
+            // one loader row per verb, across every family.
+            foreach (var (verb, module) in PluginPairs)
+            {
+                var found = await registry.FindAsync(verb);
+                Assert.NotNull(found);
+                Assert.Equal(module, found!.Name);
+                Assert.Equal(["plugin-loader/exec-v1"], found.Requires);
+            }
 
             // domainenum was a verb no placeholder served -- a new verb
             // registered through the module seam, not a replacement of one.
