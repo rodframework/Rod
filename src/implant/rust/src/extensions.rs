@@ -1,10 +1,11 @@
 //! The build-time extension overlay (architecture.md Sec 5.3, ADR-022):
 //! the registry table the rod-rust build unit generates from the build
-//! request's extension list. An extension is a crate compiled into the
-//! artifact -- the implant-native tier, with the implant's own internals in
-//! reach -- and this file is the only seam between the two: the build unit
-//! copies each extension crate under `modules_ext/` and rewrites this file
-//! to dispatch its verbs.
+//! request's extension list. An extension is a package compiled into the
+//! artifact -- the implant-native tier, with the implant's own internals
+//! in reach -- and this file is the only seam between the two: the build
+//! unit stages each extension's sources under
+//! `src/extensions/extensions_impl/` and rewrites this file to dispatch
+//! its verbs.
 //!
 //! The default (checked-in) table is empty -- an artifact built with no
 //! extensions compiles this file as-is and answers no extension verbs. The

@@ -380,13 +380,13 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
             if (@params.Kind == PayloadKind.Loader)
                 return await BuildLoaderAsync(@params, triple, stagingDir, targetDir, cancellationToken);
 
-            // The compiled-in extension overlays (ADR-022): each extension
-            // crate stages under modules_ext/<name>/ beside the implant's
-            // own module crates (same relative layout it was authored
-            // against, so its path dependencies resolve), the implant's
-            // staged Cargo.toml gains the dependency, and the generated
-            // src/extensions.rs registers the crate's verbs. The loader tier
-            // is a no_std fetch stub and compiles nothing in.
+            // The compiled-in extension overlays (ADR-022): each
+            // extension package's src/ tree stages under
+            // src/extensions/extensions_impl/<name>/ inside the implant's
+            // own module tree (lib.rs becomes the module's mod.rs), and
+            // the generated src/extensions.rs registers the package's
+            // verbs. The loader tier is a no_std fetch stub and compiles
+            // nothing in.
             var extensionVerbs = StageExtensions(@params, stagingDir);
 
             // The bake: the profile file staged into the crate root, the one
@@ -1243,34 +1243,6 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
             """;
         File.WriteAllText(Path.Combine(stagingDir, "src", "extensions.rs"), registry);
         return verbs;
-    }
-
-    // The extension crate's [package] name: the identifier the generated
-    // registry and the dependency line both use.
-    private static string CrateName(string cargoToml, string fallbackName)
-    {
-        if (File.Exists(cargoToml))
-        {
-            var inPackage = false;
-            foreach (var line in File.ReadAllLines(cargoToml))
-            {
-                var trimmed = line.Trim();
-                if (trimmed.StartsWith('['))
-                {
-                    inPackage = trimmed == "[package]";
-                    continue;
-                }
-                if (inPackage && trimmed.StartsWith("name", StringComparison.Ordinal)
-                    && trimmed.Split('=', 2) is { Length: 2 } pair)
-                {
-                    var name = pair[1].Trim().Trim('"');
-                    if (name.Length > 0)
-                        return name;
-                }
-            }
-        }
-        throw new BuildUnitFailureException(
-            $"Extension '{fallbackName}' carries no readable [package] name in its Cargo.toml; the overlay cannot wire its crate.");
     }
 
     private static void CopyTree(string source, string destination)

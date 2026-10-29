@@ -1,0 +1,63 @@
+# The first real extension module (architecture.md Sec 5.3, ADR-022):
+# procwatch is implant-native work -- a resident process-create watch
+# whose buffer accrues between check-ins, the one shape no loadable
+# plugin tier carries: an exec-v1 module is a fresh process per dispatch
+# with no memory of the interval, and a mapped plugin holds no thread of
+# the implant's own. The package carries the server-side descriptor rows
+# and the src/ tree the rod-rust build unit compiles into the artifact
+# itself, riding the identical package format, canonical form, and
+# signature chain every module rides.
+
+[module]
+name = "procwatch"
+version = "1.0.0"
+entry = "extension"
+license = "Apache-2.0"
+description = "Resident process-create telemetry: a compiled-in watch samples the process table on a fixed cadence and buffers creation rows, and recon.procwatch flushes the rows since the last ask -- the implant-native tier's first real entry."
+
+[compatibility]
+teamserver = "1.0.0"
+
+# The verb version matrix (architecture.md Sec 15.2), the descriptor row
+# itself (ADR-018): the verb iterates under its own module-scoped
+# version, independently of the package version. T1057 (Process
+# Discovery) is the continuous read itself -- the watch answers what a
+# one-shot listing answers once, ask after ask.
+[[verbs]]
+name = "recon.procwatch"
+version = "1.0.0"
+category = "recon"
+output-help = "One JSON finding per line: pid, ppid, name, seen (unix seconds) -- the processes that started since the last ask. The first dispatch starts the watch; a bare task is the read, and the read repeats empty until something starts."
+techniques = ["T1057"]
+output-kind = "enumeration"
+
+# The build units that compile this package in (ADR-022): the rod-rust
+# unit owns the overlay seam, and the platform rows name the collectors
+# v1.0 ships -- the /proc sweep and the toolhelp32 sweep around one
+# shared diff engine. The ETW or WMI subscription collector is the later
+# widening, dropping in behind the same engine.
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "linux"
+arch = "amd64"
+build-unit = "rod-rust"
+
+[[compatibility.targets]]
+implant-class = "implant"
+platform = "windows"
+arch = "amd64"
+build-unit = "rod-rust"
+
+[opsec]
+lands-on-disk = false
+notes = "Server side, the package lands as descriptor rows and a source tree under the module store -- no code runs in the teamserver; the sources compile into an artifact only when a build names the extension. On the target, the watch is one thread of the implant's own process and a bounded in-memory buffer -- nothing on disk, no named trace session, no extra process per ask. The sampling sweep reads the process table (the /proc tree, the toolhelp snapshot) on a fixed two-second cadence, which is itself a measurable pattern on the host; the rows ride the task channel into the audit chain like any task output."
+
+[attack]
+techniques = ["T1057"]
+
+# The sources are the module: the build unit merges src/ into the
+# artifact's extension table (the generated registry and the baked verb
+# advertisement both come from the same request), so the package carries
+# the manifest and the source tree only.
+[package]
+include = ["rod-module.toml", "src/**"]
