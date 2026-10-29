@@ -932,9 +932,13 @@ Adopt per deployment need; absence degrades the feature, not interop:
   `rod-conform --plugin <fixture>`) prove a candidate hosts the tier:
   the exec fixture stages through `module.load`, its verb answers a
   marker, and its ABI 2 artifact run lands byte-for-byte in the artifact
-  store. The clauses cover the exec shape alone: the coff loader binds
-  only inside a Windows implant, and no lane runs the rig against one
-  yet -- the loader's own tests carry the tier until one does.
+  store. Two lanes run them in-tree, the Rust reference and the Go
+  reference (both the Linux exec shape) against the same fixture bytes
+  -- the plugin contract's cross-host-language proof, which is the
+  tier's reason to exist. The clauses cover the exec shape alone: the
+  coff loader binds only inside a Windows implant, and no lane runs the
+  rig against one yet -- the loader's own tests carry the tier until one
+  does.
 
 ## Evolution rules
 

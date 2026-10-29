@@ -2847,14 +2847,24 @@ any language registers a build unit and compiles against the same
 contract. The Go slot carries its in-tree reference (the first community
 slot, `src/implant/go/`, built by `GoBuildUnit`): a Tier 0 wire client --
 enroll, the envelope POST cycle, tasking -- plus the ADR-010 exfil upload
-arm with byte-offset resume, over the web family only, one static binary
-per GOOS/GOARCH with the dependency set vendored (darwin included -- it
-crosses from any host like every other GOOS under cgo-off, so it needs no
-build host of its own). It couples to the platform through nothing but
-rod.proto and the baked profile, and its
-acceptance is the end-to-end arc -- enroll, task, and exfil against a
-live teamserver, in both the dev shape and the pipeline-baked artifact
-with sealed contacts -- on every cell the matrix stands.
+arm with byte-offset resume and the staged downstream arm it mirrors
+(`StagedPull`/`StagedChunk` with the sha256 both-side check), over the web
+family only, one static binary per GOOS/GOARCH with the dependency set
+vendored (darwin included -- it crosses from any host like every other
+GOOS under cgo-off, so it needs no build host of its own). It also hosts
+the plugin module family (Sec 5.4): the `module.load`/`module.unload`/
+`module.list` verbs, the module registry, and the exec-v1 loader (Linux
+memfd exec over the stdio protocol, the handshake advertising
+`plugin-loader/exec-v1` beside the loaded modules' verbs; every other
+floor refuses the family with the floor named, the reference implant's
+cfg posture). It couples to the platform through nothing but rod.proto
+and the baked profile, and its acceptance is the end-to-end arc -- enroll,
+task, and exfil against a live teamserver, in both the dev shape and the
+pipeline-baked artifact with sealed contacts -- on every cell the matrix
+stands, plus the conformance harness's two plugin clauses
+(`plugin.load-exec-v1`, `plugin.artifact-return`) against the Go binary
+as a candidate: the second host language to pass them, the plugin
+contract's cross-host proof.
 
 The .NET implant and the .NET stager that preceded this shape are deleted:
 their history is the commit record, and their delivery answers -- the
