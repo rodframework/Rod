@@ -177,7 +177,10 @@ impl Session {
         #[cfg(all(unix, not(target_os = "android"), not(target_os = "macos")))]
         advertised.push("plugin-loader/exec-v1".to_string());
         #[cfg(windows)]
-        advertised.push("plugin-loader/native-v1".to_string());
+        {
+            advertised.push("plugin-loader/native-v1".to_string());
+            advertised.push("plugin-loader/coff-v1".to_string());
+        }
 
         if poll_carriage && advertised.iter().any(|verb| channel::is_channel_verb(verb)) {
             advertised.push("channels.poll".to_string());
@@ -951,7 +954,16 @@ mod tests {
                 "plugin-loader/exec-v1".to_string()
             ]
         );
-        #[cfg(not(all(unix, not(target_os = "android"), not(target_os = "macos"))))]
+        #[cfg(windows)]
+        assert_eq!(
+            advertised_of(&mut session),
+            vec![
+                "shell.exec".to_string(),
+                "plugin-loader/native-v1".to_string(),
+                "plugin-loader/coff-v1".to_string()
+            ]
+        );
+        #[cfg(any(target_os = "android", target_os = "macos"))]
         assert_eq!(advertised_of(&mut session), vec!["shell.exec".to_string()]);
     }
 

@@ -10,14 +10,16 @@
 //! cannot own a live channel or a carriage), and verb names must follow
 //! the `namespace.action` grammar every Rod verb follows.
 //!
-//! The loader shapes are the design's two halves (architecture.md Sec
-//! 5.4): Linux stages the bytes in a memfd and execs the module through
-//! `/proc/self/fd` -- the loader tier's own mechanism -- one process per
-//! verb dispatch over a stdio protocol, uniform across static musl and
-//! dynamic builds alike; Windows maps the PE by hand. macOS and the
-//! android leg keep the family compiled but dormant: neither floor
-//! carries the anonymous-fd exec the memfd shape is. The registry itself
-//! is platform-blind behind the Library trait.
+//! The loader shapes are the design's loading contracts (architecture.md
+//! Sec 5.4): Linux stages the bytes in a memfd and execs the module
+//! through `/proc/self/fd` -- the loader tier's own mechanism -- one
+//! process per verb dispatch over a stdio protocol, uniform across
+//! static musl and dynamic builds alike; Windows maps the PE by hand
+//! and, beside it, loads COFF objects -- the BOF corpus's coff-v1
+//! shape, a Beacon-compatible host table standing in for imports. macOS
+//! and the android leg keep the family compiled but dormant: neither
+//! floor carries the anonymous-fd exec the memfd shape is. The registry
+//! itself is platform-blind behind the Library trait.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -224,7 +226,7 @@ impl Plugins {
     ) -> Result<String, String> {
         validate_handle(handle)?;
         verify_sha256(bytes, expected_sha256)?;
-        let library = load_library(bytes)?;
+        let library = load_library(handle, bytes)?;
         let reported = library.abi()?;
         if reported != ABI_VERSION {
             return Err(format!(
@@ -433,7 +435,7 @@ fn verify_sha256(bytes: &[u8], expected: &str) -> Result<(), String> {
 // --- The platform loaders ---------------------------------------------------
 
 #[cfg(all(unix, not(target_os = "android"), not(target_os = "macos")))]
-fn load_library(bytes: &[u8]) -> Result<Box<dyn Library>, String> {
+fn load_library(_handle: &str, bytes: &[u8]) -> Result<Box<dyn Library>, String> {
     executed::ExecLibrary::load(bytes)
 }
 
@@ -445,7 +447,7 @@ fn load_library(bytes: &[u8]) -> Result<Box<dyn Library>, String> {
 // seam refuses with the fact rather than failing at load or linking an
 // artifact that cannot open on the floor the leg targets.
 #[cfg(any(target_os = "android", target_os = "macos"))]
-fn load_library(_bytes: &[u8]) -> Result<Box<dyn Library>, String> {
+fn load_library(_handle: &str, _bytes: &[u8]) -> Result<Box<dyn Library>, String> {
     #[cfg(target_os = "android")]
     const FLOOR: &str = "the Android leg (no anonymous-fd exec under the app domain)";
     #[cfg(target_os = "macos")]
@@ -456,9 +458,17 @@ fn load_library(_bytes: &[u8]) -> Result<Box<dyn Library>, String> {
     ))
 }
 
+// The format picks the loader on the Windows floor: a PE announces
+// itself with MZ, and everything else reaches for the COFF object
+// loader, whose parse refuses what it cannot bind by name. The handle
+// rides along for the loaders that name their verbs from it.
 #[cfg(windows)]
-fn load_library(bytes: &[u8]) -> Result<Box<dyn Library>, String> {
-    pe::PeLibrary::load(bytes)
+fn load_library(handle: &str, bytes: &[u8]) -> Result<Box<dyn Library>, String> {
+    if bytes.starts_with(b"MZ") {
+        pe::PeLibrary::load(bytes)
+    } else {
+        coff::CoffLibrary::load(handle, bytes)
+    }
 }
 
 // --- Linux: the memfd + exec loader -------------------------------------------
@@ -824,6 +834,13 @@ mod executed {
 }
 
 // --- Windows: the manual PE map ----------------------------------------------
+
+// The third shape, beside the map: the COFF object loader (coff-v1).
+// Compiled for the Windows floor and for the test builds -- its parse
+// and relocation core is host-blind, and the tests are the loader's
+// conformance until a lane runs the rig against a Windows implant.
+#[cfg(any(windows, test))]
+mod coff;
 
 #[cfg(windows)]
 mod pe {
