@@ -1262,7 +1262,7 @@ dependencies = [
 
 [[package]]
 name = "rod-implant"
-version = "1.0.0-dev"
+version = "1.0.0"
 dependencies = [
  "aes-gcm",
  "base64",
