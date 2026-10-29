@@ -920,17 +920,21 @@ Adopt per deployment need; absence degrades the feature, not interop:
   carrying a module's bytes, the loader registering its verbs for later
   dispatch. The loaders are named ABIs (ADR-020): a session advertises
   `plugin-loader/exec-v1` (the out-of-process stdio shape) and/or
-  `plugin-loader/native-v1` (the in-process C-ABI map) beside its verbs,
-  and the runtime requirement gate checks the loader a plugin's package
-  names -- `plugin-loader/coff-v1` and `/wasm-v1` are reserved for tiers
-  no reference implant ships yet. The wire shape and the loader's rules
-  live in [modules.md](modules.md); an implant without the family reports
+  `plugin-loader/native-v1` (the in-process C-ABI map) beside its verbs
+  -- the Windows floor advertises `plugin-loader/coff-v1` beside
+  native-v1, its BOF shape -- and the runtime requirement gate checks
+  the loader a plugin's package names; `plugin-loader/wasm-v1` stays
+  reserved for a tier no reference implant ships yet. The wire shape,
+  the loaders' rules, and the BOF argument grammar live in
+  [modules.md](modules.md); an implant without the family reports
   the verbs unknown and nothing else changes. The conformance clauses
   `plugin.load-exec-v1` and `plugin.artifact-return` (this harness,
   `rod-conform --plugin <fixture>`) prove a candidate hosts the tier:
   the exec fixture stages through `module.load`, its verb answers a
   marker, and its ABI 2 artifact run lands byte-for-byte in the artifact
-  store.
+  store. The clauses cover the exec shape alone: the coff loader binds
+  only inside a Windows implant, and no lane runs the rig against one
+  yet -- the loader's own tests carry the tier until one does.
 
 ## Evolution rules
 

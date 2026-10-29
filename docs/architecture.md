@@ -725,15 +725,17 @@ string-out work a module shape holds naturally. The channel verbs and the
 file/exec core stay compiled, because a plugin cannot own a live channel or
 a carriage.
 
-****The loaders are named ABIs (ADR-020).** The two shapes the reference
-implant ships are contracts a plugin package names, not one family: the
-out-of-process stdio loader is `plugin-loader/exec-v1`, the in-process
-C-ABI map is `plugin-loader/native-v1`, and a session's handshake
-advertisement states which loaders the build hosts -- beside its verbs --
-so the runtime requirement gate checks the loader a plugin needs, not
-merely that some loader exists. `plugin-loader/coff-v1` and
-`plugin-loader/wasm-v1` are reserved names: tiers the vocabulary can
-speak about before any reference implant ships their loaders.
+****The loaders are named ABIs (ADR-020).** The three shapes the
+reference implant ships are contracts a plugin package names, not one
+family: the out-of-process stdio loader is `plugin-loader/exec-v1`, the
+in-process C-ABI map is `plugin-loader/native-v1`, and the COFF object
+loader is `plugin-loader/coff-v1` -- the BOF corpus's own shape, a bare
+object the Windows floor relocates against a Beacon-compatible host
+table. A session's handshake advertisement states which loaders the
+build hosts -- beside its verbs -- so the runtime requirement gate
+checks the loader a plugin needs, not merely that some loader exists.
+`plugin-loader/wasm-v1` stays a reserved name: a tier the vocabulary
+can speak about before any reference implant ships its loader.
 
 The boundary is ABI-stable, not compiler-stable.** A Rust dylib
 boundary is not stable across compiler versions (the reason Sec 5.3 keeps
@@ -815,9 +817,19 @@ sections, apply base relocations, resolve imports against the system
 DLLs through `LoadLibrary`/`GetProcAddress`, give the image its TLS
 block on the loading thread, invoke the entry, then walk the export
 table for the family -- because `LoadLibrary` wants a path and the seam
-keeps modules off disk.
+keeps modules off disk. A COFF object takes the sibling path the BOF
+corpus expects: the format picks the loader (`MZ` the map, everything
+else the object parse, refused by name when it is neither), the
+sections land in one RWX allocation, the symbol-table relocations
+apply against the placements, and every external resolves before
+anything is allocated -- the Beacon data/output/format families plus
+the `MODULE$Function` dynamic references through
+`LoadLibraryA`/`GetProcAddress`, the token and injection families
+refused by name -- before the corpus's `go(args, len)` entry is called
+with the packed argument blob. The argument grammar and the supported
+host-API table are extending/modules.md's to state once.
 
-**The scope boundary is honest.** The two shapes divide the labor the
+**The scope boundary is honest.** The shapes divide the labor the
 documented domain already draws. A Linux module answers one request per
 process -- the stateless long tail made mechanical, no state carrying
 between calls -- while the resident collectors (`collect.keylog`'s input
@@ -825,8 +837,8 @@ hook is the reference case) need a process that stays, which is the
 Windows in-process shape's half. Unload keeps its best-effort meaning on
 both: verb routes drop immediately, a dispatch in flight finishes; on
 Linux the memfd closes once the table drops it, on Windows the mapped
-image leaks by design (freeing pages under a live handler is worse than
-the leak).
+image and every loaded BOF leak by design (freeing pages under a live
+handler is worse than the leak).
 
 **Dispatch and advertisement.** A module verb reads exactly like a
 compiled one: the one-shot dispatch path consults the compiled handler
@@ -3292,9 +3304,10 @@ migrated onto it -- the server-side twin of the C-ABI seam's language
 freedom, now the default authoring path.)
 
 There is **no carry-over from existing ecosystems**: no Armory migration,
-and no BOF/COFF execution layer today -- the `plugin-loader/coff-v1` name
-is reserved for exactly that tier, so the vocabulary can speak about the
-ecosystem's existing corpus before any reference implant ships its loader.
+and no corpus import -- but the ecosystem's existing BOF corpus has a
+loader to land on: the `plugin-loader/coff-v1` tier the reference
+implant's Windows floor ships, running unmodified objects against a
+Beacon-compatible host table (Sec 5.4).
 The ecosystem accumulates from zero, quality before quantity -- slowly,
 but every new module pays interest into the contracts. The trilogy's acceptance bar: a module the framework never
 anticipated goes from `rod mod init` to full UI interaction
@@ -3583,7 +3596,7 @@ Where the program touches the existing layers:
 | 017 | Compatibility collapse: capability `requires` + conformance report in the module contract | Sec 15.2 |
 | 018 | Polyglot on-ramps: linkable core, standalone conformance runner, manifest-declared descriptors | Sec 15.2 |
 | 019 | Pre-freeze posture: contracts iterate freely, breaking changes land as rewrites, until the first semver release | Sec 15 |
-| 020 | Plugin portability tiers: named loader ABIs (`plugin-loader/exec-v1` and kin, coff/wasm reserved), the artifact return on ABI 2, plugin packages with prebuilt artifact rows | Sec 5.4, Sec 15.2 |
+| 020 | Plugin portability tiers: named loader ABIs (`plugin-loader/exec-v1` and kin, wasm reserved), the artifact return on ABI 2, plugin packages with prebuilt artifact rows | Sec 5.4, Sec 15.2 |
 | 021 | Open build unit ids and the external build contract: `[unit]` tables, `Build:ExternalUnits`, the request/result file contract -- a new language registers a package, not a recompile | Sec 6, Sec 15.2 |
 | 022 | The compiled-in extension tier: source-merge overlays under `modules_ext/`, build-unit targeting rows as the hard gate, the dispatch chain core -> extensions -> plugins | Sec 5.3, Sec 6 |
 | 023 | `Rod.Packaging` as the one packaging-contract library, and the server-side module lifecycle: store, registry browser, verified hot-registering installs, the operator console's marketplace | Sec 15.2 |

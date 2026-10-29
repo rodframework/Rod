@@ -25,11 +25,12 @@ One manifest shape, five ways to ship:
   from the manifest alone, zero code (ADR-018's default authoring path).
 - **`plugin`** -- the portable implant-side tier: prebuilt execution
   halves as `[[plugin.artifacts]]` rows (platform, arch, path, and the
-  loader `abi` -- `exec-v1` or `native-v1`; `coff-v1`/`wasm-v1` are
-  reserved names publish refuses until their loaders ship), with the
-  requirement rows pinned to the artifacts' ABI union. The operator
-  console's install surfaces and the `/modules/{name}/artifact` fetch
-  pick the platform-matched row for a `module.load` task's content.
+  loader `abi` -- `exec-v1`, `native-v1`, or `coff-v1`, the Windows BOF
+  shape; `wasm-v1` is a reserved name publish refuses until its loader
+  ships), with the requirement rows pinned to the artifacts' ABI union.
+  The operator console's install surfaces and the
+  `/modules/{name}/artifact` fetch pick the platform-matched row for a
+  `module.load` task's content.
 - **`extension`** -- the implant-native tier (ADR-022): sources a build
   unit compiles *into* the artifact. Every `[[compatibility.targets]]`
   row must name its `build-unit` (optionally a `unit-range` floor) -- the
@@ -166,14 +167,14 @@ can depend on:
 
 | Name | The hosting implant must |
 |------|--------------------------|
-| `plugin-loader` | carry the `module.load` family (the loader that hosts plugins) |
+| `plugin-loader/<abi>` | carry the `module.load` family under the named loader ABI -- `exec-v1`, `native-v1`, `coff-v1` (`wasm-v1` reserved); a plugin's rows are pinned to its artifacts' ABI union |
 | `exfil-chunks` | emit `ExfilChunk` frames (bulk output, implants.md Tier 2) |
 | `staged-uploads` | answer `StagedPull` with `StagedChunk` runs (bulk input, Tier 2) |
 
 ```toml
 [compatibility]
 teamserver = "1.0.0"
-requires = ["plugin-loader", "exfil-chunks"]
+requires = ["plugin-loader/exec-v1", "exfil-chunks"]
 ```
 
 Declare `requires` only on the entries that carry an execution half
@@ -593,6 +594,58 @@ The dispatch grammar your code answers either way is the task contract's
 own: string arguments in, outcome plus output back, with exfil chunks for
 bulk -- the same shape the compiled handlers speak, so an operator's console
 reads a module verb exactly like a built-in one.
+
+## A BOF (the coff-v1 shape)
+
+The third loading contract is the BOF corpus's own: a single COFF object
+-- x64 or x86, the shape `x86_64-w64-mingw32-gcc -c` (or the i686
+toolchain) emits -- with no exports and no linker step, its relocations
+naming host symbols the loader resolves at load time. The loader is the
+reference implant's Windows floor; a session that hosts it advertises
+`plugin-loader/coff-v1`, and a plugin package carrying a BOF declares
+`abi = "coff-v1"` on its windows artifact row with the `.o` as the
+row's path (requires widens to the union like every plugin's).
+
+A BOF is written against the Beacon-compatible host API the loader
+carries -- the entry and helpers the existing corpus already expects:
+
+- **Entry.** `void go(char *args, unsigned long alen)`, called once per
+  dispatch with the packed argument blob. The registered verb is
+  `<handle>.go` (`whoami.go` for a `module.load whoami`), so tasking
+  stays inside the module family's own grammar.
+- **Output.** `BeaconPrintf(type, fmt, ...)` and
+  `BeaconOutput(type, data, len)`: the output kinds land in the task's
+  output, and a `CALLBACK_ERROR` (0xd) line flags the task failed.
+- **Arguments.** `BeaconDataParse` then
+  `BeaconDataInt/Short/Length/String/Extract` walk the packed blob.
+- **Formatting.** the `BeaconFormat*` family and `toWideChar`.
+- **System calls.** every `MODULE$Function` reference resolves through
+  `LoadLibraryA`/`GetProcAddress` at load (`KERNEL32$Sleep`), and the
+  bare `GetProcAddress`, `LoadLibraryA/W`, `GetModuleHandleA`,
+  `FreeLibrary` names the mingw toolchain links pass through kernel32.
+
+The refusal list is part of the contract: the token and process-injection
+families (`BeaconUseToken`, `BeaconSpawnTemporaryProcess`,
+`BeaconInjectProcess`, and kin), `BeaconGetCustomUserData`, and the MSVC
+SEH handler externals refuse at load, named -- a stub that silently
+no-ops would be worse than the refusal. The supported compiler is
+mingw-w64's gcc (or clang in the same mode); an MSVC object parses, but
+its exception-bearing constructs do not field.
+
+**The argument grammar.** The task's argument text packs into the blob
+`go` receives -- a u32 body size, then the typed entries: integers and
+shorts at their raw widths, strings and bytes as a u32 length plus the
+data, a string's NUL counted in its length:
+
+| Task token | Entry | The BOF's read |
+|------------|-------|----------------|
+| `i:42` | 4-byte int | `BeaconDataInt` |
+| `w:7` | 2-byte short | `BeaconDataShort` |
+| `s:"C:\\path with space"` | length + UTF-8 + NUL (`\"` and `\\` escape) | `BeaconDataString` |
+| `b:0a0b` | length + raw bytes | `BeaconDataExtract` |
+
+Empty arguments dispatch a zero-argument `go`; a token that does not
+parse fails the task with the cause.
 
 ## Recon output grammar (the topology contract)
 

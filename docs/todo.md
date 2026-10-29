@@ -69,6 +69,15 @@ seat as wmi, and the DLL search-order seat as hijack):
   loop's only input is one. Range mode stands in for rehearsal pressure
   until then ([operations/range.md](operations/range.md)).
 
+- **A coff-v1 conformance clause.** A `plugin.load-coff-v1` clause is a
+  one-block rig addition and the mingw fixture compiler already rides
+  the CI toolchain lane; what parks it is the host: the rig drives a
+  live candidate process, the coff loader binds only inside a Windows
+  implant, and no lane runs the rig against one (Wine or a Windows
+  runner -- either is new infrastructure, not code). The loader's own
+  host-blind tests carry the tier until a lane exists
+  (extending/implants.md, Tier 2).
+
 - **iOS shell for the Rust implant** (serves architecture.md Sec 12.2).
   Parked on a real device to run the enrollment leg: the implant e2e
   matrix already carries macOS build hosts with Xcode's SDK (the old

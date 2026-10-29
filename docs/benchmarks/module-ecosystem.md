@@ -73,8 +73,9 @@ construction.
 - **The in-tree monolithic module library** (Metasploit's thousands of
   modules shipping with the framework). Breadth grows in the module
   layer and the registry, quality before quantity, from zero with no
-  carry-over (Sec 15.2): no BOF/COFF execution layer, no Armory
-  migration. The tree ships reference modules only.
+  carry-over (Sec 15.2): the ecosystem's BOF corpus has a loader to run
+  against (coff-v1), but nothing imports wholesale and there is no
+  Armory migration. The tree ships reference modules only.
 - **Install-time code execution** (package-manager install hooks).
   Installing is fetch, hash, verify, extract -- no script runs as part
   of it. The trust chain is signatures, not the package's own code
