@@ -923,13 +923,16 @@ recorded.**
 - **The compiled-in extension seam (ADR-022).** Between the crate fork and
   the loadable plugin sits the extension tier: an implant-native package
   whose sources the build unit compiles *into* the artifact itself -- a
-  source merge under `modules_ext/`, the implant's own types behind plain
+  source merge under `src/extensions/extensions_impl/`, the implant's own types behind plain
   `crate::` paths, which is the tier's whole reach and what keeps the
   dependency graph acyclic. A build request names its extensions; the
   catalog holds the hard targeting gate (the package's manifest rows must
   name the request's unit), and the unit regenerates the extension
   registry the dispatch chain reads: compiled core, then extensions, then
-  runtime plugins. The fork remains the escape hatch for changes the
+  runtime plugins. The tier's first real in-tree entry is
+  `modules/procwatch/` -- a resident process-create watch whose buffered
+  rows accrue between check-ins, the state no per-dispatch plugin process
+  holds. The fork remains the escape hatch for changes the
   overlay cannot express (`Build:RustSourceDirectory` names the tree on an
   installed teamserver); the C-ABI plugin module (Sec 5.4) remains the
   no-rebuild tier beneath both.
@@ -3610,5 +3613,5 @@ Where the program touches the existing layers:
 | 019 | Pre-freeze posture: contracts iterate freely, breaking changes land as rewrites, until the first semver release | Sec 15 |
 | 020 | Plugin portability tiers: named loader ABIs (`plugin-loader/exec-v1` and kin, wasm reserved), the artifact return on ABI 2, plugin packages with prebuilt artifact rows | Sec 5.4, Sec 15.2 |
 | 021 | Open build unit ids and the external build contract: `[unit]` tables, `Build:ExternalUnits`, the request/result file contract -- a new language registers a package, not a recompile | Sec 6, Sec 15.2 |
-| 022 | The compiled-in extension tier: source-merge overlays under `modules_ext/`, build-unit targeting rows as the hard gate, the dispatch chain core -> extensions -> plugins | Sec 5.3, Sec 6 |
+| 022 | The compiled-in extension tier: source-merge overlays under `src/extensions/extensions_impl/`, build-unit targeting rows as the hard gate, the dispatch chain core -> extensions -> plugins | Sec 5.3, Sec 6 |
 | 023 | `Rod.Packaging` as the one packaging-contract library, and the server-side module lifecycle: store, registry browser, verified hot-registering installs, the operator console's marketplace | Sec 15.2 |

@@ -39,7 +39,10 @@ One manifest shape, five ways to ship:
   implant crate (the implant's types behind `crate::` paths -- the
   tier's reach, and what keeps the graph acyclic), and the unit
   regenerates the registry the dispatch chain reads: compiled core,
-  extensions, then runtime plugins.
+  extensions, then runtime plugins. The tier's shape is resident state
+  no loadable plugin holds (an exec-v1 module is a fresh process per
+  dispatch): the in-tree reference is `modules/procwatch/`, a resident
+  process-create watch whose buffered rows flush ask over ask.
 - **`build-unit`** -- the external build contract (ADR-021): the
   `[unit]` table (`id`, `command`, optional `timeout-minutes`) the
   pipeline spawns under `Build:ExternalUnits`. A new implant language
@@ -683,6 +686,18 @@ build --release --target <triple>` for the requested target. Your tree is
 independent and disposable -- coupled to the teamserver only by the wire
 contracts (rod.proto, the baked profile file, the sealed envelope), so a
 fork tracks the contract, not the teamserver's code.
+
+Before the fork sits the extension tier: work that needs to live inside
+the implant itself -- resident state between check-ins above all, the
+shape a per-dispatch plugin process cannot hold -- ships as an
+`entry = "extension"` package instead of a fork. `rod mod init --entry
+extension` scaffolds it, the package's `src/` tree compiles into the
+artifact when a build names it (the build page's compiled-in selection),
+and the whole market lifecycle is the one every module rides. The
+in-tree reference is `modules/procwatch/`: one resident sampler thread,
+a bounded ring of creation rows, and a verb that flushes the rows since
+the last ask -- work that only makes sense compiled in, delivered as a
+package.
 
 ## OPSEC metadata and ROE
 
