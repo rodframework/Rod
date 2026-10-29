@@ -155,23 +155,34 @@ public static class RodCapabilitiesHost
         // adopts, and hot-registers them. The composition root may re-register
         // the lifecycle with the build-side hooks injected (it is the only
         // place both layers are visible); this registration keeps a working
-        // default for hosts that wire none.
+        // default for hosts that wire none. The install bounds (package
+        // ceiling, download timeout) read their knobs with the same defaults
+        // the limits own, and the seeding hosted service replays the store
+        // at host start -- a restart and an install land in one state.
         if (!string.IsNullOrWhiteSpace(configuration?[Lifecycle.ModuleStore.StoreSectionKey]))
         {
             services.AddSingleton(new Rod.Capabilities.Lifecycle.ModuleStore(
                 configuration[ModuleStore.StoreSectionKey]!));
+            var maxPackageBytes = Rod.Capabilities.Lifecycle.ModuleLimits.MaxPackageBytes(
+                configuration?[Rod.Capabilities.Lifecycle.ModuleLimits.MaxPackageBytesKey]);
             services.AddSingleton<Rod.Capabilities.Lifecycle.ModuleLifecycleService>(sp =>
                 new Rod.Capabilities.Lifecycle.ModuleLifecycleService(
                     sp.GetRequiredService<Rod.Capabilities.Lifecycle.ModuleStore>(),
                     sp.GetRequiredService<ICapabilityRegistry>(),
                     sp.GetRequiredService<Rod.Audit.IAuditStore>(),
                     sp.GetRequiredService<TimeProvider>(),
-                    sp.GetService<Rod.Capabilities.Registry.ModuleAssetStore>()));
+                    sp.GetService<Rod.Capabilities.Registry.ModuleAssetStore>(),
+                    maxPackageBytes: maxPackageBytes));
+            services.AddHostedService<Rod.Capabilities.Lifecycle.ModuleLifecycleSeedingService>();
         }
         if (!string.IsNullOrWhiteSpace(configuration?[Rod.Capabilities.Lifecycle.ModuleRegistryClient.RegistrySectionKey]))
         {
             services.AddSingleton(new Rod.Capabilities.Lifecycle.ModuleRegistryClient(
-                configuration[Rod.Capabilities.Lifecycle.ModuleRegistryClient.RegistrySectionKey]!));
+                configuration[Rod.Capabilities.Lifecycle.ModuleRegistryClient.RegistrySectionKey]!,
+                maxPackageBytes: Rod.Capabilities.Lifecycle.ModuleLimits.MaxPackageBytes(
+                    configuration?[Rod.Capabilities.Lifecycle.ModuleLimits.MaxPackageBytesKey]),
+                downloadTimeout: Rod.Capabilities.Lifecycle.ModuleLimits.DownloadTimeout(
+                    configuration?[Rod.Capabilities.Lifecycle.ModuleLimits.DownloadTimeoutSecondsKey])));
         }
 
         return services;

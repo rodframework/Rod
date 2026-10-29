@@ -63,6 +63,10 @@ builder.Services.AddRodCapabilities(builder.Configuration);
 // configured.
 if (!string.IsNullOrWhiteSpace(builder.Configuration[Rod.Capabilities.Lifecycle.ModuleStore.StoreSectionKey]))
 {
+    // The install bounds travel with the re-registration so the composition
+    // root's lifecycle carries the same ceiling AddRodCapabilities wired.
+    var maxPackageBytes = Rod.Capabilities.Lifecycle.ModuleLimits.MaxPackageBytes(
+        builder.Configuration[Rod.Capabilities.Lifecycle.ModuleLimits.MaxPackageBytesKey]);
     builder.Services.AddSingleton<Rod.Capabilities.Lifecycle.ModuleLifecycleService>(sp =>
     {
         return new Rod.Capabilities.Lifecycle.ModuleLifecycleService(
@@ -90,7 +94,8 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration[Rod.Capabilities.Lifecycle.
             {
                 sp.GetRequiredService<Rod.BuildPipeline.PayloadBuild.ExtensionCatalog>().Remove(name);
                 return Task.CompletedTask;
-            });
+            },
+            maxPackageBytes: maxPackageBytes);
     });
 }
 // Wire the durable PostgreSQL store (architecture.md Sec 12, ADR 0003):
@@ -264,14 +269,10 @@ app.MapGet("/", async context =>
     await stream.CopyToAsync(context.Response.Body, context.RequestAborted);
 });
 
-// Seed the module registries from the installed store (ADR-023): every
-// package the lock carries registers the same way a fresh install would,
-// so a restart and an install land in one state. Best-effort ordering
-// against the hosted services is fine -- installs re-register idempotently.
-if (app.Services.GetService<Rod.Capabilities.Lifecycle.ModuleLifecycleService>() is { } moduleLifecycle)
-{
-    await moduleLifecycle.SeedFromStoreAsync();
-}
+// The module store's startup seeding rides the hosted service
+// AddRodCapabilities registered (ADR-023): every package the lock carries
+// registers the same way a fresh install would, so a restart and an
+// install land in one state.
 
 app.Run();
 return 0;
