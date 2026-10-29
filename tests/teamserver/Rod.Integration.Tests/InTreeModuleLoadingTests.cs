@@ -75,10 +75,12 @@ public class InTreeModuleLoadingTests
             // hostenum replaces its verb's placeholder: the manifest-listed
             // registration won, and the descriptor the row declared -- the
             // output kind, the techniques -- is what the registry holds.
+            // The requirement row is the plugin tier's ABI union (ADR-020):
+            // the package's one artifact is the exec shape.
             var hostenum = await registry.FindAsync("recon.hostenum");
             Assert.NotNull(hostenum);
             Assert.Equal("hostenum", hostenum!.Name);
-            Assert.Equal(["plugin-loader/exec-v1", "plugin-loader/native-v1"], hostenum.Requires);
+            Assert.Equal(["plugin-loader/exec-v1"], hostenum.Requires);
             Assert.Equal(VerbOutputKind.Enumeration, hostenum.Descriptor.Output!.Kind);
             Assert.Equal(["T1082"], hostenum.Descriptor.Techniques);
 

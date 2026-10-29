@@ -1,30 +1,34 @@
-# The first in-tree module manifest (architecture.md Sec 15.2, ADR-009):
-# hostenum rides the same package format, canonical form, and signature
-# chain an external module rides, exercised by the CLI's end-to-end tests
-# exactly like a template-repository module.
+# The first in-tree v4 plugin package (architecture.md Sec 15.2, ADRs
+# 009/020): hostenum rides the same package format, canonical form, and
+# signature chain an external module rides, exercised by the CLI's
+# end-to-end tests exactly like a template-repository module. The package
+# carries the server-side descriptor rows and the Linux exec-shape
+# artifact an implant loads through module.load -- build.sh puts the
+# binary at plugin/ before `rod mod publish` packs it.
 
 [module]
 name = "hostenum"
-version = "1.1.0"
-entry = "server"
+version = "1.2.0"
+entry = "plugin"
 license = "Apache-2.0"
-description = "Host enumeration reference module: server-side registration for recon.hostenum, execution in the implant-side plugin at src/implant/rust/modules/hostenum."
+description = "Host enumeration reference plugin: server-side registration for recon.hostenum, execution half packed as the artifact an implant loads through module.load."
 
 [compatibility]
 teamserver = "1.0.0"
 
-# The capability requirements (ADR-017): the pair's execution half is a
-# plugin the target loads through the module family, so the hosting implant
-# must advertise the loader. The implant's handshake advertisement is the
+# A plugin's requirement rows are exactly its artifacts' ABI union
+# (ADR-020): the Linux artifact is the exec shape, so the hosting implant
+# must advertise that loader. The implant's handshake advertisement is the
 # runtime truth; this row is the store's static filter.
-requires = ["plugin-loader/exec-v1", "plugin-loader/native-v1"]
+requires = ["plugin-loader/exec-v1"]
 
-# The verb version matrix (architecture.md Sec 15.2), now the descriptor
-# row itself (ADR-018): the verb iterates under
-# its own module-scoped version, independently of the package version. The
-# row's techniques are the authoritative per-verb ATT&CK declaration (ADR-007)
-# -- the ids the descriptor row itself declares -- with the
-# module-level [attack] list as their validated roll-up.
+# The verb version matrix (architecture.md Sec 15.2), the descriptor row
+# itself (ADR-018): the verb iterates under its own module-scoped version,
+# independently of the package version. The row is unchanged from the
+# 1.1.0 descriptor-only package; 1.2.0 is the tier change that packs the
+# artifact beside it. The row's techniques are the authoritative per-verb
+# ATT&CK declaration (ADR-007), with the module-level [attack] list as
+# their validated roll-up.
 [[verbs]]
 name = "recon.hostenum"
 version = "1.1.0"
@@ -33,22 +37,31 @@ techniques = ["T1082"]
 output-kind = "enumeration"
 output-help = "One JSON finding per line: host, os, arch, user, path."
 
+# The one target the artifact set covers: one prebuilt execution half per
+# platform and arch the package ships. A Windows artifact row joins when
+# a release builds one -- a target without its artifact is a claim the
+# package does not carry.
 [[compatibility.targets]]
 implant-class = "implant"
 platform = "linux"
 arch = "amd64"
 
-[[compatibility.targets]]
-implant-class = "implant"
-platform = "windows"
-arch = "amd64"
-
 [opsec]
 lands-on-disk = true
-notes = "The server-side half is this manifest alone -- no code installs on operator infrastructure. On the target, the implant half loads from staged task content: through a memfd on Linux (nothing on disk), mapped in memory on Windows."
+notes = "Server side, the package lands as descriptor rows and one artifact file under the module store -- no code runs in the teamserver. On the target, the implant half loads from staged task content: through a memfd on Linux (nothing on disk), mapped in memory on Windows."
 
 [attack]
 techniques = ["T1082"]
 
+# The artifact is build output -- build.sh copies the cargo binary into
+# plugin/ before a publish; nothing there is committed. The rules admit
+# the manifest and the plugin directory only, so the tree's other files
+# (this scaffold's scripts) never ride the package.
 [package]
-include = ["rod-module.toml"]
+include = ["rod-module.toml", "plugin/**"]
+
+[[plugin.artifacts]]
+platform = "linux"
+arch = "amd64"
+path = "plugin/hostenum-linux-amd64"
+abi = "exec-v1"

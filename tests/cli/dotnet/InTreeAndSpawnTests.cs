@@ -17,11 +17,13 @@ public class InTreeModuleTests
     /// <summary>
     /// The server-entry modules under modules/: manifest name plus the
     /// verb its manifest's first row registers (each of these modules
-    /// registers exactly one).
+    /// registers exactly one). hostenum is not here: it graduated to the
+    /// plugin tier (ADR-020), so its publish chain needs the cargo-built
+    /// artifact and lives in the integration suite; its manifest shape is
+    /// pinned by <see cref="InTreePluginModuleTests"/> below.
     /// </summary>
     public static TheoryData<string, string> ServerModules => new()
     {
-        { "hostenum", "recon.hostenum" },
         { "domainenum", "recon.domainenum" },
         { "runkeys", "persist.runkeys" },
         { "services", "persist.services" },
@@ -124,6 +126,67 @@ public class InTreeModuleTests
         var verify = CliRun.Run("mod", "verify", "--dir", install);
         Assert.True(verify.Code == 0, verify.Error);
         Assert.Contains($"PASS {name}@{version}", verify.Output);
+    }
+}
+
+/// <summary>
+/// The tree's plugin-tier module: hostenum is the first in-tree v4
+/// plugin package (ADR-020), so its manifest is pinned here in the
+/// plugin's own shape -- the artifact row the package ships, the
+/// requirement rows exactly its ABI union, and the target the artifact
+/// set covers. The publish chain itself needs the cargo-built artifact
+/// and rides the integration suite's marketplace end-to-end leg.
+/// </summary>
+public class InTreePluginModuleTests
+{
+    private static string RepoRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (Directory.Exists(Path.Combine(directory.FullName, "src"))
+                && Directory.Exists(Path.Combine(directory.FullName, "modules")))
+                return directory.FullName;
+            directory = directory.Parent!;
+        }
+        throw new InvalidOperationException("could not locate the repo root from the test assembly.");
+    }
+
+    [Fact]
+    public void TheInTreePluginManifest_IsWellFormed()
+    {
+        var (manifest, errors) = ManifestToml.LoadFile(
+            Path.Combine(RepoRoot(), "modules", "hostenum", ManifestToml.FileName));
+        Assert.Empty(errors);
+        Assert.Equal("hostenum", manifest.Name);
+        Assert.Equal(ModuleEntryKind.Plugin, manifest.Entry);
+
+        // One artifact per shipped target, and the requirement rows are
+        // exactly its ABI union -- the store's static filter, a function
+        // of what the package carries.
+        var artifact = Assert.Single(manifest.PluginArtifacts);
+        Assert.Equal("linux", artifact.Platform);
+        Assert.Equal("amd64", artifact.Arch);
+        Assert.Equal("exec-v1", artifact.Abi);
+        Assert.Equal("plugin/hostenum-linux-amd64", artifact.Path);
+        Assert.Equal(["plugin-loader/exec-v1"], manifest.Requires);
+
+        // The targeting rows claim only what the artifact set covers.
+        var target = Assert.Single(manifest.Targets);
+        Assert.Equal("linux", target.Platform);
+        Assert.Equal("amd64", target.Arch);
+
+        // The server half is still the descriptor row, unchanged from the
+        // descriptor-only package: same verb, same declaration.
+        var verb = Assert.Single(manifest.Verbs);
+        Assert.Equal("recon.hostenum", verb.Name);
+        Assert.True(verb.IsDescriptor);
+        Assert.Equal("recon", verb.Category);
+        Assert.Equal(["T1082"], verb.Techniques);
+
+        // The packaging rules admit the manifest and the artifact
+        // directory only; the tree's build script stays out.
+        Assert.Equal(["rod-module.toml", "plugin/**"], manifest.Package!.Include);
     }
 }
 
