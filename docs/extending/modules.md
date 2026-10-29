@@ -781,6 +781,14 @@ Homebrew-tap shape under the Rod organization with merge rights held by
 review; third-party taps work by construction (`--registry` takes any
 git URL or local checkout).
 
+Publish packs whatever files the rules select, so a plugin package's
+artifact must exist before it does: build the execution half first and
+copy it to the path its `[[plugin.artifacts]]` row names (the tree's
+reference does exactly this -- `modules/hostenum/build.sh` cargo-builds
+the crate and drops the binary at `plugin/hostenum-linux-amd64`, and
+`hostenum` is the in-tree worked example of a v4 plugin package, one
+artifact row beside its descriptor rows).
+
 Publish refuses two drifts on purpose: republishing an indexed version
 with different content (bump `module.version`), and a package whose
 selection would include key material.

@@ -3081,7 +3081,13 @@ the teamserver's module marketplace (`/modules`), which fetches from the
 same static index, verifies through the same Rod.Packaging chain, pins
 the same keys into the same lock-file format under `Modules:Store`, and
 hot-registers without a restart, every action audit-chained
-(`ModuleInstalled`/`ModuleRemoved`). The marketplace installs data
+(`ModuleInstalled`/`ModuleRemoved`). The install path is bounded the way
+the task path is: a package ceiling (`Modules:MaxPackageBytes`) and a
+download timeout (`Modules:DownloadTimeoutSeconds`) govern uploads and
+registry fetches alike -- an over-ceiling package is a 413 with the
+ceiling named, a silent registry a 504, never an unbounded read. A
+restart replays the store through the seeding hosted service, so a
+restart and an install land in one state. The marketplace installs data
 packages only: the in-proc assembly path stays a deployment owner's
 config-listed decision. OPSEC metadata ("lands on disk" / "memory only")
 shows at search and install, carrying the per-verb OPSEC labeling into
@@ -3089,9 +3095,11 @@ the catalog. **Shipped** (the `rod` CLI,
 `src/cli/dotnet/`, standing beside the tree with no in-house references --
 its contracts are files): the manifest, the canonical form, the signing
 chain, the six commands, and the reference module
-`modules/hostenum/rod-module.toml` riding the identical path, with the
-end-to-end acceptance (template repository through publish to install)
-encoded in `tests/cli/dotnet/`. The index's **governance model** is
+`modules/hostenum/rod-module.toml` -- re-tiered to the plugin kind, so
+its package carries the Linux artifact beside the descriptor rows --
+riding the identical path, with the publish-chain acceptance in
+`tests/cli/dotnet/` and the marketplace round trip (real publish,
+console install, `module.load` delivery) in the integration suite. The index's **governance model** is
 decided: the canonical rod-registry is an **organization tap** -- hosted
 under the GitHub organization ADR-011 creates, entries landing by pull
 request with review, merge rights held by the organization. Third-party
