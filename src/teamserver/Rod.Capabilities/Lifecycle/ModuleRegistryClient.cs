@@ -23,11 +23,19 @@ public sealed class ModuleRegistryClient
 
     private readonly string _base;
     private readonly HttpMessageHandler _handler;
+    private readonly long _maxPackageBytes;
+    private readonly TimeSpan _downloadTimeout;
 
-    public ModuleRegistryClient(string @base, HttpMessageHandler? handler = null)
+    public ModuleRegistryClient(
+        string @base,
+        HttpMessageHandler? handler = null,
+        long? maxPackageBytes = null,
+        TimeSpan? downloadTimeout = null)
     {
         _base = @base.Trim().TrimEnd('/');
         _handler = handler ?? new SocketsHttpHandler();
+        _maxPackageBytes = maxPackageBytes ?? ModuleLimits.DefaultMaxPackageBytes;
+        _downloadTimeout = downloadTimeout ?? TimeSpan.FromSeconds(ModuleLimits.DefaultDownloadTimeoutSeconds);
     }
 
     public bool IsLocal => !_base.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
@@ -98,20 +106,77 @@ public sealed class ModuleRegistryClient
     }
 
     /// <summary>Downloads a package's bytes by the index version's URL --
-    /// https or the file:// shape a local registry carries.</summary>
+    /// https or the file:// shape a local registry carries. Both entrances
+    /// sit under the configured ceiling (an over-large package is refused
+    /// before it is read, not after), and the https entrance carries the
+    /// configured download timeout so a silent registry is a refused
+    /// install, never a hung one.</summary>
     public async Task<byte[]> DownloadAsync(RegistryVersion version, CancellationToken cancellationToken = default)
     {
         if (version.Url.StartsWith("file://", StringComparison.Ordinal))
-            return await File.ReadAllBytesAsync(version.Url["file://".Length..].TrimStart('/'), cancellationToken);
+        {
+            // Round-trip through Uri so absolute paths survive on every OS:
+            // the CLI's publish writes file:///tmp/... on Linux, where
+            // stripping the scheme by hand leaves a relative path.
+            return await ReadCappedAsync(new Uri(version.Url).LocalPath, cancellationToken);
+        }
         if (IsLocal && !version.Url.Contains("://", StringComparison.Ordinal))
-            return await File.ReadAllBytesAsync(version.Url, cancellationToken);
-        using var client = new HttpClient(_handler, disposeHandler: false);
-        return await client.GetByteArrayAsync(version.Url, cancellationToken);
+            return await ReadCappedAsync(version.Url, cancellationToken);
+        return await DownloadCappedAsync(version.Url, cancellationToken);
     }
+
+    private async Task<byte[]> ReadCappedAsync(string path, CancellationToken cancellationToken)
+    {
+        var info = new FileInfo(path);
+        if (info.Length > _maxPackageBytes)
+            throw TooLarge("registry file", info.Length);
+        return await File.ReadAllBytesAsync(path, cancellationToken);
+    }
+
+    private async Task<byte[]> DownloadCappedAsync(string url, CancellationToken cancellationToken)
+    {
+        using var client = new HttpClient(_handler, disposeHandler: false) { Timeout = _downloadTimeout };
+        try
+        {
+            // Headers first so a declared Content-Length over the ceiling is
+            // refused before a byte streams; a lying (or absent) header is
+            // caught by the capped copy itself.
+            using var response = await client.GetAsync(
+                url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            if (response.Content.Headers.ContentLength is { } declared && declared > _maxPackageBytes)
+                throw TooLarge("registry download", declared);
+            using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var buffered = new MemoryStream();
+            var buffer = new byte[64 * 1024];
+            while (true)
+            {
+                var read = await stream.ReadAsync(buffer, cancellationToken);
+                if (read == 0)
+                    break;
+                if (buffered.Length + read > _maxPackageBytes)
+                    throw TooLarge("registry download", buffered.Length + read);
+                await buffered.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+            }
+            return buffered.ToArray();
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The client's own timeout fired, not the caller going away.
+            throw new ModuleDownloadTimeoutException(
+                $"The registry download of '{url}' did not complete within the configured " +
+                $"{ModuleLimits.DownloadTimeoutSecondsKey} of {(int)_downloadTimeout.TotalSeconds}s; refusing the install.");
+        }
+    }
+
+    private ModulePackageTooLargeException TooLarge(string source, long bytes)
+        => new(
+            $"The {source} package is {bytes} bytes, over the configured {ModuleLimits.MaxPackageBytesKey} " +
+            $"of {_maxPackageBytes} bytes; refusing the install.");
 
     private async Task<string?> FetchJsonAsync(string url, CancellationToken cancellationToken)
     {
-        using var client = new HttpClient(_handler, disposeHandler: false);
+        using var client = new HttpClient(_handler, disposeHandler: false) { Timeout = _downloadTimeout };
         try
         {
             return await client.GetStringAsync(url, cancellationToken);
@@ -119,6 +184,12 @@ public sealed class ModuleRegistryClient
         catch (HttpRequestException)
         {
             return null;
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new ModuleDownloadTimeoutException(
+                $"The registry index fetch of '{url}' did not complete within the configured " +
+                $"{ModuleLimits.DownloadTimeoutSecondsKey} of {(int)_downloadTimeout.TotalSeconds}s.");
         }
     }
 

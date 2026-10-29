@@ -30,6 +30,7 @@ public sealed class ModuleLifecycleService
     private readonly ModuleAssetStore? _assets;
     private readonly IAuditStore _audit;
     private readonly TimeProvider _clock;
+    private readonly long _maxPackageBytes;
 
     // The build-side hooks the composition root injects (ADR-023): the
     // capabilities layer cannot reference the build pipeline, so external
@@ -52,7 +53,8 @@ public sealed class ModuleLifecycleService
         TimeProvider clock,
         ModuleAssetStore? assets = null,
         RegisterBuildSideAsync? registerBuildSide = null,
-        Func<string, Task>? unregisterBuildSide = null)
+        Func<string, Task>? unregisterBuildSide = null,
+        long? maxPackageBytes = null)
     {
         _store = store;
         _capabilities = capabilities;
@@ -61,7 +63,13 @@ public sealed class ModuleLifecycleService
         _clock = clock;
         _registerBuildSide = registerBuildSide;
         _unregisterBuildSide = unregisterBuildSide;
+        _maxPackageBytes = maxPackageBytes ?? ModuleLimits.DefaultMaxPackageBytes;
     }
+
+    /// <summary>The package ceiling this service enforces at its spine --
+    /// the number the upload endpoint streams against, surfaced so the
+    /// endpoint and the install refuse at one bound.</summary>
+    public long MaxPackageBytes => _maxPackageBytes;
 
     /// <summary>The installed set, name-sorted, with each package's
     /// manifest.</summary>
@@ -153,6 +161,14 @@ public sealed class ModuleLifecycleService
         Guid? operatorId,
         CancellationToken cancellationToken)
     {
+        // The one ceiling every entrance shares: an upload buffered by the
+        // endpoint and a registry download already checked on its way in
+        // both stop here, so no path can grow an unbounded byte[].
+        if (packageBytes.Length > _maxPackageBytes)
+            throw new ModulePackageTooLargeException(
+                $"The package is {packageBytes.Length} bytes, over the configured " +
+                $"{ModuleLimits.MaxPackageBytesKey} of {_maxPackageBytes} bytes; refusing the install.");
+
         // Extract into a staging directory first; nothing moves into the
         // store until every check passed.
         var staging = Path.Combine(Path.GetTempPath(), "rod-module-install-" + Guid.NewGuid().ToString("N"));

@@ -34,7 +34,8 @@ public class ModuleLifecycleTests : IDisposable
 
     private ModuleLifecycleService Service(ModuleAssetStore? assets = null,
         ModuleLifecycleService.RegisterBuildSideAsync? register = null,
-        Func<string, Task>? unregister = null)
+        Func<string, Task>? unregister = null,
+        long? maxPackageBytes = null)
         => new(
             new ModuleStore(_storeRoot),
             _capabilities,
@@ -42,7 +43,8 @@ public class ModuleLifecycleTests : IDisposable
             TimeProvider.System,
             assets,
             register,
-            unregister);
+            unregister,
+            maxPackageBytes);
 
     /// <summary>Authors, packages, and signs one module version, and drops
     /// its index entry into the local registry. The same shape a real
@@ -239,6 +241,86 @@ public class ModuleLifecycleTests : IDisposable
         await PublishPackageAsync(unitSource, "unit-pkg", "0.1.0");
         await service.InstallFromRegistryAsync(registry, "unit-pkg", "0.1.0");
         Assert.Contains("unit-pkg", seen);
+    }
+
+    [Fact]
+    public async Task APackageOverTheSpineCeiling_IsRefused()
+    {
+        // The one ceiling every entrance shares: the spine refuses the
+        // bytes before anything is parsed or staged, whatever entrance
+        // they came through.
+        var service = Service(maxPackageBytes: 16);
+        var refusal = await Assert.ThrowsAsync<ModulePackageTooLargeException>(
+            () => service.InstallUploadedAsync(
+                new byte[64],
+                Convert.ToBase64String("pubkey"u8),
+                Convert.ToBase64String("sig"u8)));
+        Assert.Contains("over the configured", refusal.Message);
+    }
+
+    [Fact]
+    public async Task ARegistryPackagePastTheCeiling_IsRefused()
+    {
+        var (name, _) = await PublishAsync();
+        var registry = new ModuleRegistryClient(_registryRoot, maxPackageBytes: 16);
+        var service = Service();
+
+        var refusal = await Assert.ThrowsAsync<ModulePackageTooLargeException>(
+            () => service.InstallFromRegistryAsync(registry, name));
+        Assert.Contains("over the configured", refusal.Message);
+    }
+
+    [Fact]
+    public async Task ALocalFileUrl_DownloadsThroughItsAbsoluteLocation()
+    {
+        // The CLI's publish writes file:///tmp/... URLs; on an OS whose
+        // absolute paths start with '/', the scheme must not be stripped by
+        // hand or the path turns relative and the fetch reads the working
+        // directory instead.
+        var (name, _) = await PublishAsync();
+        var registry = new ModuleRegistryClient(_registryRoot);
+        var version = (await registry.FindAsync(name))!.Versions[0];
+        var zip = Path.GetFullPath(version.Url);
+        var indexed = version with { Url = "file://" + zip };
+
+        var bytes = await registry.DownloadAsync(indexed);
+
+        Assert.Equal(await File.ReadAllBytesAsync(zip), bytes);
+    }
+
+    [Fact]
+    public async Task ASilentRegistry_TimesOutTheDownload()
+    {
+        // A registry that never answers is a refused install, never a hung
+        // request: the client's own timeout fires and surfaces as the
+        // timeout refusal with the configured budget named. The index stays
+        // local; only the package fetch goes over the silent handler.
+        var (name, _) = await PublishAsync();
+        var entryPath = Path.Combine(_registryRoot, "modules", name + ".json");
+        var entry = RegistryJson.LoadEntry(entryPath)!;
+        await File.WriteAllTextAsync(entryPath, RegistryJson.SaveEntry(entry with
+        {
+            Versions = [entry.Versions[0] with { Url = "https://registry.invalid/" + name + ".zip" }],
+        }));
+        var registry = new ModuleRegistryClient(
+            _registryRoot, handler: new SilentHandler(), downloadTimeout: TimeSpan.FromMilliseconds(100));
+        var service = Service();
+
+        var refusal = await Assert.ThrowsAsync<ModuleDownloadTimeoutException>(
+            () => service.InstallFromRegistryAsync(registry, name));
+
+        Assert.Contains("did not complete within", refusal.Message);
+    }
+
+    // Never answers: the delay runs until the client's timeout cancels it.
+    private sealed class SilentHandler() : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("unreachable: the delay never completes");
+        }
     }
 
     // Packages an arbitrary source tree into the local registry under the

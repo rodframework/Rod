@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Net.Http.Headers;
 using Rod.CoreState.Operators;
 using Rod.Capabilities.Lifecycle;
 using Rod.Packaging;
@@ -107,7 +109,15 @@ public static class ModuleEndpoints
         }
         catch (InvalidOperationException ex)
         {
-            return TypedResults.BadRequest(new Problem(ex.Message));
+            return Rejected(ex);
+        }
+        catch (System.Net.Http.HttpRequestException ex)
+        {
+            // The registry did not serve what its index pointed at -- a
+            // dependency failure, not a server bug.
+            return TypedResults.Json(
+                new Problem($"The registry did not serve the package: {ex.Message}"),
+                statusCode: StatusCodes.Status502BadGateway);
         }
     }
 
@@ -121,29 +131,129 @@ public static class ModuleEndpoints
         // public key, and the detached signature -- the trust chain travels
         // with the bytes, and the server verifies it exactly as it would a
         // registry package's.
-        if (!request.HasFormContentType
-            || request.Form.Files.GetFiles("package").Count == 0
-            || request.Form.TryGetValue("publicKey", out var publicKey) == false
-            || request.Form.TryGetValue("signature", out var signature) == false)
-        {
+        if (!request.HasFormContentType)
             return TypedResults.BadRequest(new Problem(
                 "Upload the package as multipart form data: a 'package' file, a 'publicKey' field, and a 'signature' field."));
+        if (!MediaTypeHeaderValue.TryParse(request.ContentType, out var media)
+            || string.IsNullOrEmpty(media.Boundary.Value))
+            return TypedResults.BadRequest(new Problem("The multipart request carries no boundary."));
+        var boundary = media.Boundary.Value;
+
+        // The package ceiling is the one the install spine enforces, so the
+        // refusal an over-limit upload sees carries the reason here rather
+        // than a framework body limit upstream. The slack covers the
+        // multipart framing; the spine's ceiling still fires first.
+        var ceiling = lifecycle.MaxPackageBytes;
+        context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>()
+            ?.MaxRequestBodySize = ceiling + 64 * 1024;
+
+        byte[]? package = null;
+        string? publicKey = null;
+        string? signature = null;
+        string? fieldsRefusal = null;
+        var reader = new MultipartReader(boundary, request.Body)
+        {
+            // A boundary line and the section headers are metadata, not
+            // payload; a few kilobytes is generous and a megabyte is not.
+            HeadersLengthLimit = 32 * 1024,
+        };
+        while (await reader.ReadNextSectionAsync(cancellationToken) is { } section)
+        {
+            string? fieldName = null;
+            if (ContentDispositionHeaderValue.TryParse(section.ContentDisposition, out var disposition)
+                && disposition.Name.HasValue)
+                fieldName = disposition.Name.ToString();
+            if (fieldName is null)
+                continue;
+            if (fieldName == "package")
+            {
+                // Streamed with the ceiling, not buffered whole: a lying
+                // or absent Content-Length cannot grow the byte[].
+                using var buffered = new MemoryStream();
+                var buffer = new byte[64 * 1024];
+                while (true)
+                {
+                    var read = await section.Body.ReadAsync(buffer, cancellationToken);
+                    if (read == 0)
+                        break;
+                    if (buffered.Length + read > ceiling)
+                        return TypedResults.Json(
+                            new Problem(
+                                $"The uploaded package is over the configured {ModuleLimits.MaxPackageBytesKey} " +
+                                $"of {ceiling} bytes; refusing the install."),
+                            statusCode: StatusCodes.Status413PayloadTooLarge);
+                    await buffered.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                }
+                package = buffered.ToArray();
+            }
+            else if (fieldName is "publicKey" or "signature")
+            {
+                // The small string fields ride the same sections; 64 KB is
+                // far past any real key or signature and keeps a hostile
+                // field from being an unbounded read.
+                var value = await ReadFieldAsync(section, MaxFieldBytes, cancellationToken);
+                if (value is null)
+                    fieldsRefusal =
+                        $"The '{fieldName}' field exceeds the {MaxFieldBytes / 1024} KB field limit.";
+                else if (fieldName == "publicKey")
+                    publicKey = value;
+                else
+                    signature = value;
+            }
         }
+        if (fieldsRefusal is not null)
+            return TypedResults.BadRequest(new Problem(fieldsRefusal));
+        if (package is null || package.Length == 0 || publicKey is null || signature is null)
+            return TypedResults.BadRequest(new Problem(
+                "Upload the package as multipart form data: a 'package' file, a 'publicKey' field, and a 'signature' field."));
 
         var operatorId = context.User.TryGetOperatorId()?.Value;
-        using var stream = new MemoryStream();
-        await request.Form.Files.GetFiles("package")[0].CopyToAsync(stream, cancellationToken);
         try
         {
             var record = await lifecycle.InstallUploadedAsync(
-                stream.ToArray(), publicKey!, signature!, operatorId, cancellationToken);
+                package, publicKey, signature, operatorId, cancellationToken);
             return TypedResults.Ok(record);
         }
         catch (InvalidOperationException ex)
         {
-            return TypedResults.BadRequest(new Problem(ex.Message));
+            return Rejected(ex);
         }
     }
+
+    // The ceiling for the small string fields an upload carries beside the
+    // package. Answers null when the field crossed it, so the caller
+    // refuses with the reason instead of the read throwing.
+    private const int MaxFieldBytes = 64 * 1024;
+
+    private static async Task<string?> ReadFieldAsync(
+        MultipartSection section, int limit, CancellationToken cancellationToken)
+    {
+        using var buffered = new MemoryStream();
+        var buffer = new byte[4096];
+        while (true)
+        {
+            var read = await section.Body.ReadAsync(buffer, cancellationToken);
+            if (read == 0)
+                break;
+            if (buffered.Length + read > limit)
+                return null;
+            await buffered.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+        }
+        return System.Text.Encoding.UTF8.GetString(buffered.ToArray());
+    }
+
+    // The install refusals that carry their own status: an over-ceiling
+    // package is the caller's bytes (413), a registry that would not answer
+    // in time is a dependency timeout (504). Everything else stays the
+    // lifecycle's plain 400-with-reason.
+    private static IResult Rejected(InvalidOperationException ex) => ex switch
+    {
+        ModulePackageTooLargeException => TypedResults.Json(
+            new Problem(ex.Message), statusCode: StatusCodes.Status413PayloadTooLarge),
+        ModuleDownloadTimeoutException => TypedResults.Json(
+            new Problem(ex.Message), statusCode: StatusCodes.Status504GatewayTimeout),
+        _ => TypedResults.BadRequest(new Problem(ex.Message)),
+    };
 
     private static async Task<IResult> Uninstall(
         string name, HttpContext context, ModuleLifecycleService lifecycle)
@@ -156,7 +266,7 @@ public static class ModuleEndpoints
         }
         catch (InvalidOperationException ex)
         {
-            return TypedResults.BadRequest(new Problem(ex.Message));
+            return Rejected(ex);
         }
     }
 
