@@ -32,7 +32,12 @@ public class CoverageCommandTests
         // Every manifest under modules/ rides the sweep, asset modules
         // included: the count is the swept tree, not the verb-carrying
         // subset.
-        Assert.Contains("15 modules swept", run.Output);
+        Assert.Contains("16 modules swept", run.Output);
+
+        // The extension tier's first real entry rides the sweep like every
+        // verb-carrying module: T1057's row carries procwatch beside
+        // whatever the kernel maps to the technique.
+        Assert.Contains("procwatch (recon.procwatch)", run.Output);
 
         // The reference module's declaration rides beside the kernel's own
         // mapping of the same verb: one row, both carriers.
