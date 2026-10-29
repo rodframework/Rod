@@ -236,8 +236,9 @@ build deploys the in-tree set under `modules/` beside the binary:
 }
 ```
 
-That is the whole integration, and it is the path every in-tree reference
-module rides:
+That is the whole integration, and it is the server-side path every
+in-tree reference module rides -- the plugin-tier packages carry their
+execution halves beside these same descriptor rows:
 
 - The host reads the manifest's name, requirement rows, and descriptor rows
   at startup and registers one module per row. Registration is
@@ -410,11 +411,12 @@ the operator's console reads a module verb exactly like a built-in one.
 `module.list` reports what is loaded, and `module.unload sweep` retracts
 it (best-effort: routes drop immediately, a running handler finishes).
 
-The reference pairs in-tree are the worked examples to copy: the
-server-side halves at `modules/hostenum/` and `modules/domainenum/`, the
-implant-side halves at `src/implant/rust/modules/hostenum/` and
-`src/implant/rust/modules/domainenum/` -- each one verb string declared
-on both sides and nothing shared between them.
+The reference pairs in-tree are the worked examples to copy -- all
+thirteen ride the v4 plugin tier now, each package carrying its Linux
+artifact beside its descriptor rows: the server-side halves under
+`modules/` (`hostenum` and `domainenum` read first), the implant-side
+halves under `src/implant/rust/modules/` -- each one verb string
+declared on both sides and nothing shared between them.
 
 The rules the loader enforces, all reported on the load task itself:
 
@@ -836,11 +838,11 @@ git URL or local checkout).
 
 Publish packs whatever files the rules select, so a plugin package's
 artifact must exist before it does: build the execution half first and
-copy it to the path its `[[plugin.artifacts]]` row names (the tree's
-reference does exactly this -- `modules/hostenum/build.sh` cargo-builds
-the crate and drops the binary at `plugin/hostenum-linux-amd64`, and
-`hostenum` is the in-tree worked example of a v4 plugin package, one
-artifact row beside its descriptor rows).
+copy it to the path its `[[plugin.artifacts]]` row names (every in-tree
+package does exactly this -- `modules/<name>/build.sh` cargo-builds the
+crate and drops the binary at `plugin/<name>-linux-amd64`; `hostenum`
+is the read-first worked example, one artifact row beside its descriptor
+rows).
 
 Publish refuses two drifts on purpose: republishing an indexed version
 with different content (bump `module.version`), and a package whose

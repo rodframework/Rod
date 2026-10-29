@@ -4,8 +4,9 @@ How capabilities arrive after the kernel stops growing: the module
 ecosystem -- manifest, registry index, CLI, signatures, lock
 ([architecture.md Sec 15.2](../architecture.md); ADR-002, ADR-003,
 ADR-009). Rod ships today the seams (the `ICapabilityModule` contract,
-the implant handler overlay, the in-tree module host with `hostenum` as
-the reference pair) and the `rod mod` suite over them: `init`,
+the implant handler overlay, the in-tree module host with thirteen v4
+plugin packages, `hostenum` the reference pair among them) and the
+`rod mod` suite over them: `init`,
 `search`, `info`, `install`, `verify`, `publish`, the
 `rod-module.toml` manifest, the `rod-registry` static git index, and a
 lock file recording what landed. The field's module ecosystems are the

@@ -3116,11 +3116,11 @@ shows at search and install, carrying the per-verb OPSEC labeling into
 the catalog. **Shipped** (the `rod` CLI,
 `src/cli/dotnet/`, standing beside the tree with no in-house references --
 its contracts are files): the manifest, the canonical form, the signing
-chain, the six commands, and the reference module
-`modules/hostenum/rod-module.toml` -- re-tiered to the plugin kind, so
-its package carries the Linux artifact beside the descriptor rows --
-riding the identical path, with the publish-chain acceptance in
-`tests/cli/dotnet/` and the marketplace round trip (real publish,
+chain, the six commands, and the in-tree reference set -- thirteen v4
+plugin packages under `modules/`, each carrying its Linux artifact beside
+its descriptor rows (`hostenum` first, then the twelve that followed) --
+riding the identical path, with the manifest-shape pins in
+`tests/cli/dotnet/` and the marketplace round trips (real publish,
 console install, `module.load` delivery) in the integration suite. The index's **governance model** is
 decided: the canonical rod-registry is an **organization tap** -- hosted
 under the GitHub organization ADR-011 creates, entries landing by pull
@@ -3231,7 +3231,9 @@ pinned equal by a test, and `rod mod init --entry server` scaffolds the
 descriptor shape -- the manifest alone is the module, and publish accepts
 a manifest-only package for it. The in-tree reference set migrated whole:
 the thirteen server modules' .NET halves were pure descriptors and are
-deleted, their manifests carrying what they declared, no dual shape left.
+deleted, their manifests carrying what they declared, no dual shape left;
+the set has since retiered whole onto the v4 plugin tier, each package
+carrying its Linux artifact beside the descriptor rows.
 The acceptance: `ManifestDeclaredDescriptorTests` (a hand-written
 `probe.*` manifest in a temp directory opens its gate and renders its
 form from catalog data alone), the descriptor-loader unit suite, and the
