@@ -29,6 +29,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Serial test collections: the legs spin real Kestrel hosts, Rust
+         implant processes, and cargo builds, and the parallel fan-out
+         contends on WSL2's fs.inotify instance budget (and the cargo
+         target-dir lock) badly enough to fail batches for environmental
+         reasons. Wall time is traded for a result that means something. -->
+    <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\..\src\teamserver\Rod.Transport\Rod.Transport.csproj" />
     <!-- Referenced so the operator layer (live bus + SSE endpoint) can be
          layered into the test host alongside the transport core. -->
@@ -45,6 +54,11 @@
          build-stamp endpoint (GET /build) lives in the executable because the
          stamp is a property of the binary, not of any layer. -->
     <ProjectReference Include="..\..\..\src\teamserver\Rod.TeamServer\Rod.TeamServer.csproj" />
+    <!-- Referenced so the marketplace end-to-end leg drives the real
+         `rod mod publish` entry in-process (RodCli.RunAsync): the first v4
+         plugin package rides the identical chain a publisher's shell rides,
+         never a test-side reimplementation. -->
+    <ProjectReference Include="..\..\..\src\cli\dotnet\Rod.Cli.csproj" />
   </ItemGroup>
 
 </Project>

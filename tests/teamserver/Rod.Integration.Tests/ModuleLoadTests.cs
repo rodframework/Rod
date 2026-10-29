@@ -215,7 +215,7 @@ public class ModuleLoadTests
         var rustDir = ModuleLoadTestSupport.FindRustTree()
             ?? throw new InvalidOperationException("the Rust implant tree was not found from the test assembly");
         const string triple = "x86_64-unknown-linux-musl";
-        await RunCargoAsync(rustDir, $"build --release --target {triple}");
+        await ModuleLoadTestSupport.RunCargoAsync(rustDir, $"build --release --target {triple}");
         var binary = Path.Combine(rustDir, "target", triple, "release", "rod-implant");
         Assert.True(File.Exists(binary), $"cargo reported success but {binary} is missing");
         var moduleBytes = await BuildModuleAsync(rustDir, triple);
@@ -301,7 +301,7 @@ public class ModuleLoadTests
     {
         var rustDir = ModuleLoadTestSupport.FindRustTree()
             ?? throw new InvalidOperationException("the Rust implant tree was not found from the test assembly");
-        await RunCargoAsync(rustDir, "build --release");
+        await ModuleLoadTestSupport.RunCargoAsync(rustDir, "build --release");
         var binary = Path.Combine(rustDir, "target", "release", "rod-implant");
         Assert.True(File.Exists(binary), $"cargo reported success but {binary} is missing");
         var module = await BuildModuleAsync(rustDir, triple: null);
@@ -317,7 +317,7 @@ public class ModuleLoadTests
     {
         var moduleDir = Path.Combine(rustDir, "modules", "hostenum");
         Assert.True(Directory.Exists(moduleDir), $"the reference module tree is missing: {moduleDir}");
-        await RunCargoAsync(moduleDir, triple is null ? "build --release" : $"build --release --target {triple}");
+        await ModuleLoadTestSupport.RunCargoAsync(moduleDir, triple is null ? "build --release" : $"build --release --target {triple}");
         var binary = triple is null
             ? Path.Combine(moduleDir, "target", "release", "rod-module-hostenum")
             : Path.Combine(moduleDir, "target", triple, "release", "rod-module-hostenum");
@@ -325,7 +325,16 @@ public class ModuleLoadTests
         return await File.ReadAllBytesAsync(binary);
     }
 
-    private static async Task RunCargoAsync(string workingDirectory, string arguments)
+    private sealed record MintedToken(string Secret);
+}
+
+/// <summary>
+/// The shared helpers of the module-load legs: the same wait shapes the
+/// Rust e2e suite uses, kept local so this file reads on its own.
+/// </summary>
+internal static class ModuleLoadTestSupport
+{
+    public static async Task RunCargoAsync(string workingDirectory, string arguments)
     {
         var build = Process.Start(new ProcessStartInfo
         {
@@ -342,15 +351,6 @@ public class ModuleLoadTests
         Assert.True(build.ExitCode == 0, $"cargo {arguments} failed:\n{buildOutput}");
     }
 
-    private sealed record MintedToken(string Secret);
-}
-
-/// <summary>
-/// The shared helpers of the module-load legs: the same wait shapes the
-/// Rust e2e suite uses, kept local so this file reads on its own.
-/// </summary>
-internal static class ModuleLoadTestSupport
-{
     public static async Task<string> WaitForOnlineAsync(
         TestEnv env, TimeSpan deadline, StringBuilder stderr)
     {
@@ -428,15 +428,22 @@ internal sealed class TestEnv : IAsyncDisposable
     public HttpClient Http { get; private set; } = null!;
     public int HttpPort { get; private set; }
 
-    public static async Task<TestEnv> StartAsync()
+    public static async Task<TestEnv> StartAsync(
+        Action<Dictionary<string, string?>>? extendConfig = null,
+        Action<Microsoft.AspNetCore.Routing.IEndpointRouteBuilder>? mapEndpoints = null,
+        Action<Microsoft.Extensions.DependencyInjection.IServiceCollection, Microsoft.Extensions.Configuration.IConfiguration>? configureServicesWithConfig = null)
     {
         var env = new TestEnv();
         env.HttpPort = TestSupport.GetFreeTcpPort();
 
-        var config = AuthenticatedHost.BuildConfig();
+        var config = AuthenticatedHost.BuildConfig(extendConfig);
         env.Host = TransportHost.CreateHostBuilder(
-                configureServices: services => AuthenticatedHost.ComposeServices(services, config),
-                mapEndpoints: endpoints => AuthenticatedHost.ComposeEndpoints(endpoints),
+                configureServices: services =>
+                {
+                    AuthenticatedHost.ComposeServices(services, config);
+                    configureServicesWithConfig?.Invoke(services, config);
+                },
+                mapEndpoints: endpoints => AuthenticatedHost.ComposeEndpoints(endpoints, mapEndpoints),
                 configuration: config)
             .ConfigureWebHost(webBuilder => webBuilder
                 .UseRodListeners(new List<Rod.Transport.Listeners.ListenerConfig>())
