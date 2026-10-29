@@ -966,12 +966,13 @@ from quietly growing:
    the tradecraft modules, and the build pipeline -- not in the minimum an
    implant must carry (architecture.md Sec 14).
 
-**When they bind.** These rules govern the frozen contract. Until the
-first semver release of `Rod.Protocol` -- the freeze ADR-011's split
-ladder names -- the platform holds the pre-freeze posture
-([architecture.md Sec 15](../architecture.md), ADR-019): the protocol
-iterates freely, and a breaking change lands as a rewrite of this file
-and rod.proto together, never as a compat shim.
+**When they bind.** These rules govern the frozen contract, and they are
+in force: `Rod.Protocol` and the module contracts shipped as the v1.0.0
+release, the freeze ADR-011's split ladder names
+([architecture.md Sec 15](../architecture.md), ADR-019). The pre-freeze
+freedom -- a breaking change landing as a rewrite of this file and
+rod.proto together, never as a compat shim -- is spent: additions take
+new field numbers, land in a tier, and leave a Tier 0 implant unchanged.
 
 ## The linkable core (the C-ABI embedding surface)
 

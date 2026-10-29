@@ -5,7 +5,7 @@
 > holds the teamserver (the .NET control plane) and the Rust reference implant, with a Postgres persistence
 > layer; [todo.md](https://github.com/rodframework/Rod/blob/main/docs/todo.md) tracks open work. Sections marked _(future)_ are
 > designed for but not yet implemented; Sec 15 records the program
-> decisions (ADR-001 through ADR-015) that the todo queue serves.
+> decisions (ADR-001 onward) that the todo queue serves.
 
 ## 1. Overview
 
@@ -2998,29 +2998,34 @@ disabled by default and are enabled explicitly at build through profiles
 (Sec 7's posture), and trust moves from physical separation (separate
 repositories) to module signatures and registry governance.
 
-**The pre-freeze posture (ADR-019).** The ecosystem has not
-cold-started: nothing outside this repository consumes the contracts yet
--- no external rod-registry entries, no community modules, no
-independent implant or SDK authors. Until that changes, iteration
-carries **no compatibility obligations**: a breaking change lands as a
-clean rewrite -- delete, rename, restructure -- never as a compat shim,
-a deprecation layer, or a dual shape carried beside its replacement.
-The tree already practices this: the .NET implant and stager deleted
-whole, the QUIC/SMB/mTLS transports retired, the canonical form bumped
-v1 to v2 when the compatibility rows joined it and v2 to v3 when the
-verb rows' descriptor half did, and the in-tree server modules' .NET
-halves -- every one a pure descriptor -- deleted wholesale once the
-manifest could carry what they declared. The clock starts at the
-**freeze** -- the first semver-versioned release of `Rod.Protocol` and
-the module contracts, the same gate ADR-011's split ladder names. From
-that moment the wire protocol's evolution rules bind
-([extending/implants.md](extending/implants.md)), published packages
-must keep verifying across canonical-form growth (the version line is
-the mechanism), and manifest compatibility floors guard real
-deployments. The compatibility affordances already shipped -- the
-floors, the `requires` rows, the conformance report -- are machinery
-the tree proves on its own modules; obligation accrues only at the
-freeze, and the freedom is spent deliberately, not hoarded.
+**The freeze (ADR-019; executed at v1.0.0).** The ecosystem cold-started
+from zero: until the first semver release nothing outside this repository
+consumed the contracts -- no external rod-registry entries, no community
+modules, no independent implant or SDK authors -- and iteration carried
+**no compatibility obligations**: a breaking change landed as a clean
+rewrite -- delete, rename, restructure -- never as a compat shim, a
+deprecation layer, or a dual shape carried beside its replacement. The
+freedom was spent deliberately, not hoarded: the .NET implant and stager
+deleted whole, the QUIC/SMB/mTLS transports retired, the canonical form
+bumped v1 to v2 when the compatibility rows joined it, v2 to v3 when the
+verb rows' descriptor half did, and v3 to v4 when the plugin artifact and
+unit rows did, and the in-tree server modules' .NET halves -- every one a
+pure descriptor -- deleted wholesale once the manifest could carry what
+they declared. The clock started at **v1.0.0** -- the first
+semver-versioned release of `Rod.Protocol` and the module contracts, the
+gate ADR-011's split ladder names. From that release the wire protocol's
+evolution rules bind ([extending/implants.md](extending/implants.md)):
+additions take new field numbers, land in a tier, and leave a Tier 0
+implant unchanged; published packages keep verifying across
+canonical-form growth (the version line names the form a signature
+covers, so growth is a bump, never a silent mismatch); and manifest
+compatibility floors guard real deployments. The wire's
+`ProtocolVersion` (major.minor, the handshake's generation) and the
+package semver line are distinct constants -- the evolution rules govern
+the former, the release tags the latter. The compatibility machinery --
+the floors, the `requires` rows, the conformance report -- proved itself
+on the tree's own modules before anything external existed to bind; from
+v1.0.0 it binds.
 
 ### 15.1 Kernel narrow, module layer wide (ADR-001)
 
@@ -3584,9 +3589,10 @@ Where the program touches the existing layers:
   talking solely through versioned contracts, each independently
   releasable -- in order: `rod-registry` (naturally independent), then
   community module repositories, then third-party build units, then
-  `rod-implant-rust` (once `Rod.Protocol` freezes 1.0), then redirector
-  and UI (later, or never). No split happens before `Rod.Protocol` and
-  the module contracts ship as semver-versioned releases.
+  `rod-implant-rust` (`Rod.Protocol` and the module contracts froze at
+  v1.0.0), then redirector and UI (later, or never). The gate the order
+  guarded on is behind us: the semver releases shipped, and each split
+  stays a decision the ladder orders, never an obligation it imposes.
 
 ### 15.5 Decision index
 
@@ -3610,7 +3616,7 @@ Where the program touches the existing layers:
 | 016 | Range mode: scripted beacons over the real protocol, default off | Sec 15.3 |
 | 017 | Compatibility collapse: capability `requires` + conformance report in the module contract | Sec 15.2 |
 | 018 | Polyglot on-ramps: linkable core, standalone conformance runner, manifest-declared descriptors | Sec 15.2 |
-| 019 | Pre-freeze posture: contracts iterate freely, breaking changes land as rewrites, until the first semver release | Sec 15 |
+| 019 | Contracts iterate freely, breaking changes land as rewrites, until the first semver release; the freeze executed at v1.0.0 and the obligations bind from there | Sec 15 |
 | 020 | Plugin portability tiers: named loader ABIs (`plugin-loader/exec-v1` and kin, wasm reserved), the artifact return on ABI 2, plugin packages with prebuilt artifact rows | Sec 5.4, Sec 15.2 |
 | 021 | Open build unit ids and the external build contract: `[unit]` tables, `Build:ExternalUnits`, the request/result file contract -- a new language registers a package, not a recompile | Sec 6, Sec 15.2 |
 | 022 | The compiled-in extension tier: source-merge overlays under `src/extensions/extensions_impl/`, build-unit targeting rows as the hard gate, the dispatch chain core -> extensions -> plugins | Sec 5.3, Sec 6 |

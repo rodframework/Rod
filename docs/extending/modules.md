@@ -54,6 +54,14 @@ The canonical form is `rod-module-manifest-v4`: the targets carry
 `build-unit`/`unit-floor`, plugin artifact rows ride one line per
 target, and the `[unit]` table rides the signature like every field.
 
+The manifest contract set is frozen: v1.0.0 is the release ADR-019
+names, and from it the entry kinds, the ABI names, the vocabularies, and
+the canonical form's field set are compatibility surface. The growth
+rules are the ones this page already states -- vocabularies and clauses
+grow additively, an unknown name is refused loudly, and a field-set
+change is a version bump -- and published packages keep verifying across
+the growth: the version line names the form a signature covers.
+
 ## The two halves of a capability
 
 A capability verb has a server-side half (who may issue it) and an
