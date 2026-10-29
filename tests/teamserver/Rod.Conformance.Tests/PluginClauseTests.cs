@@ -14,41 +14,10 @@ namespace Rod.Conformance.Tests;
 /// </summary>
 public class PluginClauseTests(ITestOutputHelper _output)
 {
-    /// <summary>Builds the exec-v1 fixture module's release binary (the
-    /// conform crate beside the reference modules), caching it in the
-    /// shared target dir the implant builds use.</summary>
-    private static string BuildFixturePlugin()
-    {
-        var tree = ReferenceImplantCandidate.LocateRustTree()
-            ?? throw new InvalidOperationException("the Rust tree walked up to nothing");
-        var crate = Path.GetFullPath(Path.Combine(tree, "modules", "conform"));
-        var binary = Path.Combine(crate, "target", "release", "rod-module-conform");
-        if (File.Exists(binary))
-            return binary;
-
-        var start = new ProcessStartInfo
-        {
-            FileName = "cargo",
-            WorkingDirectory = crate,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        start.ArgumentList.Add("build");
-        start.ArgumentList.Add("--release");
-        using var build = Process.Start(start)
-            ?? throw new InvalidOperationException("Failed to start cargo (is it on PATH?).");
-        var stdout = build.StandardOutput.ReadToEnd();
-        var stderr = build.StandardError.ReadToEnd();
-        build.WaitForExit();
-        if (build.ExitCode != 0)
-            throw new InvalidOperationException($"cargo build failed for the fixture plugin:\n{stdout}\n{stderr}");
-        return binary;
-    }
-
     [Fact]
     public async Task TheReferenceImplant_PassesThePluginClauses()
     {
-        var plugin = await File.ReadAllBytesAsync(BuildFixturePlugin());
+        var plugin = await File.ReadAllBytesAsync(FixturePlugin.Build());
 
         await using var rig = await ConformanceRig.StartAsync();
         using var reference = ReferenceImplantCandidate.Build();
