@@ -58,7 +58,7 @@
          `rod mod publish` entry in-process (RodCli.RunAsync): the first v4
          plugin package rides the identical chain a publisher's shell rides,
          never a test-side reimplementation. -->
-    <ProjectReference Include="..\..\..\src\cli\dotnet\Rod.Cli.csproj" />
+    <ProjectReference Include="..\..\..\src\cli\Rod.Cli.csproj" />
   </ItemGroup>
 
 </Project>

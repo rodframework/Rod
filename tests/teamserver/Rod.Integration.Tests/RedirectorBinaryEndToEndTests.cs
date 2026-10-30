@@ -61,10 +61,10 @@ public class RedirectorBinaryEndToEndTests : IAsyncLifetime
         await AuthenticatedHost.LoginAsync(_client);
         _engagementId = (await EngagementSetup.CreateOwnedEngagementAsync(_host)).Value;
 
-        _redirectorDll = Path.Combine(FindRepoRoot(), "src/redirector/dotnet/bin/Debug/net10.0/rod-redirector.dll");
+        _redirectorDll = Path.Combine(FindRepoRoot(), "src/redirector/bin/Debug/net10.0/rod-redirector.dll");
         // Always build: this test project does not reference the redirector,
         // so nothing else guarantees the dll reflects the current tree.
-        await RunAsync("dotnet", $"build \"{Path.Combine(FindRepoRoot(), "src/redirector/dotnet/Rod.Redirector.csproj")}\" -c Debug", FindRepoRoot());
+        await RunAsync("dotnet", $"build \"{Path.Combine(FindRepoRoot(), "src/redirector/Rod.Redirector.csproj")}\" -c Debug", FindRepoRoot());
 
         _workDir = Path.Combine(Path.GetTempPath(), $"rod-redirector-e2e-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_workDir);

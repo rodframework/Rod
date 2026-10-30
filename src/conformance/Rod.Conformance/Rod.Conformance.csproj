@@ -20,8 +20,8 @@
     <!-- The rig boots the real teamserver (transport core: enroll, beacon,
          envelope) and reads its core-state services to observe what the
          candidate implant did server-side. -->
-    <ProjectReference Include="..\..\..\teamserver\Rod.Transport\Rod.Transport.csproj" />
-    <ProjectReference Include="..\..\..\teamserver\Rod.Capabilities\Rod.Capabilities.csproj" />
+    <ProjectReference Include="..\..\teamserver\Rod.Transport\Rod.Transport.csproj" />
+    <ProjectReference Include="..\..\teamserver\Rod.Capabilities\Rod.Capabilities.csproj" />
   </ItemGroup>
 
 </Project>

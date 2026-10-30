@@ -12,19 +12,19 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\cli\dotnet\Rod.Cli.csproj" />
-    <ProjectReference Include="..\..\..\src\teamserver\Rod.Packaging\Rod.Packaging.csproj" />
+    <ProjectReference Include="..\..\src\cli\Rod.Cli.csproj" />
+    <ProjectReference Include="..\..\src\teamserver\Rod.Packaging\Rod.Packaging.csproj" />
     <!-- Test-only: pins the packaging contract library's wire-capability
          vocabulary equal to the teamserver's runtime copy
          (Rod.CoreState's WireCapabilities); the runtime gate cannot live in
          the contract library without CoreState taking a leaf reference, so
          the two sets stay pinned by this bridge. -->
-    <ProjectReference Include="..\..\..\src\teamserver\Rod.CoreState\Rod.CoreState.csproj" />
+    <ProjectReference Include="..\..\src\teamserver\Rod.CoreState\Rod.CoreState.csproj" />
     <!-- Test-only: pins Rod.Packaging's descriptor vocabularies equal to the
          teamserver's descriptor loader enumerations (Rod.Capabilities); the
          enums cannot be shared without the contract library taking a kernel
          reference, so the closed sets stay pinned by this bridge. -->
-    <ProjectReference Include="..\..\..\src\teamserver\Rod.Capabilities\Rod.Capabilities.csproj" />
+    <ProjectReference Include="..\..\src\teamserver\Rod.Capabilities\Rod.Capabilities.csproj" />
   </ItemGroup>
 
   <ItemGroup>

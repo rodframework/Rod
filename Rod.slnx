@@ -23,30 +23,28 @@
     <Project Path="tests/teamserver/Rod.Capabilities.Tests/Rod.Capabilities.Tests.csproj" />
   </Folder>
   <Folder Name="/src/" />
-  <Folder Name="/src/cli/" />
-  <Folder Name="/src/cli/dotnet/">
-    <Project Path="src/cli/dotnet/Rod.Cli.csproj" />
+  <Folder Name="/src/cli/">
+    <Project Path="src/cli/Rod.Cli.csproj" />
   </Folder>
   <!-- The Tier 0 conformance harness (ADR-018): the rig library, the
        standalone runner the rod CLI spawns by file contract, and the worked
        example implant an author points it at. -->
   <Folder Name="/src/conformance/">
-    <Project Path="src/conformance/dotnet/Rod.Conformance/Rod.Conformance.csproj" />
-    <Project Path="src/conformance/dotnet/Rod.Conformance.Runner/Rod.Conformance.Runner.csproj" />
-    <Project Path="src/conformance/dotnet/Rod.Conformance.Minimal/Rod.Conformance.Minimal.csproj" />
+    <Project Path="src/conformance/Rod.Conformance/Rod.Conformance.csproj" />
+    <Project Path="src/conformance/Rod.Conformance.Runner/Rod.Conformance.Runner.csproj" />
+    <Project Path="src/conformance/Rod.Conformance.Minimal/Rod.Conformance.Minimal.csproj" />
   </Folder>
   <!-- The reference redirector (ADR 0009/0011): a standalone Native AOT forwarder
        with no in-house references. Ships in the solution for central build, test,
        and format coverage, unlike the external reference implant. -->
   <Folder Name="/src/redirector/">
-    <Project Path="src/redirector/dotnet/Rod.Redirector.csproj" />
+    <Project Path="src/redirector/Rod.Redirector.csproj" />
   </Folder>
   <Folder Name="/tests/" />
-  <Folder Name="/tests/cli/" />
-  <Folder Name="/tests/cli/dotnet/">
-    <Project Path="tests/cli/dotnet/Rod.Cli.Tests.csproj" />
+  <Folder Name="/tests/cli/">
+    <Project Path="tests/cli/Rod.Cli.Tests.csproj" />
   </Folder>
   <Folder Name="/tests/redirector/">
-    <Project Path="tests/redirector/dotnet/Rod.Redirector.Tests.csproj" />
+    <Project Path="tests/redirector/Rod.Redirector.Tests.csproj" />
   </Folder>
 </Solution>

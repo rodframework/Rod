@@ -50,7 +50,7 @@
 
   <ItemGroup>
     <!-- The config parser, CIDR allow-list, and forwarder are internal; the xUnit
-         test project (tests/redirector/dotnet) reaches them via InternalsVisibleTo,
+         test project (tests/redirector) reaches them via InternalsVisibleTo,
          the .NET equivalent of the implant's same-assembly test access. -->
     <InternalsVisibleTo Include="Rod.Redirector.Tests" />
   </ItemGroup>

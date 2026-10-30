@@ -17,7 +17,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'src/cli/dotnet/**'
+      - 'src/cli/**'
       - 'src/teamserver/Rod.Packaging/**'
       - 'Directory.Build.props'
       - 'Directory.Packages.props'
@@ -25,7 +25,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'src/cli/dotnet/**'
+      - 'src/cli/**'
       - 'src/teamserver/Rod.Packaging/**'
       - 'Directory.Build.props'
       - 'Directory.Packages.props'
@@ -54,7 +54,7 @@ jobs:
         uses: actions/setup-dotnet@v5
         # Version comes from global.json (pinned to 10.0.110).
       - name: Build the CLI
-        run: dotnet build src/cli/dotnet/Rod.Cli.csproj --configuration Release
+        run: dotnet build src/cli/Rod.Cli.csproj --configuration Release
       - name: Install every registry entry
         # The tap is cloned once and every entry installs through it: the
         # digest, the signature, and the key pin are the gates an
@@ -65,16 +65,16 @@ jobs:
           names=$(python3 -c "import json; print(' '.join(json.load(open('$RUNNER_TEMP/rod-registry/modules/registry.json'))))")
           echo "registry entries: $names"
           for name in $names; do
-            dotnet run --project src/cli/dotnet --no-build --configuration Release -- \
+            dotnet run --project src/cli --no-build --configuration Release -- \
               mod install "$name" --registry "$RUNNER_TEMP/rod-registry" --dir "$RUNNER_TEMP/rod-store"
           done
       - name: Re-prove the installed set offline
         run: |
-          dotnet run --project src/cli/dotnet --no-build --configuration Release -- \
+          dotnet run --project src/cli --no-build --configuration Release -- \
             mod verify --dir "$RUNNER_TEMP/rod-store"
       - name: Sweep the installed set with the kernel catalog folded in
         run: |
-          dotnet run --project src/cli/dotnet --no-build --configuration Release -- \
+          dotnet run --project src/cli --no-build --configuration Release -- \
             mod coverage --path "$RUNNER_TEMP/rod-store/modules" \
             --catalog src/teamserver/Rod.CoreState/Implants/attack-coverage.json
       - name: Run the module test projects

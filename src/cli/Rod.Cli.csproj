@@ -15,7 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\teamserver\Rod.Packaging\Rod.Packaging.csproj" />
+    <ProjectReference Include="..\teamserver\Rod.Packaging\Rod.Packaging.csproj" />
   </ItemGroup>
 
 </Project>

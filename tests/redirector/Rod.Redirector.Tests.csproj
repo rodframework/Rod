@@ -29,7 +29,7 @@
   <!-- References the redirector so the tests reach its internal config, CIDR
        allow-list, and forwarder types. -->
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\redirector\dotnet\Rod.Redirector.csproj" />
+    <ProjectReference Include="..\..\src\redirector\Rod.Redirector.csproj" />
   </ItemGroup>
 
   <ItemGroup>
