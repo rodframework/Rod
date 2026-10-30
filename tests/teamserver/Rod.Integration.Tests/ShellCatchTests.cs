@@ -366,7 +366,17 @@ public class ShellCatchTests
 
         // Bytes after the switch decode as the characters they carry...
         await peer.GetStream().WriteAsync(gbkHao);
-        var decoded = await ReadOutputAsync(env.Http, engagementId, sessionId, deadline);
+        // The wait is for the GBK decode, not for a caught-up log: the
+        // drain stops at the tip, and the mojibake chunk from the default
+        // decode already satisfies it -- under a loaded suite the pump's
+        // decode of these bytes lands after the first read.
+        string decoded;
+        do
+        {
+            decoded = await ReadOutputAsync(env.Http, engagementId, sessionId, deadline);
+            await Task.Delay(50);
+        }
+        while (!decoded.Contains("\u597D") && DateTime.UtcNow < deadline);
         Assert.Contains("\u597D", decoded); // "hao" -- the decoded character
 
         // ...and input encodes back the same way: the peer reads the GBK
