@@ -11,6 +11,6 @@
          released version, so while developing toward that release it carries
          the -dev suffix, and the suffix is dropped in the same change that
          cuts the git tag (v&lt;RodVersion&gt;) from the tree. -->
-    <RodVersion>1.0.0</RodVersion>
+    <RodVersion>1.1.0-dev</RodVersion>
   </PropertyGroup>
 </Project>
