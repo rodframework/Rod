@@ -890,6 +890,18 @@ Publish refuses two drifts on purpose: republishing an indexed version
 with different content (bump `module.version`), and a package whose
 selection would include key material.
 
+**The official repositories release through CI, not from a laptop.** A
+version tag pushed to an official module repository triggers its
+release workflow: the package builds (a plugin's execution half from
+the platform's Rust tree), signs with the organization publisher key
+held in the organization's secret store -- never on a person's machine
+-- and proves the install chain against a staging index before the
+release carries the signed package and its `registry-entry.json`. The
+registry's sync workflow lands that entry by pull request, nightly or
+on dispatch; the reviewer's gate is the same one a community
+publisher's pull request rides. Community publishers keep the local
+flow above, key and all.
+
 ### 5. What the reviewer and the operator see
 
 The review is the trust model, not a formality: publishers sign, the

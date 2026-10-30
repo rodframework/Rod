@@ -3160,7 +3160,14 @@ later version arriving under a different key fails the install loudly;
 `rod mod verify` re-proves every installed tree against the lock offline
 (exit code 2 makes a tampered finding script-visible). Key management
 is deliberately per-publisher and local: a lost key is a new identity
-every pin will name, not a recovery flow the platform owes.
+every pin will name, not a recovery flow the platform owes. The
+official set's key is custody-held instead of personal: it lives in
+the organization's CI secret store, a version tag on a module
+repository triggers the release workflow that builds, signs, and
+proves the package installable, and the registry's sync workflow lands
+the index entry by pull request -- an official release needs no
+person's machine, any organization maintainer may cut one by pushing
+the tag, and the one-fingerprint answer for operators stays.
 
 **The manifest** (`rod-module.toml`): name, version, a compatibility
 matrix (implant class / platform / arch, minimum teamserver version, and
