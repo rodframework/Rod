@@ -74,8 +74,36 @@ public sealed class ModuleStore
         if (Directory.Exists(destination))
             Directory.Delete(destination, recursive: true);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-        Directory.Move(extractedDirectory, destination);
+        MoveTree(extractedDirectory, destination);
         return destination;
+    }
+
+    // A rename is the cheap staging move, but it stays inside one
+    // filesystem -- and the extraction temp and the store regularly sit
+    // apart (a tmpfs /tmp beside the deployed tree), where the rename
+    // answers "Invalid cross-device link". The move falls back to a
+    // recursive copy there; a busy-file failure the copy surfaces on its
+    // own either way, so one fallback covers the cases a rename cannot.
+    private static void MoveTree(string source, string destination)
+    {
+        try
+        {
+            Directory.Move(source, destination);
+        }
+        catch (IOException)
+        {
+            CopyTree(new DirectoryInfo(source), new DirectoryInfo(destination));
+            Directory.Delete(source, recursive: true);
+        }
+    }
+
+    private static void CopyTree(DirectoryInfo source, DirectoryInfo destination)
+    {
+        destination.Create();
+        foreach (var file in source.GetFiles())
+            file.CopyTo(Path.Combine(destination.FullName, file.Name));
+        foreach (var directory in source.GetDirectories())
+            CopyTree(directory, new DirectoryInfo(Path.Combine(destination.FullName, directory.Name)));
     }
 
     /// <summary>Removes an installed package's tree -- and its name folder
