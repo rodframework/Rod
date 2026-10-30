@@ -34,6 +34,7 @@ public class RustBuildUnitTests
     public async Task AWindowsTarget_ProducesTheExeArtifactName(string arch)
     {
         var unit = new RustBuildUnit();
+        PinnedSourceWarmup.Warm(PinnedImplantSource.Rust);
         var triple = RustBuildUnit.MapTriple(new TargetProfile("windows", arch));
         if (unit.ReportEnvironment().Status is "unavailable" or null || !unit.CrossTargetReady(triple))
             return; // the cross is not installed here; the environment report names the fix
@@ -99,6 +100,7 @@ public class RustBuildUnitTests
     public async Task AnArm64LoaderBuild_LinksThroughRustLld()
     {
         var unit = new RustBuildUnit();
+        PinnedSourceWarmup.Warm(PinnedImplantSource.Rust);
         if (unit.ReportEnvironment().Status is "unavailable" or null
             || !unit.CrossTargetReady(RustBuildUnit.MapTriple(new TargetProfile("linux", "arm64"))))
             return; // the cross is not installed here; the environment report names the fix
@@ -140,6 +142,7 @@ public class RustBuildUnitTests
     public async Task ALoaderDialThatIsNotHttp_IsAContractRefusal_AndANameBakes()
     {
         var unit = new RustBuildUnit();
+        PinnedSourceWarmup.Warm(PinnedImplantSource.Rust);
         var @params = Params() with
         {
             Kind = PayloadKind.Loader,
@@ -166,6 +169,7 @@ public class RustBuildUnitTests
     public async Task ALoaderWithoutItsSealKey_IsAContractRefusal()
     {
         var unit = new RustBuildUnit();
+        PinnedSourceWarmup.Warm(PinnedImplantSource.Rust);
         var @params = Params() with
         {
             Kind = PayloadKind.Loader,
@@ -187,6 +191,7 @@ public class RustBuildUnitTests
     public async Task ALoaderOnAnArchWithoutStubs_IsAContractRefusal(string arch)
     {
         var unit = new RustBuildUnit();
+        PinnedSourceWarmup.Warm(PinnedImplantSource.Rust);
         var @params = Params() with
         {
             Kind = PayloadKind.Loader,
@@ -212,6 +217,7 @@ public class RustBuildUnitTests
     public async Task ALoaderBuild_BakesTheCredential_AndStaysSmall()
     {
         var unit = new RustBuildUnit();
+        PinnedSourceWarmup.Warm(PinnedImplantSource.Rust);
         if (unit.ReportEnvironment().Status is "unavailable" or null)
             return; // no toolchain on this runner; the environment report names the fix
 
@@ -255,6 +261,7 @@ public class RustBuildUnitTests
     public async Task AnAndroidTarget_RefusesTheExecutableSpellings()
     {
         var unit = new RustBuildUnit();
+        PinnedSourceWarmup.Warm(PinnedImplantSource.Rust);
         var @params = Params() with { Target = new TargetProfile("android", "arm64") };
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => unit.BuildAsync(@params));
@@ -266,6 +273,7 @@ public class RustBuildUnitTests
     public async Task AnApkFormat_OffAndroid_IsAContractRefusal()
     {
         var unit = new RustBuildUnit();
+        PinnedSourceWarmup.Warm(PinnedImplantSource.Rust);
         var @params = Params() with { Format = ArtifactFormat.Apk };
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => unit.BuildAsync(@params));
@@ -282,6 +290,7 @@ public class RustBuildUnitTests
     public async Task AnAndroidCarrierBuild_ProducesTheLibrary_ThenThePackage()
     {
         var unit = new RustBuildUnit();
+        PinnedSourceWarmup.Warm(PinnedImplantSource.Rust);
         var triple = RustBuildUnit.MapTriple(new TargetProfile("android", "amd64"));
         if (unit.ReportEnvironment().Status is "unavailable" or null || !unit.CrossTargetReady(triple))
             return; // the NDK or its std is not installed here; the environment report names the fix

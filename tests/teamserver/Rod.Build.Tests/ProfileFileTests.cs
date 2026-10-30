@@ -72,6 +72,8 @@ public class ProfileFileTests
     {
         var rust = new RustBuildUnit();
         var go = new GoBuildUnit();
+        PinnedSourceWarmup.Warm(PinnedImplantSource.Rust);
+        PinnedSourceWarmup.Warm(PinnedImplantSource.Go);
         // The same gates the units' own tests hold: the Rust report is
         // "partial" on any host without every cross linker, so readiness is
         // the requested triple's own (std installed, linker found), and the

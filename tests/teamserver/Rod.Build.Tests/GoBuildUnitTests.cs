@@ -91,6 +91,7 @@ public class GoBuildUnitTests
     public async Task ARealBuildCompilesTheBakedArtifact()
     {
         var unit = new GoBuildUnit();
+        PinnedSourceWarmup.Warm(PinnedImplantSource.Go);
         if (unit.ReportEnvironment().Status is not "ready")
             return; // no Go toolchain on this host; the environment report names the fix
 

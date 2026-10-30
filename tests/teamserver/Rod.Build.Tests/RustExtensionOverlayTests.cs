@@ -89,6 +89,7 @@ public class RustExtensionOverlayTests : IDisposable
     public async Task AnExtension_CompilesIntoTheArtifact()
     {
         var unit = new RustBuildUnit();
+        PinnedSourceWarmup.Warm(PinnedImplantSource.Rust);
         if (unit.ReportEnvironment().Status is "unavailable" or null
             || !unit.CrossTargetReady(RustBuildUnit.MapTriple(new TargetProfile("linux", "amd64"))))
             return; // the toolchain is not installed here; the environment report names the fix
