@@ -21,7 +21,7 @@
 # URL); ROD_PREFIX overrides the install root (default /opt/rod).
 set -euo pipefail
 
-repo="Nonprofessional/Rod"
+repo="rodframework/Rod"
 prefix="${ROD_PREFIX:-/opt/rod}"
 service="rod-teamserver"
 user="rod"
