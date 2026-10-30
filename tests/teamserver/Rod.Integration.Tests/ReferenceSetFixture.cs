@@ -54,8 +54,21 @@ public sealed class ReferenceSetFixture : IDisposable
         var overrideRegistry = Environment.GetEnvironmentVariable("ROD_TEST_REGISTRY");
         if (string.IsNullOrWhiteSpace(overrideRegistry))
         {
+            // The tap clone rides the same intermittence any long-lived
+            // network does; retry with backoff so a blip fails no test.
             var clone = Path.Combine(_root, "registry");
-            Run("git", $"clone --depth 1 {DefaultGitUrl} {clone}");
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    Run("git", $"clone --depth 1 {DefaultGitUrl} {clone}");
+                    break;
+                }
+                catch (InvalidOperationException) when (attempt < 6)
+                {
+                    Thread.Sleep(TimeSpan.FromSeconds(10 * attempt));
+                }
+            }
             Registry = clone;
             MarketplaceRegistry = DefaultHttpsBase;
         }
