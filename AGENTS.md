@@ -44,15 +44,17 @@ toolchain and language boundaries in Sec 12.2, capability surface in Sec 13.
   out-of-tree.
 - **Build units: two in-tree -- Rust and Go.** Other languages plug in
   out-of-tree through the build contract and the `Language` enum.
-- **In-tree capability modules: .NET, under `modules/` (server-side) and
-  `src/implant/rust/modules/` (implant-side).** They are module-layer work,
-  not kernel work: nothing under `src/teamserver` references them, and they
-  load through the same config-listed path external modules take
+- **Capability modules live in the ecosystem (ADR-024): one repository
+  per module under the organization (`rod-plugin-<name>`, `rod-ext-<name>`,
+  `rod-assets-<name>`), indexed by rod-registry and installed through it.**
+  The implant-side halves still compile from `src/implant/rust/modules/`
+  until the implant split. They are module-layer work, not kernel work:
+  nothing under `src/teamserver` references them, and installed modules
+  load through the same config-listed path any external module takes
   (architecture.md Sec 15.1); the architecture tests hold that boundary.
-  Asset modules (hook scripts, phishing templates -- pure file trees with a
-  `rod-module.toml`) live under `modules/` too and load through
-  `Capabilities:AssetModules`; their content tests travel with the module
-  (under `modules/<name>/tests/`), not with the kernel suites.
+  Module content tests travel with the module's repository and run in the
+  ecosystem lane (`.github/workflows/modules.yml`), not with the kernel
+  suites.
 - **Operator CLI: .NET console (`rod`).** `src/cli/dotnet/` -- the
   `rod mod` module-lifecycle suite (init/search/info/install/verify/
   publish). It references nothing in-house: it couples to the platform

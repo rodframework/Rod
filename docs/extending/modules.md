@@ -11,11 +11,12 @@ authorization the operator holds.
 
 The design goal is that adding a capability is **registration, never
 modification**: no core edits, no composition-root changes, no protocol
-changes. In-tree reference modules obey the same rule as external ones --
-the tree's own modules live under `modules/` (server-side) and
-`src/implant/rust/modules/` (implant-side), load through exactly the path an
-operator's module takes, and a kernel change must answer *why it cannot be a
-module* ([architecture.md Sec 15.1](../architecture.md)).
+changes. The official modules obey the same rule as community ones --
+each lives in its own repository under the organization (ADR-024), the
+implant-side halves compile from `src/implant/rust/modules/` in the
+platform tree, both load through exactly the path an operator's module
+takes, and a kernel change must answer *why it cannot be a module*
+([architecture.md Sec 15.1](../architecture.md)).
 
 ## The five entry kinds (manifest v4, ADRs 020-023)
 
@@ -41,7 +42,7 @@ One manifest shape, five ways to ship:
   regenerates the registry the dispatch chain reads: compiled core,
   extensions, then runtime plugins. The tier's shape is resident state
   no loadable plugin holds (an exec-v1 module is a fresh process per
-  dispatch): the in-tree reference is `modules/procwatch/`, a resident
+  dispatch): the reference is procwatch (rod-ext-procwatch), a resident
   process-create watch whose buffered rows flush ask over ask.
 - **`build-unit`** -- the external build contract (ADR-021): the
   `[unit]` table (`id`, `command`, optional `timeout-minutes`) the
@@ -236,13 +237,15 @@ report against a plugin's requirements is the collapse doing its job.
 whole server-side half is its verb rows: fill in each row's `category`,
 `opsec` flags, parameters, and output declaration (the grammar above), and
 list the module directory under `Capabilities:DescriptorModules` in
-`appsettings.json` -- paths are relative to the teamserver binary, and the
-build deploys the in-tree set under `modules/` beside the binary:
+`appsettings.json` -- paths are relative to the teamserver binary, and a
+console install lands the package under the module store
+(`modules-store/modules/<name>/<version>` beside the binary), the tree a
+listed entry names:
 
 ```json
 {
   "Capabilities": {
-    "DescriptorModules": [ "modules/hostenum", "/opt/rod/modules/sweep" ]
+    "DescriptorModules": [ "modules-store/modules/hostenum/1.2.0", "/opt/rod/modules/sweep" ]
   }
 }
 ```
@@ -335,13 +338,13 @@ path = "assets/renewal-notice.txt"
 
 Each `[[assets]]` row binds a logical name to a package-relative file. Drop
 the directory on the host and list it under `Capabilities:AssetModules`
-(paths are relative to the teamserver binary; the build deploys the in-tree
-set under `modules/` beside the binary):
+(paths are relative to the teamserver binary; a console install lands the
+package under the module store beside the binary):
 
 ```json
 {
   "Capabilities": {
-    "AssetModules": [ "modules/lure-templates", "/opt/rod/modules/my-lures" ]
+    "AssetModules": [ "modules-store/modules/lure-templates/1.0.0", "/opt/rod/modules/my-lures" ]
   }
 }
 ```
@@ -375,8 +378,9 @@ its own:
   is the kernel's contract), and stores the resolved subject and body on
   the campaign row.
 
-The in-tree reference pair ships under `modules/browserhook` and
-`modules/lure-templates`; both load through exactly this path.
+The reference pair -- browser-hook and lure-templates, one repository
+each under the organization -- installs from the registry; both load
+through exactly this path.
 
 ## Implant-side half: write a plugin module
 
@@ -422,12 +426,13 @@ the operator's console reads a module verb exactly like a built-in one.
 `module.list` reports what is loaded, and `module.unload sweep` retracts
 it (best-effort: routes drop immediately, a running handler finishes).
 
-The reference pairs in-tree are the worked examples to copy -- all
-thirteen ride the v4 plugin tier now, each package carrying its Linux
-artifact beside its descriptor rows: the server-side halves under
-`modules/` (`hostenum` and `domainenum` read first), the implant-side
-halves under `src/implant/rust/modules/` -- each one verb string
-declared on both sides and nothing shared between them.
+The reference pairs are the worked examples to copy -- all thirteen
+ride the v4 plugin tier, each package carrying its Linux artifact beside
+its descriptor rows: the server-side halves in the modules' own
+repositories (`rod-plugin-hostenum` and `rod-plugin-domainenum` read
+first), the implant-side halves under `src/implant/rust/modules/` --
+each one verb string declared on both sides and nothing shared between
+them.
 
 The rules the loader enforces, all reported on the load task itself:
 
@@ -702,7 +707,7 @@ shape a per-dispatch plugin process cannot hold -- ships as an
 extension` scaffolds it, the package's `src/` tree compiles into the
 artifact when a build names it (the build page's compiled-in selection),
 and the whole market lifecycle is the one every module rides. The
-in-tree reference is `modules/procwatch/`: one resident sampler thread,
+reference is procwatch (rod-ext-procwatch): one resident sampler thread,
 a bounded ring of creation rows, and a verb that flushes the rows since
 the last ask -- work that only makes sense compiled in, delivered as a
 package.
@@ -818,9 +823,8 @@ code.
 
 The manifest is the whole contract; every field rides the signed
 canonical form, so a tampered anything breaks verification at install and
-at `rod mod verify`. The annotated reference is
-`modules/hostenum/rod-module.toml` in the tree -- the same file shape an
-external module carries. What each part decides:
+at `rod mod verify`. The annotated reference is rod-plugin-hostenum's `rod-module.toml` --
+the same file shape an external module carries. What each part decides:
 
 | Part | Decides | Enforced at |
 |------|---------|-------------|
@@ -851,9 +855,10 @@ rod mod coverage --path my-sweep
 Both halves load beside the binary exactly as the sections above
 describe: the server-side assembly (or asset tree) dropped and listed
 under `Capabilities:Modules` / `Capabilities:AssetModules`, the
-implant-side half loaded over the channel with `module.load`. Your tests
-travel with the module (`modules/<name>/tests/`), pin its content, and
-run in the module CI lane.
+implant-side half loaded over the channel with `module.load`. Your
+tests travel with your module's repository (a `tests/` project beside
+the manifest), pin its content, and run in the ecosystem lane the
+platform's module workflow drives.
 
 ### 4. Publish
 
@@ -873,11 +878,11 @@ git URL or local checkout).
 
 Publish packs whatever files the rules select, so a plugin package's
 artifact must exist before it does: build the execution half first and
-copy it to the path its `[[plugin.artifacts]]` row names (every in-tree
-package does exactly this -- `modules/<name>/build.sh` cargo-builds the
-crate and drops the binary at `plugin/<name>-linux-amd64`; `hostenum`
-is the read-first worked example, one artifact row beside its descriptor
-rows).
+copy it to the path its `[[plugin.artifacts]]` row names (every official
+package does exactly this -- the repository's `build.sh` cargo-builds
+the crate from `ROD_RUST_TREE` and drops the binary at
+`plugin/<name>-linux-amd64`; `hostenum` is the read-first worked
+example, one artifact row beside its descriptor rows).
 
 Publish refuses two drifts on purpose: republishing an indexed version
 with different content (bump `module.version`), and a package whose

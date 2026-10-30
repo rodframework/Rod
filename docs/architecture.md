@@ -212,7 +212,7 @@ under, and a note on its current state are listed.
 | `Rod.Transport` | Listeners that terminate C2 transports and map core-state use cases onto the operator HTTP API and the implant beacon stream. Owns endpoint routing, TLS termination, and the mapping of use-case failures to wire status codes. | Layer 2 -- may depend on `Rod.CoreState`, `Rod.Protocol`, `Rod.Audit`, `Rod.BuildPipeline`. | Implemented. HTTP(S), DNS, and raw-TCP listeners with the bind decoupled from the public endpoint (a repoint swaps a burned redirector without touching the socket); the full operator API (engagements, deploy tokens, implants with notes and retirement, tasks with queued-task cancellation, artifacts, audit, timeline/report, payloads) and the beacon stream with bounded frames, capped resumable exfil reassembly, and atomic task dispatch (Sec 8, Sec 10.3, Sec 11); the browser hook's mint and guid-gated serving edge with the Origin-only CORS posture (Sec 5.2, Sec 8); the delivery-campaign surface (Sec 11.5) -- per-recipient lure builds through the build pipeline, the SMTP send engine, and the lure-serving public edge. The task, audit, and artifact listings are paged (limit + opaque cursor, newest window first) so a long engagement never grows a listing response without bound; the operator UI walks pages. The operator API also carries the versioned `/api/v1` prefix alias, the first-party OpenAPI 3.1 contract over it, and the token-scope floor gate (Sec 15.3, ADR-006). |
 | `Rod.BuildPipeline` | Drives the external, per-language build units to compile polyglot implants on demand through the uniform build contract, fingerprinting and recording each artifact (Sec. 6). | Layer 3 -- may depend on `Rod.CoreState`. | Implemented. `RustBuildUnit` -- the sole in-tree unit (the .NET unit is deleted with the .NET implant) -- compiles the Rust reference implant in a per-build hermetic staging copy (the build target mapped onto a cargo triple; the retired stager class refused with the fix named at parse time), baking the profile (contact mode, beacon parameters, class verb set) without any key material; loader-tier requests compile the no_std loader crate beside it instead, baked with fetch constants and the delivery seal (Sec 6); the built bytes land in the payload store for operator download (Sec 6). |
 | `Rod.Operators` | Multiplayer operator sessions over the operator API: shared live engagement state, task ownership and attribution, and real-time push to the operator UI. | Layer 4 -- may depend on `Rod.CoreState`, `Rod.Audit`. | Implemented. Cookie-authenticated operator sessions (login/logout/me; the bootstrap-seeded admin of Sec 4.5; hash-only credential port) and the per-engagement SSE live-event bus, with the automation engine (Sec 10.4) and the webhook forwarder (Sec 4.4) beside it as the bus's engine-side consumers. Cookies were chosen over JWT (no client-side token store for a same-origin SPA); ASP.NET Core Identity was rejected (its own user/role tables conflict with the layered stores). Access is the membership model of Sec 4.5 (per-engagement reader/writer tiers granted by the owner) beside the deployment-role split of the account machinery (bootstrap admin, console-created members); the exclusive interaction claims and activity presence mark who drives what; a per-handle login throttle slows brute force. The layer also owns the two agent-facing surfaces the operator front carries: the MCP server (`/mcp`, Streamable HTTP, stateless -- the toolset an external agent client drives through an operator API token: reads at any scope, task-issuing tools behind their own deployment gate, the operate scope floor, and Sec 10.4's unattended red line; runbook [operations/mcp.md](operations/mcp.md)) and the opt-in OpenAI-compatible LLM triage client behind `Microsoft.Extensions.AI`'s `IChatClient` (Sec 11.3; runbook [operations/llm.md](operations/llm.md)), plus the external recon workbench (Sec 11.4; runbook [operations/recon.md](operations/recon.md)) -- the pre-foothold lookups and scan whose findings land as task-less engagement artifacts. |
-| `Rod.Capabilities` | Pluggable post-exploitation capability modules, including the evasion/exploit category contracts (Sec. 10, Sec. 13). Concrete implementations arrive as modules -- in-tree reference modules (`modules/`, loaded through the same path external modules take) or registry modules (Sec 15) -- over the contract, registration path, and gate this layer holds. | Layer 6 -- may depend on `Rod.CoreState`, `Rod.Audit`. | Implemented. The capability contract (`ICapabilityModule`, a registration-only contract: a descriptor, no execution surface -- Sec 10.2), the registry, and the registry-backed task-issuance resolver and sensitive-verb policy; every framework verb ships as a placeholder descriptor carrying its OPSEC attributes, and `GET /capabilities` exposes the catalog to the UI. The in-tree module host (Sec 15.1) is in place: the reference modules deploy beside the binary by the teamserver build and load through the `Capabilities:DescriptorModules` config path exactly like external ones (ADR-018 -- pure manifests, no assemblies). Sensitive behavior arrives as modules and stays disabled by default (Sec 10.2, Sec 13, Sec 15). |
+| `Rod.Capabilities` | Pluggable post-exploitation capability modules, including the evasion/exploit category contracts (Sec. 10, Sec. 13). Concrete implementations arrive as modules -- the official set's repositories, indexed by the registry (Sec 15), or any community module -- over the contract, registration path, and gate this layer holds. | Layer 6 -- may depend on `Rod.CoreState`, `Rod.Audit`. | Implemented. The capability contract (`ICapabilityModule`, a registration-only contract: a descriptor, no execution surface -- Sec 10.2), the registry, and the registry-backed task-issuance resolver and sensitive-verb policy; every framework verb ships as a placeholder descriptor carrying its OPSEC attributes, and `GET /capabilities` exposes the catalog to the UI. The module host (Sec 15.1) is in place: installed modules load through the `Capabilities:DescriptorModules` config path exactly like any external one (ADR-018 -- pure manifests, no assemblies), and the console installs them from the default registry (ADR-023). Sensitive behavior arrives as modules and stays disabled by default (Sec 10.2, Sec 13, Sec 15). |
 | `Rod.Persistence` | **Not a layer.** The durable PostgreSQL adapters behind the core-state and audit ports (operators, operator credentials, engagements, implants, sessions, tasks, deploy tokens, audit, artifacts, and the collaboration stores -- comments, chat, credentials, and the tsvector search), swapped in at the composition root when `ConnectionStrings:Postgres` is set (Sec 12.1). | Not a layer -- may depend on `Rod.CoreState` and `Rod.Audit`; wired only at the composition root, never by transport. | Implemented. EF Core 10 over Npgsql behind a context factory (singleton-safe), migrations, and the full adapter pair; absent the connection string the in-memory adapters stay registered. |
 | `Rod.TeamServer` | **Not a layer.** The single runnable .NET process and composition root: it wires `Rod.Transport`'s services and endpoints, binds the listeners, and serves the built React operator UI same-origin with an SPA fallback. It is where the layers are assembled for `dotnet run`; the layer dependency tests do not constrain it. | Not a layer -- the composition root; depends inward on `Rod.Transport`, `Rod.Operators`, `Rod.Capabilities`, and `Rod.Persistence` (transport itself cannot reference the outer layers). | Implemented. Wires the layers, binds the configured listeners, and serves the built operator UI same-origin with hardening headers; the build runs the npm bundle first when it is missing (Sec 4.2). |
 
@@ -929,8 +929,8 @@ recorded.**
   catalog holds the hard targeting gate (the package's manifest rows must
   name the request's unit), and the unit regenerates the extension
   registry the dispatch chain reads: compiled core, then extensions, then
-  runtime plugins. The tier's first real in-tree entry is
-  `modules/procwatch/` -- a resident process-create watch whose buffered
+  runtime plugins. The tier's first real entry is procwatch
+  (rod-ext-procwatch) -- a resident process-create watch whose buffered
   rows accrue between check-ins, the state no per-dispatch plugin process
   holds. The fork remains the escape hatch for changes the
   overlay cannot express (`Build:RustSourceDirectory` names the tree on an
@@ -1996,9 +1996,10 @@ operator supplies a module for it.
 `evasion` and `exploit` are first-class in the capability model -- they have
 defined interfaces, registration, dispatch, and data shapes. Their **concrete
 behavior is not the core's**: the core provides the contract and the plumbing;
-the tradecraft is supplied as separate, opt-in `CapabilityModule`s --
-in-tree reference modules or registry modules (Sec 15), every sensitive one
-disabled by default until a build profile enables it (Sec 7). See Sec. 13.
+the tradecraft is supplied as separate, opt-in modules -- the official
+set or community entries, both through the registry (Sec 15), every
+sensitive one disabled by default until a build profile enables it
+(Sec 7). See Sec. 13.
 
 Every built-in verb is registered in the default registry, contract-only ones
 included: a contract-only verb is a real `PlaceholderCapabilityModule` that
@@ -2011,7 +2012,7 @@ is the worked guide for module authors: both halves of a capability, the
 registration paths, and the seams' current limits. The runtime loaders are
 config-listed and narrowly bounded. `Capabilities:DescriptorModules` names
 module directories whose verb rows declare their whole server-side half
-(ADR-018) -- the zero-.NET path the in-tree set rides. `Capabilities:Modules`
+(ADR-018) -- the zero-.NET path every module in the ecosystem rides. `Capabilities:Modules`
 names an assembly module as a `Namespace.Type, AssemblyName` string; the
 assembly is resolved by that name alone (already loaded, or a same-named dll
 in the application directory), and the type is instantiated at startup and
@@ -3050,20 +3051,23 @@ property of that layer, never of the kernel.
   browser versions and phishing assets chase the SMTP ecosystem -- exactly
   the churn the module layer exists to absorb.
 
-`Rod.Capabilities` is the contract registry plus the in-tree module host
-(ADR-001; the rename from `Rod.Tradecraft` shipped with the host). Reference
-modules live under `modules/` (server-side) and
-`src/implant/rust/modules/` (implant-side) and load through **exactly the
-path external modules load through** -- the server halves are pure
-descriptor manifests (ADR-018), each a directory beside the binary listed
-under `Capabilities:DescriptorModules` in the shipped configuration; an
+`Rod.Capabilities` is the contract registry plus the module host
+(ADR-001; the rename from `Rod.Tradecraft` shipped with the host). The
+reference set lives in the ecosystem (ADR-024): one repository per module
+under the organization, indexed by rod-registry -- the implant-side halves
+still compile from `src/implant/rust/modules/` until the implant split --
+and the packages load through **exactly the path external modules load
+through**: the server halves are pure descriptor manifests (ADR-018),
+each an installed directory listed under
+`Capabilities:DescriptorModules`; an
 external .NET module may instead ship an assembly under
 `Capabilities:Modules`, the seam the in-tree set rode before its halves
 migrated into their manifests. Nothing in the tree compile-references any
-module, and the architecture tests hold that line (the no-assemblies rule
-included: the tree ships no dual shape). The seams stay the public, stable
-contract, and the tree eats its own dogfood. A kernel PR must answer
-*why it cannot be a module*.
+module, and the architecture tests hold that line (the no-module-trees
+rule included: the platform tree carries none at all). The seams stay the
+public, stable contract, and the tree eats its own dogfood through the
+registry round trips. A kernel PR must answer *why it cannot be a
+module*.
 
 The content half rides the same rule (**shipped**): the two asset families
 this section names -- browser-hook scripts and phishing templates -- load
@@ -3078,11 +3082,11 @@ and refuses (503 naming the section) while no module is listed; campaign
 creation resolves a `module/asset` template reference to subject and body
 at the seam and stores the resolved text on the row, while the merge
 grammar (`{{link}}` and friends, Sec 11.5) remains the kernel's rendering
-contract. The in-tree reference set ships under `modules/browserhook` and
-`modules/lure-templates`; nothing under `src/teamserver` embeds a script
-or template asset (the architecture tests hold that line too), and the
-content's tests travel with the module while the kernel suites pin the
-seam.
+contract. The reference asset packages (browser-hook, lure-templates) live in the
+ecosystem and install from the registry; nothing under `src/teamserver`
+embeds a script or template asset (the architecture tests hold that line
+too), and the content's tests travel with the module's repository while
+the kernel suites pin the seam.
 
 ### 15.2 The module ecosystem: registry, manifest, CLI (ADR-002, ADR-003, ADR-009)
 
@@ -3124,12 +3128,12 @@ shows at search and install, carrying the per-verb OPSEC labeling into
 the catalog. **Shipped** (the `rod` CLI,
 `src/cli/dotnet/`, standing beside the tree with no in-house references --
 its contracts are files): the manifest, the canonical form, the signing
-chain, the six commands, and the in-tree reference set -- thirteen v4
-plugin packages under `modules/`, each carrying its Linux artifact beside
-its descriptor rows (`hostenum` first, then the twelve that followed) --
-riding the identical path, with the manifest-shape pins in
-`tests/cli/dotnet/` and the marketplace round trips (real publish,
-console install, `module.load` delivery) in the integration suite. The index's **governance model** is
+chain, the six commands, and the official reference set -- thirteen v4 plugin
+packages in their own repositories (ADR-024), each carrying its Linux
+artifact beside its descriptor rows (`hostenum` first, then the twelve
+that followed) -- riding the identical path, with the marketplace round
+trips (registry browse, console install, `module.load` delivery against
+the live tap) in the integration suite. The index's **governance model** is
 decided: the canonical rod-registry is an **organization tap** -- hosted
 under the GitHub organization ADR-011 creates, entries landing by pull
 request with review, merge rights held by the organization. Third-party
@@ -3267,9 +3271,9 @@ tampered badge or requirement breaks `rod mod verify` like a tampered
 payload byte), mirror into the registry index beside the target matrix,
 and surface at search, info, and install -- advisory at install, since
 the target's advertisement, not the operator's screen, is the runtime
-gate. The reference declaration rides the tree: `modules/hostenum`
-requires `plugin-loader`, the honest statement that its execution half
-is a plugin. **Shipped** in the CLI's manifest and registry models, with
+gate. The reference declaration rides the set: hostenum
+(rod-plugin-hostenum) requires `plugin-loader`, the honest statement
+that its execution half is a plugin. **Shipped** in the CLI's manifest and registry models, with
 the acceptance in `tests/cli/dotnet`: the vocabulary's refusals, the
 canonical-form participation, and the end-to-end run from scaffold
 through publish, mirror, info, and install to a tampered requirement
@@ -3334,9 +3338,11 @@ anticipated goes from `rod mod init` to full UI interaction
 (schema-rendered form, structured products landing in the right stores)
 with **zero framework changes**.
 
-**Cold start.** The tree ships seed modules -- the absorbed out-of-tree
-candidates plus the common enumeration, credential, and tunneling sets --
-so the registry is not an empty shelf on day one.
+**Cold start.** The official set cold-started the registry: sixteen
+entries -- the absorbed out-of-tree candidates plus the common
+enumeration, credential, and persistence families -- one repository per
+module (ADR-024), published through the same PR channel a community
+module arrives by.
 
 **Naming and license discipline.** Repository naming (the
 `rod-<kind>-<name>` prefixes), the organization/community split, the
@@ -3356,7 +3362,7 @@ Where the program touches the existing layers:
 | `Rod.Transport` | `ITransportProvider` abstraction (shipped -- the in-tree families are its reference implementations); optional WireGuard, default-disabled, shipped (ADR-004, amended: mTLS stays retired). The `/api/v1` versioned alias, the OpenAPI 3.1 contract generation, and the token-scope floor gate (ADR-006; shipped). |
 | `Rod.BuildPipeline` | The build contract's transport-enable set, shipped as the named front itself -- a build against a wireguard listener mints the per-artifact pair and enables the carriage's compile; a Go build unit joined the community slots (shipped). |
 | `Rod.Operators` | Collaboration metadata APIs (ADR-005; shipped); MCP read-write under token scopes (ADR-006; shipped, the operate floor and Sec 10.4's unattended red line held at the tool level); token-scope claim stamping (ADR-006; shipped with the transport-side floor and gate). |
-| `Rod.Capabilities` | Contract registry + in-tree module host (ADR-001; shipped, with the first reference module under `modules/`), plus the asset-module host behind `Capabilities:AssetModules` (Sec 15.1; shipped, carrying the hook and lure-template reference modules). |
+| `Rod.Capabilities` | Contract registry + module host (ADR-001; shipped, its reference set later split to the ecosystem by ADR-024), plus the asset-module host behind `Capabilities:AssetModules` (Sec 15.1; shipped, carrying the hook and lure-template reference modules). |
 | `Rod.Persistence` | `tsvector` full-text indexes; comment and chat tables (ADR-005; shipped, generated columns under GIN on tasks, comments, chat, credentials, and artifacts). |
 | `Rod.TeamServer` | Mounts the new components; the built-in diagnostics endpoint (ADR-008). |
 | `rod-cli` (shipped, `src/cli/dotnet/`) | `rod mod init/search/info/install/verify/publish` over the manifest, signature, registry, and lock contracts (ADR-002, ADR-009); no in-house references. |

@@ -77,8 +77,8 @@ Neither names a relay; the campaign body does.
    is the duplicate it always was.
    The template arrives either inline or as `template.ref`, a
    `module/asset` reference into the asset modules listed under
-   `Capabilities:AssetModules` (architecture.md Sec 15.1; the in-tree
-   reference set is `modules/lure-templates`) -- a reference resolves
+   `Capabilities:AssetModules` (architecture.md Sec 15.1; the reference
+   package is lure-templates, installed from the registry) -- a reference resolves
    to subject and body at creation and the campaign row stores the
    resolved text, so what was sent is always on the row. A template
    file is a `Subject: ` first line, a blank line, then the body; the

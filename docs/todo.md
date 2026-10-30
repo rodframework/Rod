@@ -62,6 +62,16 @@ seat as wmi, and the DLL search-order seat as hijack):
   _AC:_ the standing module contract, plus ships disabled, enabled per
   build profile (Sec 7).
 
+- **Split rod-implant-rust out of the platform tree** (serves Sec 12.2;
+  ADR-011's ladder rung, mechanics designed in Sec 15.4 -- the pinned
+  rod-src.tar.gz contract, the plugin SDK traveling with the implant,
+  the build pipeline's default source, the test relocation). Execution
+  is its own round: it touches the build pipeline, the release
+  assembly, and conformance together.
+  _AC:_ the platform tree carries no src/implant/rust, a checked-out
+  teamserver builds Rust payloads from the pinned source tarball, and
+  the conformance Rust candidate runs against that same pinned tree.
+
 ## On hold
 
 - **Live-engagement feedback loop.** _AC:_ at least one real-engagement

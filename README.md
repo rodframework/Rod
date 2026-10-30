@@ -77,8 +77,8 @@
   the in-tree `rod-plugin-sdk` crate load into an already-deployed artifact
   over the sealed task channel (`module.load`), join the dispatch table,
   and read in the console exactly like built-in verbs; Linux stages them in
-  a memfd and execs them -- nothing on disk. The in-tree `hostenum` pair
-  (server half under `modules/`, implant half under
+  a memfd and execs them -- nothing on disk. The `hostenum` pair
+  (server package at rod-plugin-hostenum, implant half under
   `src/implant/rust/modules/`) is the worked example to copy
   ([docs/extending/modules.md](docs/extending/modules.md)).
 - **Pre-foothold recon on the teamserver.** An engagement-scoped workbench
@@ -160,7 +160,7 @@ flowchart LR
 | Web shells | PHP, JSP, ASPX, classic ASP scripts | Placement scripts with baked credentials; synchronous tasking. |
 | Loader | Rust (`no_std`, no libc) | Sealed fetch-and-exec from memory; Linux amd64/arm64. |
 | Build units | Rust in-tree; others out-of-tree | Language-neutral build contract ([architecture.md Sec 12.2](docs/architecture.md)). |
-| Capability modules | Rust against `rod-plugin-sdk`; `hostenum` in-tree | `module.load` into a deployed artifact; memfd-exec on Linux. |
+| Capability modules | Rust against `rod-plugin-sdk`; the official set in the ecosystem registry | `module.load` into a deployed artifact; memfd-exec on Linux. |
 | Redirectors | .NET Native AOT, single static binary | Tiny VPS footprint; no runtime install. |
 | Data store | In-memory and file-backed by default; PostgreSQL opt-in | `ConnectionStrings:Postgres` switches in durable state and audit. |
 
@@ -244,8 +244,8 @@ headline sections:
 The rest live only in the reference table: `Sessions:Staleness` and
 `Webhooks` (engine timing and notification forwarding),
 `Capabilities:Modules` and `Build:Transforms` (the module and transform
-extension points -- the in-tree reference modules ship listed, external
-ones join the same list), `Llm` (the opt-in triage client), and `Recon`
+extension points -- a deployment lists its installed set, from the
+registry or its own trees), `Llm` (the opt-in triage client), and `Recon`
 (the workbench's egress endpoints and scan origin) -- each an OPSEC
 decision the runbook next to it documents.
 
@@ -258,7 +258,7 @@ The doc tree, by what you came for:
 | The design -- lifecycle, engagement model, kernel layers, implants and profiles, build pipeline, OPSEC, transports, the sensitive-capability boundary | [docs/architecture.md](docs/architecture.md) |
 | A from-scratch implant against the wire contract | [docs/extending/implants.md](docs/extending/implants.md) |
 | A new C2 carrier, in-tree or out | [docs/extending/transports.md](docs/extending/transports.md) |
-| A capability module against the seams -- in-tree reference or external, one loading path | [docs/extending/modules.md](docs/extending/modules.md) |
+| A capability module against the seams -- official or community, one loading path | [docs/extending/modules.md](docs/extending/modules.md) |
 | Stand-up, configuration, and the production runbook | [docs/operations/teamserver.md](docs/operations/teamserver.md) |
 | The operator console's panels and fields | [docs/operations/operator-ui.md](docs/operations/operator-ui.md) |
 | Redirector build, deploy, and rotation | [docs/operations/redirectors.md](docs/operations/redirectors.md) |
@@ -275,8 +275,8 @@ The doc tree, by what you came for:
 Exploit behavior, detection evasion, LSASS dumping, and input capture are
 **pluggable capability contracts**: the core defines their interfaces and
 dispatch and ships no concrete techniques or in-the-wild PoCs. Concrete
-behavior arrives as modules -- in-tree reference modules or external ones,
-both through the same loading path -- and every sensitive one stays
+behavior arrives as modules -- official or community, both through the
+same registry and loading path -- and every sensitive one stays
 disabled until a build profile enables it
 ([architecture.md Sec 7, Sec 13, Sec 15](docs/architecture.md)).
 
