@@ -3597,6 +3597,23 @@ Where the program touches the existing layers:
   v1.0.0), then redirector and UI (later, or never). The gate the order
   guarded on is behind us: the semver releases shipped, and each split
   stays a decision the ladder orders, never an obligation it imposes.
+  The ladder's `rod-implant-rust` rung is designed _(execution
+  deferred)_: the pinned source tarball is the whole coupling contract --
+  the main repository builds against the implant release its lock names
+  (version and sha256), its release assembly packs that tag's tree
+  cargo-vendored beside the protocol's protos (which stay the main
+  tree's contract, Sec 12.2), and `Build:RustSourceDirectory` defaults
+  to the deployed source root an installed teamserver already reads, a
+  checkout overriding it. The plugin SDK, the C header and worked shell,
+  and the module crates travel with the implant repository -- the plugin
+  packages' build scripts already take the Rust tree through
+  `ROD_RUST_TREE`, the extracted tarball included -- while the Go
+  reference stays in-tree as the community slot. The cargo-shelling
+  pipeline tests move to the implant repository's CI; the platform's
+  integration round trips and conformance candidates consume the pinned
+  tarball. Sec 12.2's rejection of an out-of-tree *reach* implant keeps
+  its meaning -- the split separates the reference physically without
+  demoting it -- and folds this in when it lands.
 - **Ecosystem repository naming** (ADR-024). One module, one repository;
   official and community ship under the same rules. Repository names
   follow the entry kind: `rod-plugin-<name>` (plugin packages),
