@@ -1,6 +1,6 @@
 # Curated to what this tree actually produces: .NET build output and test
-# runs, the Rust crate's cargo target, the operator UI's node and bundle
-# output, the teamserver's local data directory, and editor/OS noise.
+# runs, the operator UI's node and bundle output, the teamserver's local
+# data directory, and editor/OS noise.
 
 # .NET build output and test runs
 [Bb]in/
@@ -10,17 +10,6 @@ artifacts/
 coverage*.json
 coverage*.xml
 coverage*.info
-
-# Rust implant tree: each crate root's cargo build output (target/ holds the
-# compiled binaries and the generated protobuf bindings under
-# target/release/build). The checked-in
-# baked.rs stub is tracked (empty -- the build unit overwrites it in a temp
-# copy at build time); the loader crate beside it follows the same rule.
-src/implant/rust/target/
-src/implant/rust/loader/target/
-src/implant/rust/plugin-sdk/target/
-src/implant/rust/modules/*/target/
-src/implant/rust/carrier/target/
 
 # Operator UI: the Vite build output is produced by `npm run build` (CI does it
 # before `dotnet build`); only the React sources under src/teamserver/Rod.TeamServer/Client

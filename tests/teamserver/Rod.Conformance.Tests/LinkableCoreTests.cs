@@ -7,8 +7,9 @@ namespace Rod.Conformance.Tests;
 /// Acceptance for the linkable core (architecture.md Sec 15.2, ADR-018):
 /// the crate's lib target as a C-ABI embedding surface, proved by the only
 /// shape that can prove it -- a shell that is not Rust. The worked C shell
-/// under <c>src/implant/rust/shell/</c> compiles against the static library
-/// and runs the whole conformance clause battery as an ordinary candidate
+/// the implant repository carries under <c>shell/</c> compiles against the
+/// static library and runs the whole conformance clause battery as an
+/// ordinary candidate
 /// process; if it passes, any language that can link a static library gets
 /// the same result writing nothing but its own <c>main</c> and pump loop.
 /// The build needs cargo (the static library) and a C compiler (the
@@ -94,7 +95,7 @@ public class LinkableCoreTests
     {
         var tree = ReferenceImplantCandidate.LocateRustTree()
             ?? throw new InvalidOperationException(
-                "The Rust implant tree (src/implant/rust) was not found from the test assembly.");
+                "The Rust implant tree did not resolve from the test assembly.");
 
         // Always cargo build: incremental cost is seconds, and staleness of
         // the .a under any input (sources, manifest, rod.proto through
