@@ -14,7 +14,11 @@ authoritative wire messages -- compile it with your own toolchain), this wire
 reference, and the baked profile file a build unit stages into an implant
 tree (`rod.profile.json`, below). Everything here is
 verified against the teamserver code; where behavior differs, rod.proto and
-the code win and this file is a bug.
+the code win and this file is a bug. The in-tree Go reference carries its
+compiled form as checked-in code (`src/implant/go/internal/wire/rodv1.pb.go`);
+`scripts/regen-protobuf-go.sh` regenerates it from rod.proto and is
+byte-stable under the pinned tools (protoc 3.19.6, protoc-gen-go v1.36.11),
+so a rod.proto change lands in the Go tree as a reviewed diff.
 
 ## Wire reference
 
