@@ -21,4 +21,13 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Serialized collections (the integration suite's pattern): the
+         pinned-source tests mutate the resolution's environment variables,
+         which the build units' default construction also reads, so the
+         windows must never overlap; this project's cargo legs are
+         I/O-bound anyway. -->
+    <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

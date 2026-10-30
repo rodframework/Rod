@@ -43,14 +43,17 @@ public sealed class ReferenceImplantCandidate : IImplantCandidate
     }
 
     /// <summary>
-    /// Builds the reference implant from the source tree. Throws when the
-    /// build fails so the failure is attributable.
+    /// Builds the reference implant from its source tree -- the pinned
+    /// release the platform's lock names, or whatever checkout the
+    /// resolution finds first. Throws when the build fails so the failure
+    /// is attributable.
     /// </summary>
     public static ReferenceImplantCandidate Build()
     {
         var tree = LocateRustTree()
             ?? throw new InvalidOperationException(
-                "The Rust implant tree (src/implant/rust) was not found from the test assembly.");
+                "The Rust implant tree did not resolve: no ROD_IMPLANT_RUST_DIR checkout, no co-located "
+                + "tree, and no fetchable pinned release from rod-implants.lock.json.");
         var psi = new ProcessStartInfo
         {
             FileName = "cargo",
@@ -83,19 +86,10 @@ public sealed class ReferenceImplantCandidate : IImplantCandidate
 
     public void Dispose() => _candidate.Dispose();
 
-    // Walks up from the test assembly to the repo root, the same resolution
-    // the in-tree build unit uses. Shared with the linkable-core tests, which
-    // build the static library out of the same tree.
+    // The build pipeline's pinned-source resolution: an environment
+    // checkout, a co-located tree, then the pinned release the lock names.
+    // Shared with the linkable-core tests, which build the static library
+    // out of the same tree.
     internal static string? LocateRustTree()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            if (Directory.Exists(Path.Combine(dir.FullName, "src", "implant", "rust"))
-                && Directory.Exists(Path.Combine(dir.FullName, "src", "teamserver")))
-                return Path.Combine(dir.FullName, "src", "implant", "rust");
-            dir = dir.Parent!;
-        }
-        return null;
-    }
+        => Rod.BuildPipeline.PayloadBuild.PinnedImplantSource.LocateRustTree();
 }

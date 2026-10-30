@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\..\src\conformance\dotnet\Rod.Conformance\Rod.Conformance.csproj" />
     <ProjectReference Include="..\..\..\src\conformance\dotnet\Rod.Conformance.Runner\Rod.Conformance.Runner.csproj" />
     <ProjectReference Include="..\..\..\src\conformance\dotnet\Rod.Conformance.Minimal\Rod.Conformance.Minimal.csproj" />
+    <ProjectReference Include="..\..\..\src\teamserver\Rod.BuildPipeline\Rod.BuildPipeline.csproj" />
   </ItemGroup>
 
 </Project>

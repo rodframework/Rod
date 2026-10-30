@@ -1,0 +1,12 @@
+{
+  "rust": {
+    "repository": "https://github.com/rodframework/rod-implant-rust",
+    "version": "v1.1.0-dev.1",
+    "sha256": "cb2a201a6de285dbe71d451059fc600308f71fde2d259f8af677227881491fcc"
+  },
+  "go": {
+    "repository": "https://github.com/rodframework/rod-implant-go",
+    "version": "v1.1.0-dev.1",
+    "sha256": "48072c7026997311f66a7b3d070a2e384d0bdadbe355cb6ba6166310431b4975"
+  }
+}

@@ -1101,17 +1101,9 @@ public class RustImplantEndToEndTests
     }
 
     private static string? FindRustTree()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "implant", "rust");
-            if (Directory.Exists(candidate) && Directory.Exists(Path.Combine(dir.FullName, "src", "teamserver")))
-                return candidate;
-            dir = dir.Parent;
-        }
-        return null;
-    }
+        // The build pipeline's pinned-source resolution, the same chain the
+        // module-load suite's shared helper holds.
+        => Rod.BuildPipeline.PayloadBuild.PinnedImplantSource.LocateRustTree();
 
     private sealed record MintedToken(string Secret);
 

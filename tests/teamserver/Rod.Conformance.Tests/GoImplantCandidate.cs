@@ -81,7 +81,8 @@ public sealed class GoImplantCandidate : IImplantCandidate
     {
         var tree = LocateGoTree()
             ?? throw new InvalidOperationException(
-                "The Go implant tree (src/implant/go) was not found from the test assembly.");
+                "The Go implant tree did not resolve: no ROD_IMPLANT_GO_DIR checkout, no co-located "
+                + "tree, and no fetchable pinned release from rod-implants.lock.json.");
         var binary = Path.Combine(Path.GetTempPath(), "rod-conform-" + Guid.NewGuid().ToString("N"), "rod-go-implant");
         Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
 
@@ -126,18 +127,8 @@ public sealed class GoImplantCandidate : IImplantCandidate
         try { Directory.Delete(Path.GetDirectoryName(Binary)!, recursive: true); } catch { }
     }
 
-    // Walks up from the test assembly to the repo root, the same resolution
-    // the reference candidate applies to the Rust tree.
+    // The build pipeline's pinned-source resolution, the twin of the
+    // reference candidate's Rust locator.
     private static string? LocateGoTree()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            if (Directory.Exists(Path.Combine(dir.FullName, "src", "implant", "go")) &&
-                Directory.Exists(Path.Combine(dir.FullName, "src", "teamserver")))
-                return Path.Combine(dir.FullName, "src", "implant", "go");
-            dir = dir.Parent!;
-        }
-        return null;
-    }
+        => Rod.BuildPipeline.PayloadBuild.PinnedImplantSource.LocateGoTree();
 }

@@ -327,17 +327,9 @@ public class GoImplantEndToEndTests
     }
 
     private static string? FindGoTree()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "implant", "go");
-            if (Directory.Exists(candidate) && Directory.Exists(Path.Combine(dir.FullName, "src", "teamserver")))
-                return candidate;
-            dir = dir.Parent!;
-        }
-        return null;
-    }
+        // The build pipeline's pinned-source resolution, the Go twin of the
+        // Rust suite's locator.
+        => Rod.BuildPipeline.PayloadBuild.PinnedImplantSource.LocateGoTree();
 
     private sealed record MintedToken(string? Secret);
 

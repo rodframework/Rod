@@ -395,17 +395,10 @@ internal static class ModuleLoadTestSupport
     }
 
     public static string? FindRustTree()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "implant", "rust");
-            if (Directory.Exists(candidate) && Directory.Exists(Path.Combine(dir.FullName, "src", "teamserver")))
-                return candidate;
-            dir = dir.Parent;
-        }
-        return null;
-    }
+        // The build pipeline's pinned-source resolution: an environment
+        // checkout, a co-located tree, then the pinned release the lock
+        // names. Shared by the marketplace legs.
+        => Rod.BuildPipeline.PayloadBuild.PinnedImplantSource.LocateRustTree();
 }
 
 /// <summary>Task read shape for the module-load legs.</summary>

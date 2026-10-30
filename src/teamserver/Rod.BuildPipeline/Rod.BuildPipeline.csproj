@@ -5,6 +5,12 @@
     <ProjectReference Include="..\Rod.Packaging\Rod.Packaging.csproj" />
   </ItemGroup>
 
+  <!-- The pinned-source resolution's internal surface (lock parse, cache
+       paths) is part of what Rod.Build.Tests contract-tests. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Rod.Build.Tests" />
+  </ItemGroup>
+
   <PropertyGroup>
   </PropertyGroup>
 

@@ -87,6 +87,7 @@ public sealed class GoBuildUnit : IBuildUnit, IBuildUnitEnvironment
 
     public async Task<BuildArtifact> BuildAsync(BuildParams @params, CancellationToken cancellationToken = default)
     {
+        EnsureSourceTree();
         if (!Directory.Exists(_goSourceDir))
             throw new BuildUnitFailureException($"Go implant source tree not found at '{_goSourceDir}'.");
 
@@ -328,15 +329,28 @@ public sealed class GoBuildUnit : IBuildUnit, IBuildUnitEnvironment
     }
 
     private static string ResolveDefaultGoSourceDir()
+        // The pinned-source chain (architecture.md Sec 15.4): an explicit
+        // environment checkout, the co-located layout an extracted
+        // rod-src.tar.gz carries, then the pinned release's cache path --
+        // computed here, fetched lazily at first build so a unit constructed
+        // over a cold cache still constructs.
+        => PinnedImplantSource.ResolveSourceDir(
+            PinnedImplantSource.Go,
+            PinnedImplantSource.GoTreeVariable);
+
+    // A cold pin cache fetches here, at first build, rather than at
+    // construction -- the Rust unit's posture, held by its twin.
+    private void EnsureSourceTree()
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
+        if (Directory.Exists(_goSourceDir))
+            return;
+        try
         {
-            if (Directory.Exists(Path.Combine(dir.FullName, "src", "implant", "go"))
-                && Directory.Exists(Path.Combine(dir.FullName, "src", "teamserver")))
-                return Path.Combine(dir.FullName, "src", "implant", "go");
-            dir = dir.Parent!;
+            PinnedImplantSource.EnsurePinnedTreeFor(PinnedImplantSource.Go, _goSourceDir);
         }
-        return Path.Combine("..", "..", "..", "..", "..", "src", "implant", "go");
+        catch (InvalidOperationException ex)
+        {
+            throw new BuildUnitFailureException(ex.Message);
+        }
     }
 }

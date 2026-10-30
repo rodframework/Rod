@@ -134,7 +134,7 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
             findings[0] = new("missing", "source tree",
                 $"Rust implant source tree not found at '{_rustSourceDir}' -- set Build:RustSourceDirectory to the crate's location");
 
-        var proto = LocateProtoDir();
+        var proto = PinnedImplantSource.LocateProtoDir();
         findings.Add(proto is null
             ? new("missing", "proto tree",
                 "The teamserver proto tree (src/teamserver/Rod.Protocol/protos) was not found beside the crate "
@@ -214,23 +214,6 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
         var unavailable = sourceMissing || proto is null || !cargo.Found;
         var status = unavailable ? "unavailable" : anyTargetMissing ? "partial" : "ready";
         return new BuildUnitEnvironmentReport(UnitId, status, findings, targets);
-    }
-
-    // The proto tree's location, without the build's copying: the same
-    // walk-up ResolveEndpointAsync-style search CopyProtoTree performs,
-    // factored so both the build and the environment report agree on where
-    // it should be.
-    private static string? LocateProtoDir()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var protoDir = Path.Combine(dir.FullName, "src", "teamserver", "Rod.Protocol", "protos");
-            if (Directory.Exists(protoDir))
-                return protoDir;
-            dir = dir.Parent!;
-        }
-        return null;
     }
 
     // A PATH scan for an executable by name: presence-level only (an
@@ -320,6 +303,7 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
 
     public async Task<BuildArtifact> BuildAsync(BuildParams @params, CancellationToken cancellationToken = default)
     {
+        EnsureSourceTree();
         if (!Directory.Exists(_rustSourceDir))
             throw new BuildUnitFailureException($"Rust implant source tree not found at '{_rustSourceDir}'.");
 
@@ -1267,7 +1251,7 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
     // rod.proto has no imports, so the directory holds all it needs.
     private static void CopyProtoTree(string rustSourceDir, string workDir)
     {
-        var protoDir = LocateProtoDir();
+        var protoDir = PinnedImplantSource.LocateProtoDir();
         if (protoDir is null)
             throw new BuildUnitFailureException(
                 "The Rust build needs the teamserver proto tree (src/teamserver/Rod.Protocol/protos) beside the crate; the repo walk-up found none.");
@@ -1351,15 +1335,30 @@ public sealed class RustBuildUnit : IBuildUnit, IBuildUnitEnvironment
     }
 
     private static string ResolveDefaultRustSourceDir()
+        // The pinned-source chain (architecture.md Sec 15.4): an explicit
+        // environment checkout, the co-located layout an extracted
+        // rod-src.tar.gz carries, then the pinned release's cache path --
+        // computed here, fetched lazily at first build so a unit constructed
+        // over a cold cache still constructs.
+        => PinnedImplantSource.ResolveSourceDir(
+            PinnedImplantSource.Rust,
+            PinnedImplantSource.RustTreeVariable);
+
+    // A cold pin cache fetches here, at first build, rather than at
+    // construction -- a teamserver that never builds a payload never needed
+    // the tree. Any fetch failure lands as the unit's own server-side
+    // fault, the same shape a missing tree always had.
+    private void EnsureSourceTree()
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
+        if (Directory.Exists(_rustSourceDir))
+            return;
+        try
         {
-            if (Directory.Exists(Path.Combine(dir.FullName, "src", "implant", "rust"))
-                && Directory.Exists(Path.Combine(dir.FullName, "src", "teamserver")))
-                return Path.Combine(dir.FullName, "src", "implant", "rust");
-            dir = dir.Parent;
+            PinnedImplantSource.EnsurePinnedTreeFor(PinnedImplantSource.Rust, _rustSourceDir);
         }
-        return Path.Combine("..", "..", "..", "..", "..", "src", "implant", "rust");
+        catch (InvalidOperationException ex)
+        {
+            throw new BuildUnitFailureException(ex.Message);
+        }
     }
 }
