@@ -23,7 +23,11 @@ public sealed class ModuleStore
 
     public ModuleStore(string root)
     {
-        _root = Path.GetFullPath(root);
+        // A relative root names a directory beside the binary -- the same
+        // base the config-listed module paths resolve against -- so the
+        // shipped default lands deterministically no matter the working
+        // directory the process started in.
+        _root = Path.GetFullPath(root, AppContext.BaseDirectory);
         Directory.CreateDirectory(_root);
     }
 

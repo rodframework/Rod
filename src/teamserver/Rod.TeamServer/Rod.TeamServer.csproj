@@ -62,27 +62,4 @@
     <Exec Condition="'$(_RodNpmProbe)' == '0'" Command="npm run build" WorkingDirectory="Client" ConsoleToMSBuild="true" />
     <Message Condition="'$(_RodNpmProbe)' != '0'" Importance="high" Text="Operator UI bundle not found (wwwroot/index.html) and npm is not on PATH; the server will run API-only. Build it with npm ci &amp;&amp; npm run build in src/teamserver/Rod.TeamServer/Client." />
   </Target>
-  <!-- In-tree module content (Sec 15.1): the server-side halves under
-       modules/ ship as pure descriptor manifests (ADR-018), so each
-       module's rod-module.toml lands under modules/[name] in the output,
-       the directory shape the Capabilities:DescriptorModules entries name
-       and the descriptor loader reads; the asset modules ship as the
-       manifest plus their assets trees, the shape the
-       Capabilities:AssetModules entries name. Only manifests and assets
-       travel: a module's tests and any build artifacts never deploy. -->
-  <ItemGroup>
-    <RodModuleFile Include="$(MSBuildThisFileDirectory)..\..\..\modules\**\rod-module.toml" />
-    <RodModuleFile Include="$(MSBuildThisFileDirectory)..\..\..\modules\**\assets\**\*" />
-  </ItemGroup>
-  <Target Name="DeployInTreeModules" AfterTargets="Build">
-    <Copy SourceFiles="@(RodModuleFile)"
-          DestinationFiles="@(RodModuleFile->'$(OutDir)modules\%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true" />
-  </Target>
-  <Target Name="PublishInTreeModules" AfterTargets="Publish">
-    <Copy SourceFiles="@(RodModuleFile)"
-          DestinationFiles="@(RodModuleFile->'$(PublishDir)modules\%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true" />
-  </Target>
-
 </Project>
