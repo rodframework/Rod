@@ -117,6 +117,12 @@ Toolchain caveats (observed SDK behavior, not preference):
   time out around the two-minute mark; a standalone rerun or a whole-suite
   rerun is green. That is machine scheduling, not a regression -- rerun
   before bisecting.
+- The integration suite's registry round trips fetch the live ecosystem
+  over https. On a host whose IPv6 route to github.io blackholes (WSL2
+  with broken v6 is the usual shape), .NET's connect stalls where curl
+  falls back quietly, and the fetch dies at `Modules:DownloadTimeoutSeconds`.
+  Run the suite with `DOTNET_SYSTEM_NET_DISABLEIPV6=1` there; sane
+  networks and the CI runners need nothing.
 
 ## 5. Architecture -- monolithic kernel, layered
 
