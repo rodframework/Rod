@@ -58,9 +58,14 @@ public class EndToEndTests
         Assert.Contains("T1082", info.Output);
         Assert.Contains("MIT", info.Output);
 
-        // install: fetch, digest, signature, compat, pin, land.
+        // install: fetch, digest, signature, compat, pin, land. The
+        // explicit floor names a deployment at the generation init
+        // scaffolded for -- this CLI's release line with the dev
+        // prerelease stripped, since a prerelease stamp sorts below the
+        // release it heads toward.
+        var generation = Rod.Cli.BuildStamp.Version.Split('-')[0];
         var installRun = CliRun.Run("mod", "install", "demo-sweep", "--registry", registry,
-            "--dir", install, "--teamserver", "1.0.0");
+            "--dir", install, "--teamserver", generation);
         Assert.True(installRun.Code == 0, installRun.Error);
         var installedManifest = Path.Combine(install, "modules", "demo-sweep", "1.0.0", "rod-module.toml");
         Assert.True(File.Exists(installedManifest));
@@ -116,7 +121,7 @@ public class EndToEndTests
         var upgrade = CliRun.Run("mod", "publish", "--path", module, "--registry", registry);
         Assert.True(upgrade.Code == 0, upgrade.Error);
         var installUpgrade = CliRun.Run("mod", "install", "demo-sweep@1.1.0", "--registry", registry,
-            "--dir", install, "--teamserver", "1.0.0");
+            "--dir", install, "--teamserver", Rod.Cli.BuildStamp.Version.Split('-')[0]);
         Assert.True(installUpgrade.Code == 0, installUpgrade.Error);
         Assert.True(Directory.Exists(Path.Combine(install, "modules", "demo-sweep", "1.1.0")));
         Assert.False(Directory.Exists(Path.Combine(install, "modules", "demo-sweep", "1.0.0")));
@@ -153,7 +158,7 @@ public class EndToEndTests
         Assert.True(publish.Code == 0, publish.Error);
 
         var second = CliRun.Run("mod", "install", "demo-sweep@1.1.0", "--registry", registry,
-            "--dir", install, "--teamserver", "1.0.0");
+            "--dir", install, "--teamserver", Rod.Cli.BuildStamp.Version.Split('-')[0]);
         Assert.Equal(RodCli.ExitTrustFailure, second.Code);
         Assert.Contains("publisher key changed", second.Error);
         // Nothing landed.
@@ -180,7 +185,7 @@ public class EndToEndTests
         File.WriteAllText(url.Replace("file://", ""), "corrupted bytes");
 
         var installRun = CliRun.Run("mod", "install", "demo-sweep", "--registry", registry,
-            "--dir", install, "--teamserver", "1.0.0");
+            "--dir", install, "--teamserver", Rod.Cli.BuildStamp.Version.Split('-')[0]);
         Assert.Equal(RodCli.ExitTrustFailure, installRun.Code);
         Assert.Contains("digest mismatch", installRun.Error);
     }
@@ -405,7 +410,7 @@ public class EndToEndTests
         Assert.Contains("plugin-loader/exec-v1", CliRun.Run("mod", "search", "exfil-chunks", "--registry", registry).Output);
 
         var pluginInstall = CliRun.Run("mod", "install", "demo-sweep", "--registry", registry,
-            "--dir", install, "--teamserver", "1.0.0");
+            "--dir", install, "--teamserver", Rod.Cli.BuildStamp.Version.Split('-')[0]);
         Assert.True(pluginInstall.Code == 0, pluginInstall.Error);
         Assert.Contains("requires on the target implant: plugin-loader/exec-v1, exfil-chunks", pluginInstall.Output);
 
@@ -437,7 +442,7 @@ public class EndToEndTests
         Assert.Contains("signature.verification", unitInfo.Output);
 
         var unitInstall = CliRun.Run("mod", "install", "demo-agent", "--registry", registry,
-            "--dir", install, "--teamserver", "1.0.0");
+            "--dir", install, "--teamserver", Rod.Cli.BuildStamp.Version.Split('-')[0]);
         Assert.True(unitInstall.Code == 0, unitInstall.Error);
         Assert.Contains("conformance: Tier 1", unitInstall.Output);
 
