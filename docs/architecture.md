@@ -3338,13 +3338,11 @@ with **zero framework changes**.
 candidates plus the common enumeration, credential, and tunneling sets --
 so the registry is not an empty shelf on day one.
 
-**Naming and license discipline.** Ecosystem components carry the `rod-`
-prefix and avoid existing product names: the index repository is
-`rod-registry` (Armory and Arsenal name Sliver's ecosystem factually,
-never borrowed). Sliver is GPLv3; its code is never copied or ported under
-any circumstance. Mythic-ecosystem agent repositories are licensed
-variously -- each is checked before any code reference. Benchmarking takes
-product and interaction conclusions only (ADR-012).
+**Naming and license discipline.** Repository naming (the
+`rod-<kind>-<name>` prefixes), the organization/community split, the
+one-module-one-repository rule, and the license rules for ecosystem
+code are stated once, in the ecosystem repository naming discipline of
+Sec 15.4 (ADR-024).
 
 ### 15.3 Platform widenings (ADR-004 through ADR-008, ADR-010)
 
@@ -3506,7 +3504,7 @@ Where the program touches the existing layers:
   contact load against one teamserver. Runbook:
   [operations/range.md](operations/range.md).
 
-### 15.4 Product disciplines (ADR-011 through ADR-015)
+### 15.4 Product disciplines (ADR-011 through ADR-015, ADR-024)
 
 - **Benchmark-first** (ADR-012). Every major functional domain starts with
   a benchmark note at `docs/benchmarks/<domain>.md`: which tools are
@@ -3593,6 +3591,24 @@ Where the program touches the existing layers:
   v1.0.0), then redirector and UI (later, or never). The gate the order
   guarded on is behind us: the semver releases shipped, and each split
   stays a decision the ladder orders, never an obligation it imposes.
+- **Ecosystem repository naming** (ADR-024). One module, one repository;
+  official and community ship under the same rules. Repository names
+  follow the entry kind: `rod-plugin-<name>` (plugin packages),
+  `rod-ext-<name>` (implant-native extensions),
+  `rod-assets-<name>` (asset packages), `rod-unit-<name>` (external
+  build units), `rod-implant-<name>` (implant projects); `rod-registry`
+  is the one platform-component repository, the index tap itself. Every
+  ecosystem component carries the `rod-` prefix and avoids existing
+  product names (Armory and Arsenal name Sliver's ecosystem factually,
+  never borrowed). Official modules live under the organization,
+  community modules under their authors' accounts, and both publish
+  through the same channel: `rod mod publish`, then a pull request
+  against the index. The registry indexes by manifest `name`, not by
+  repository path -- the manifest is the identity a lock file pins.
+  Sliver is GPLv3; its code is never copied or ported under any
+  circumstance. Mythic-ecosystem agent repositories are licensed
+  variously -- each is checked before any code reference. Benchmarking
+  takes product and interaction conclusions only (ADR-012).
 
 ### 15.5 Decision index
 
@@ -3621,3 +3637,4 @@ Where the program touches the existing layers:
 | 021 | Open build unit ids and the external build contract: `[unit]` tables, `Build:ExternalUnits`, the request/result file contract -- a new language registers a package, not a recompile | Sec 6, Sec 15.2 |
 | 022 | The compiled-in extension tier: source-merge overlays under `src/extensions/extensions_impl/`, build-unit targeting rows as the hard gate, the dispatch chain core -> extensions -> plugins | Sec 5.3, Sec 6 |
 | 023 | `Rod.Packaging` as the one packaging-contract library, and the server-side module lifecycle: store, registry browser, verified hot-registering installs, the operator console's marketplace | Sec 15.2 |
+| 024 | Ecosystem repository naming: one module one repository, `rod-<kind>-<name>` prefixes, organization and community under the same rules, the registry indexes by manifest name | Sec 15.4 |

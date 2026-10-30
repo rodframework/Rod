@@ -802,6 +802,18 @@ key**: it is your publisher identity, and a fresh key is a new identity
 that every install pinning the old one will refuse. The key never ships
 -- publish rejects any packaging rule that would include it.
 
+The scaffold directory becomes the module's repository, named by its
+entry kind under the ecosystem naming discipline (architecture.md
+Sec 15.4, ADR-024): `rod-plugin-<name>` for plugin packages,
+`rod-ext-<name>` for implant-native extensions, `rod-assets-<name>` for
+asset packages, `rod-unit-<name>` for build units, `rod-implant-<name>`
+for implant projects. One module, one repository: official modules live
+under the Rod organization, community modules under their authors'
+accounts, the same rules and the same publish channel for both. The
+registry indexes by the manifest's `name` -- the manifest is the
+identity a lock file pins; the repository name is how people find the
+code.
+
 ### 2. Author the manifest
 
 The manifest is the whole contract; every field rides the signed
