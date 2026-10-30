@@ -2,10 +2,11 @@ name: implant-matrix
 
 # The 3 OS x 2 arch implant e2e matrix (docs/todo.md's item, architecture.md
 # Sec 12.2's end-to-end legs): one runner per cell, each building and running
-# BOTH in-tree implants on its own OS and arch through the real contracts --
+# BOTH reference implants on its own OS and arch through the real contracts --
 # the pipeline bakes the artifact for the cell's target, the artifact enrolls
 # against a live teamserver, and a dispatched task completes. The harness is
-# host-aware (TestCell), so the same five legs prove every cell.
+# host-aware (TestCell), so the same five legs prove every cell. The trees
+# resolve through the pinned implant lock (architecture.md Sec 15.4).
 #
 # Weekly, not per push or nightly: six cells of a full solution build plus
 # cold cargo compiles is a heavy standing load, and the same five e2e
@@ -102,6 +103,47 @@ jobs:
           # entry because the runner context is not available there, and
           # GITHUB_ENV reaches every later step in the cell.
           echo "ROD_RUST_TARGET_DIR=${RUNNER_TEMP}/rod-rust-target" >> "$GITHUB_ENV"
+      - name: Cache the pinned implant sources
+        # The implant trees live in their own repositories now; the lock at
+        # the root pins the releases the legs build against. Exact key on
+        # the lock alone, and the fetch step below fills a miss.
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/rod-implant-cache
+          key: implant-src-${{ hashFiles('rod-implants.lock.json') }}
+      - name: Fetch the pinned implant sources
+        # The cells' legs resolve their source trees through the pinned
+        # lock; materializing the cache up front (with retries and the
+        # sha256 check, the same contract the resolver holds) means no leg
+        # pays the fetch. POSIX under the job's bash default: curl, jq,
+        # sha256sum, and tar are on every cell's image.
+        run: |
+          rust_repo="$(jq -r .rust.repository rod-implants.lock.json)"
+          rust_version="$(jq -r .rust.version rod-implants.lock.json)"
+          rust_sha256="$(jq -r .rust.sha256 rod-implants.lock.json)"
+          go_repo="$(jq -r .go.repository rod-implants.lock.json)"
+          go_version="$(jq -r .go.version rod-implants.lock.json)"
+          go_sha256="$(jq -r .go.sha256 rod-implants.lock.json)"
+          fetch_pinned() {
+            repo="$1"; ver="$2"; sha="$3"; lang="$4"
+            name="rod-implant-${lang}-src-${ver}.tar.gz"
+            dir="${ROD_IMPLANT_CACHE}/${lang}/${ver}"
+            if [ -d "$dir/src/implant/$lang" ]; then echo "$name: warm"; return; fi
+            for attempt in 1 2 3 4 5; do
+              curl -fsSL "${repo}/releases/download/${ver}/${name}" -o "$name" && break
+              sleep "$((attempt * attempt))"
+            done
+            test -s "$name"
+            echo "${sha}  ${name}" | sha256sum -c -
+            mkdir -p "$dir"
+            tar -xzf "$name" -C "$dir"
+            rm -f "$name"
+          }
+          fetch_pinned "$rust_repo" "$rust_version" "$rust_sha256" rust
+          fetch_pinned "$go_repo" "$go_version" "$go_sha256" go
+          echo "ROD_IMPLANT_CACHE=${ROD_IMPLANT_CACHE}" >> "$GITHUB_ENV"
+        env:
+          ROD_IMPLANT_CACHE: ${{ runner.temp }}/rod-implant-cache
       - name: Build
         run: dotnet build Rod.slnx --configuration Release
       - name: Run the cell's e2e legs

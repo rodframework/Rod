@@ -64,25 +64,59 @@ jobs:
           cp src/native/wireguard/target/release/librod_wg.so dist/teamserver/
           tar -czf dist/rod-teamserver-linux-x64.tar.gz -C dist/teamserver .
       - name: Pack the payload build source
-        # The minimal deployed tree teamserver.md names -- the implant
-        # crates and the wire protos. The Rust tree carries crates.io
+        # The minimal deployed tree teamserver.md names, assembled from the
+        # pinned implant releases the lock names (architecture.md Sec
+        # 15.4): each asset's sha256 is checked against the lock, so the
+        # assembled tarball is reproducible from the contracts this tree
+        # already holds -- and the lock's versions must track this tag's
+        # RodVersion, or the release would pair a binary with implants
+        # that never claimed to match it. The Rust tree carries crates.io
         # dependencies vendored beside it (RustBuildUnit compiles the
-        # crate only; plugin-sdk and modules are not part of the deployed
-        # build); the Go module vendors in-tree, so it rides as-is. The
-        # tar's version is tied to the binary's by the release tag both
-        # were cut from, and the vendor dirs mean the deploy host needs no
+        # crate only; plugin-sdk and modules ride as-is for the
+        # ecosystem's ROD_RUST_TREE builds); the Go module vendors
+        # in-tree; the wire protos stay this tree's own contract and land
+        # beside both. The vendor dirs mean the deploy host needs no
         # registry egress for payload builds.
         run: |
-          (cd src/implant/rust && cargo vendor vendor > /tmp/vendor-config.toml)
-          mkdir -p src/implant/rust/.cargo
+          rust_repo="$(jq -r .rust.repository rod-implants.lock.json)"
+          rust_version="$(jq -r .rust.version rod-implants.lock.json)"
+          rust_sha256="$(jq -r .rust.sha256 rod-implants.lock.json)"
+          go_repo="$(jq -r .go.repository rod-implants.lock.json)"
+          go_version="$(jq -r .go.version rod-implants.lock.json)"
+          go_sha256="$(jq -r .go.sha256 rod-implants.lock.json)"
+          for v in "$rust_version" "$go_version"; do
+            case "$v" in
+              "v${version}"|"v${version}"-*) ;;
+              *) echo "rod-implants.lock.json names $v, which does not match RodVersion ${version}" >&2; exit 1 ;;
+            esac
+          done
+          fetch_pinned() {
+            repo="$1"; ver="$2"; sha="$3"; lang="$4"
+            name="rod-implant-${lang}-src-${ver}.tar.gz"
+            for attempt in 1 2 3 4 5; do
+              curl -fsSL "${repo}/releases/download/${ver}/${name}" -o "$name" && break
+              sleep "$((attempt * attempt))"
+            done
+            test -s "$name"
+            echo "${sha}  ${name}" | sha256sum -c -
+          }
+          fetch_pinned "$rust_repo" "$rust_version" "$rust_sha256" rust
+          fetch_pinned "$go_repo" "$go_version" "$go_sha256" go
+          stage="$(mktemp -d)"
+          tar -xzf "rod-implant-rust-src-${rust_version}.tar.gz" -C "$stage"
+          tar -xzf "rod-implant-go-src-${go_version}.tar.gz" -C "$stage"
+          mkdir -p "$stage/src/teamserver/Rod.Protocol/protos"
+          cp src/teamserver/Rod.Protocol/protos/rod.proto "$stage/src/teamserver/Rod.Protocol/protos/"
+          (cd "$stage/src/implant/rust" && cargo vendor vendor > /tmp/vendor-config.toml)
+          mkdir -p "$stage/src/implant/rust/.cargo"
           {
             echo '# Written by the release workflow: pin the build to the vendored'
             echo '# crates so payload builds need no registry egress.'
             cat /tmp/vendor-config.toml
-          } > src/implant/rust/.cargo/config.toml
+          } > "$stage/src/implant/rust/.cargo/config.toml"
           tar -czf dist/rod-src.tar.gz \
             --exclude 'target' \
-            src/implant/rust src/implant/go src/teamserver/Rod.Protocol/protos
+            -C "$stage" src
       - name: Build the operator CLI and the conformance runner
         # rod mod coverage (below) renders the release's ATT&CK section from
         # the module manifests and the kernel catalog -- the advancement
@@ -93,9 +127,9 @@ jobs:
         # the CLI documents. The tarball is the community author's whole
         # entry -- rod, rod-conform, rod-minimal-implant, no tree checkout.
         run: |
-          dotnet publish src/cli/dotnet/Rod.Cli.csproj -c Release -o dist/cli
-          dotnet publish src/conformance/dotnet/Rod.Conformance.Runner/Rod.Conformance.Runner.csproj -c Release -o dist/cli
-          dotnet publish src/conformance/dotnet/Rod.Conformance.Minimal/Rod.Conformance.Minimal.csproj -c Release -o dist/cli
+          dotnet publish src/cli/Rod.Cli.csproj -c Release -o dist/cli
+          dotnet publish src/conformance/Rod.Conformance.Runner/Rod.Conformance.Runner.csproj -c Release -o dist/cli
+          dotnet publish src/conformance/Rod.Conformance.Minimal/Rod.Conformance.Minimal.csproj -c Release -o dist/cli
           tar -czf dist/rod-cli-linux-x64.tar.gz -C dist/cli .
       - name: Compose the release notes
         # GitHub's generated changelog, then the coverage matrix appended as
