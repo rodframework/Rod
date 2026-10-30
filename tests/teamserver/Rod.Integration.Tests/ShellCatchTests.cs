@@ -95,7 +95,8 @@ public class ShellCatchTests
         await peer.ConnectAsync(IPAddress.Loopback, port);
         await peer.GetStream().WriteAsync("user@target:~$ "u8.ToArray());
 
-        var shell = await WaitForAsync(() => Task.FromResult(hub.List().SingleOrDefault()),
+        var shell = await WaitForAsync(
+            () => Task.FromResult(FindPeer(hub, peer)),
             found => found is not null, "the listener to catch the shell");
         var sessionId = shell!.Session.Id;
 
@@ -147,7 +148,8 @@ public class ShellCatchTests
 
         using var peer = new TcpClient();
         await peer.ConnectAsync(IPAddress.Loopback, port);
-        var shell = await WaitForAsync(() => Task.FromResult(hub.List().SingleOrDefault()),
+        var shell = await WaitForAsync(
+            () => Task.FromResult(FindPeer(hub, peer)),
             found => found is not null, "the listener to catch the shell");
 
         shell!.CloseByOperator();
@@ -177,7 +179,8 @@ public class ShellCatchTests
 
         using var peer = new TcpClient();
         await peer.ConnectAsync(IPAddress.Loopback, port);
-        var shell = await WaitForAsync(() => Task.FromResult(hub.List().SingleOrDefault()),
+        var shell = await WaitForAsync(
+            () => Task.FromResult(FindPeer(hub, peer)),
             found => found is not null, "the listener to catch the shell");
 
         Assert.True(await shell!.WriteInputAsync("id\n", Timeout()));
@@ -206,11 +209,7 @@ public class ShellCatchTests
         await peer.ConnectAsync(IPAddress.Loopback, port);
         await peer.GetStream().WriteAsync("user@target:~$ "u8.ToArray());
 
-        // The roster lists the caught shell. It is identified by the peer's
-        // own ephemeral port, not by cardinality: under a loaded parallel
-        // suite a stray connection can land on the catch port too (the
-        // free-port picker's TOCTOU), and only this peer's session matters.
-        var peerPort = ((IPEndPoint)peer.Client.LocalEndPoint!).Port;
+        var peerPort = PeerPort(peer);
         ShellDto[] listed;
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
         do
@@ -219,9 +218,9 @@ public class ShellCatchTests
                 $"/engagements/{engagementId}/shells") ?? [];
             await Task.Delay(50);
         }
-        while (!listed.Any(s => s.RemoteAddress.EndsWith($":{peerPort}"))
+        while (!listed.Any(s => IsPeer(s, peerPort))
             && DateTime.UtcNow < deadline);
-        var shell = Assert.Single(listed, s => s.RemoteAddress.EndsWith($":{peerPort}"));
+        var shell = Assert.Single(listed, s => IsPeer(s, peerPort));
         Assert.Equal("live", shell.Status);
         var sessionId = shell.SessionId;
 
@@ -284,6 +283,7 @@ public class ShellCatchTests
 
         using var peer = new TcpClient();
         await peer.ConnectAsync(IPAddress.Loopback, port);
+        var peerPort = PeerPort(peer);
 
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
         ShellDto[] listed;
@@ -293,8 +293,8 @@ public class ShellCatchTests
                 $"/engagements/{engagementId}/shells") ?? [];
             await Task.Delay(50);
         }
-        while (listed.Length == 0 && DateTime.UtcNow < deadline);
-        var sessionId = Assert.Single(listed).SessionId;
+        while (!listed.Any(s => IsPeer(s, peerPort)) && DateTime.UtcNow < deadline);
+        var sessionId = Assert.Single(listed, s => IsPeer(s, peerPort)).SessionId;
 
         // A foreign engagement's roster is empty and its scoped reads
         // refuse the session as unknown -- engagement isolation reads the
@@ -324,7 +324,7 @@ public class ShellCatchTests
 
         using var peer = new TcpClient();
         await peer.ConnectAsync(IPAddress.Loopback, port);
-        var peerPort = ((IPEndPoint)peer.Client.LocalEndPoint!).Port;
+        var peerPort = PeerPort(peer);
 
         ShellDto[] listed;
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
@@ -334,9 +334,9 @@ public class ShellCatchTests
                 $"/engagements/{engagementId}/shells") ?? [];
             await Task.Delay(50);
         }
-        while (!listed.Any(s => s.RemoteAddress.EndsWith($":{peerPort}"))
+        while (!listed.Any(s => IsPeer(s, peerPort))
             && DateTime.UtcNow < deadline);
-        var sessionId = Assert.Single(listed, s => s.RemoteAddress.EndsWith($":{peerPort}")).SessionId;
+        var sessionId = Assert.Single(listed, s => IsPeer(s, peerPort)).SessionId;
 
         // A legacy-code-page shell mojibakes under the default UTF-8 decode:
         // these are the GBK bytes of the characters under test.
@@ -457,6 +457,7 @@ public class ShellCatchTests
 
         using var peer = new TcpClient();
         await peer.ConnectAsync(IPAddress.Loopback, catchPort);
+        var peerPort = PeerPort(peer);
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
         ShellDto[] listed;
         do
@@ -465,8 +466,8 @@ public class ShellCatchTests
                 $"/engagements/{engagementId}/shells") ?? [];
             await Task.Delay(50);
         }
-        while (listed.Length == 0 && DateTime.UtcNow < deadline);
-        var sessionId = Assert.Single(listed).SessionId;
+        while (!listed.Any(s => IsPeer(s, peerPort)) && DateTime.UtcNow < deadline);
+        var sessionId = Assert.Single(listed, s => IsPeer(s, peerPort)).SessionId;
 
         var upgrade = await env.Http.PostAsJsonAsync(
             $"/engagements/{engagementId}/shells/{sessionId}:upgrade",
@@ -496,6 +497,19 @@ public class ShellCatchTests
         IReadOnlyList<ShellLauncherDto> Launchers);
 
     private sealed record ShellLauncherDto(string Id, string Os, string Command);
+
+    // A caught shell is identified by the peer's own ephemeral port, never
+    // by roster cardinality: under a loaded parallel suite a stray
+    // connection can land on the catch port too (the free-port picker's
+    // TOCTOU), and only this peer's session matters.
+    private static int PeerPort(TcpClient peer)
+        => ((IPEndPoint)peer.Client.LocalEndPoint!).Port;
+
+    private static bool IsPeer(ShellDto shell, int peerPort)
+        => shell.RemoteAddress.EndsWith($":{peerPort}");
+
+    private static CaughtShell? FindPeer(ShellCatchHub hub, TcpClient peer)
+        => hub.List().FirstOrDefault(s => s.RemoteAddress.EndsWith($":{PeerPort(peer)}"));
 
     private static async Task<T> WaitForAsync<T>(
         Func<Task<T>> probe, Func<T, bool> done, string expectation, TimeSpan? budget = null)
