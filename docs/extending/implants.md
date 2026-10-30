@@ -5,18 +5,19 @@ protocol is the product (architecture.md Sec 4.2, Sec 12.2): any language that
 can speak it can be a Rod implant. This file defines what "speak it" minimally
 means, every byte-level shape an implant author needs, what is optional
 hardening, and the rules that keep the minimum small while the platform grows.
-The reference Rust implant (`src/implant/rust/`) implements every tier it
-carries; it
-is the worked example, not the obligation.
+The reference Rust implant (the `rod-implant-rust` repository, resolved
+through the platform's pinned source lock) implements every tier it
+carries; it is the worked example, not the obligation.
 
 The contract sources are `src/teamserver/Rod.Protocol/protos/rod.proto` (the
 authoritative wire messages -- compile it with your own toolchain), this wire
 reference, and the baked profile file a build unit stages into an implant
 tree (`rod.profile.json`, below). Everything here is
 verified against the teamserver code; where behavior differs, rod.proto and
-the code win and this file is a bug. The in-tree Go reference carries its
-compiled form as checked-in code (`src/implant/go/internal/wire/rodv1.pb.go`);
-`scripts/regen-protobuf-go.sh` regenerates it from rod.proto and is
+the code win and this file is a bug. The Go reference (the `rod-implant-go`
+repository) carries its compiled form as checked-in code
+(`internal/wire/rodv1.pb.go`); its `scripts/regen-protobuf-go.sh`
+fetches rod.proto at a chosen ref and regenerates it, and is
 byte-stable under the pinned tools (protoc 3.19.6, protoc-gen-go v1.36.11),
 so a rod.proto change lands in the Go tree as a reviewed diff.
 
@@ -990,7 +991,7 @@ forking the crate. The middle rung between writing Tier 0 and forking.
 
 The surface is five symbols, named `rod_core_*` to stand beside (never
 inside) the plugin family's `rod_plugin_*` set; the C contract is
-`src/implant/rust/include/rod_core.h`:
+`include/rod_core.h` in the implant repository:
 
 | Symbol | Purpose |
 |--------|---------|
@@ -1021,13 +1022,14 @@ carriage exactly as it does on the standalone binary; the fielded bake
 itself still rides the Rust entries, which read it before the machine
 exists.
 
-The worked shell is `src/implant/rust/shell/main.c` (C because it adds
-no toolchain to the worked example; the same shape in Nim, Zig, or any
+The worked shell is `shell/main.c` in the implant repository (C because it
+adds no toolchain to the worked example; the same shape in Nim, Zig, or any
 other static-library-capable language is the community's to certify).
-Linux build:
+Linux build, from the repository root after fetching rod.proto into
+`protos/` (`scripts/fetch-rod-proto.sh`):
 
 ```sh
-cargo build --release                    # in src/implant/rust
+cargo build --release
 cc -O2 -o rod-shell shell/main.c \
    target/release/librod_implant.a -lpthread -lm -ldl
 ```
@@ -1042,8 +1044,8 @@ acceptance runs exactly that, end to end, against every clause.
 ## Conformance harness
 
 The Tier 0 contract is executable, not just documented: the conformance
-harness (the rig in `src/conformance/dotnet/Rod.Conformance/`, run by the
-in-tree acceptance in `tests/teamserver/Rod.Conformance.Tests/`) boots a
+harness (the rig in `src/conformance/Rod.Conformance/`, run by the
+platform acceptance in `tests/teamserver/Rod.Conformance.Tests/`) boots a
 real teamserver in-process and drives a candidate implant against it,
 reporting pass/fail per clause -- `enroll.public-key-and-token`,
 `handshake.first-frame-ok`, `task.round-trip`, `chunk.discipline`,

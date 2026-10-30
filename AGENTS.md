@@ -35,32 +35,36 @@ toolchain and language boundaries in Sec 12.2, capability surface in Sec 13.
   under `src/teamserver/`; `net10.0` TFMs, latest C#, SDK pinned in
   `global.json` for reproducible builds.
 - **Redirectors: .NET (Native AOT).** The in-tree single-file forwarder
-  lives in `src/redirector/dotnet/` (runbook:
+  lives in `src/redirector/` (runbook:
   `docs/operations/redirectors.md`).
-- **Implants: Rust (the reference) and Go (the community-slot
-  reference).** The Rust crate under `src/implant/rust/` and the Go module
-  under `src/implant/go/` build against the wire protocol -- the
-  long-lived, language-neutral contract. Further community implants arrive
-  out-of-tree.
-- **Build units: two in-tree -- Rust and Go.** Other languages plug in
-  out-of-tree through the build contract and the `Language` enum.
+- **Implants: out-of-tree -- Rust (the reference, `rod-implant-rust`) and
+  Go (the community-slot reference, `rod-implant-go`).** Both build
+  against the wire protocol -- the long-lived, language-neutral contract.
+  The platform couples to them only through the pinned source lock
+  (`rod-implants.lock.json`: version and sha256 per release;
+  architecture.md Sec 15.4): a checkout resolves their trees through the
+  lock (`ROD_IMPLANT_RUST_DIR` / `ROD_IMPLANT_GO_DIR` name local
+  checkouts), a deployment through the rod-src.tar.gz layout it extracts.
+- **Build units: two platform units -- Rust and Go (sources out-of-tree,
+  pinned).** Other languages plug in out-of-tree through the build
+  contract and the `Language` enum.
 - **Capability modules live in the ecosystem (ADR-024): one repository
   per module under the organization (`rod-plugin-<name>`, `rod-ext-<name>`,
   `rod-assets-<name>`), indexed by rod-registry and installed through it.**
-  The implant-side halves still compile from `src/implant/rust/modules/`
-  until the implant split. They are module-layer work, not kernel work:
+  The implant-side halves compile from the implant repository's
+  `modules/` tree. They are module-layer work, not kernel work:
   nothing under `src/teamserver` references them, and installed modules
   load through the same config-listed path any external module takes
   (architecture.md Sec 15.1); the architecture tests hold that boundary.
   Module content tests travel with the module's repository and run in the
   ecosystem lane (`.github/workflows/modules.yml`), not with the kernel
   suites.
-- **Operator CLI: .NET console (`rod`).** `src/cli/dotnet/` -- the
+- **Operator CLI: .NET console (`rod`).** `src/cli/` -- the
   `rod mod` module-lifecycle suite (init/search/info/install/verify/
   publish). It references nothing in-house: it couples to the platform
   only through the ecosystem's file contracts (`rod-module.toml`, the
   static git registry index, `rod.modules.lock.json`).
-- **Conformance harness: .NET, under `src/conformance/dotnet/`.** The
+- **Conformance harness: .NET, under `src/conformance/`.** The
   Tier 0 rig (`Rod.Conformance`) plus the executables that ship it: the
   `rod-conform` runner (spawned by `rod conform` through a file
   contract, keeping the CLI's zero-in-house-reference line) and the
@@ -100,7 +104,7 @@ rather than a dependency operation, and is hand-written).
 | Add a Rust dependency | `cargo add <crate>` -- version lands in `Cargo.toml`, lock in `Cargo.lock`; both are tracked |
 | Add a cross target | `rustup target add <triple>` (never hand-install toolchains) |
 | Lint / format (Rust) | `cargo clippy`, `cargo fmt` |
-| Lint / format / test (Go) | `go vet ./...`, `gofmt -l .`, `go test ./...` (in `src/implant/go`) |
+| Lint / format / test (Go) | `go vet ./...`, `gofmt -l .`, `go test ./...` (in the rod-implant-go checkout) |
 | Format (.NET) | `dotnet format Rod.slnx --verify-no-changes` |
 
 Toolchain caveats (observed SDK behavior, not preference):
@@ -123,6 +127,14 @@ Toolchain caveats (observed SDK behavior, not preference):
   falls back quietly, and the fetch dies at `Modules:DownloadTimeoutSeconds`.
   Run the suite with `DOTNET_SYSTEM_NET_DISABLEIPV6=1` there; sane
   networks and the CI runners need nothing.
+- The implant suites resolve their source trees through the pinned lock
+  (`rod-implants.lock.json`), fetching the pinned release on a cold
+  cache. On a host that cannot reach github.com at all, point the
+  resolution at local checkouts instead:
+  `ROD_IMPLANT_RUST_DIR=<rod-implant-rust> ROD_IMPLANT_GO_DIR=<rod-implant-go>`
+  (a set-but-missing directory fails loudly, like the configured source
+  directories). `ROD_IMPLANT_ASSET_BASE` redirects the fetch at a mirror
+  or a `file://` path.
 
 ## 5. Architecture -- monolithic kernel, layered
 

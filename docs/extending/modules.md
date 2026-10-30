@@ -13,8 +13,8 @@ The design goal is that adding a capability is **registration, never
 modification**: no core edits, no composition-root changes, no protocol
 changes. The official modules obey the same rule as community ones --
 each lives in its own repository under the organization (ADR-024), the
-implant-side halves compile from `src/implant/rust/modules/` in the
-platform tree, both load through exactly the path an operator's module
+implant-side halves compile from the implant repository's `modules/`
+tree, both load through exactly the path an operator's module
 takes, and a kernel change must answer *why it cannot be a module*
 ([architecture.md Sec 15.1](../architecture.md)).
 
@@ -387,7 +387,7 @@ through exactly this path.
 The crate fork (below) adds a handler at build time. The plugin seam adds
 one to an artifact already deployed (architecture.md Sec 5.4): a C-ABI
 module written against the `rod-plugin-sdk` crate
-(`src/implant/rust/plugin-sdk/`), delivered over the sealed task channel by
+(`plugin-sdk/` in the implant repository), delivered over the sealed task channel by
 `module.load`'s staged content, dispatched like any compiled verb. The
 authoring surface is a plain Rust trait plus one macro:
 
@@ -430,7 +430,7 @@ The reference pairs are the worked examples to copy -- all thirteen
 ride the v4 plugin tier, each package carrying its Linux artifact beside
 its descriptor rows: the server-side halves in the modules' own
 repositories (`rod-plugin-hostenum` and `rod-plugin-domainenum` read
-first), the implant-side halves under `src/implant/rust/modules/` --
+first), the implant-side halves in the implant repository's `modules/` tree --
 each one verb string declared on both sides and nothing shared between
 them.
 
@@ -693,7 +693,7 @@ against a /24 may print freely.
 
 The build unit compiles the Rust crate through the uniform build contract
 (`Build:RustSourceDirectory` names your tree on an installed teamserver;
-unset keeps the repo walk-up): a hermetic staging copy, the per-artifact
+unset keeps the deployed-root walk-up or the pinned lock a checkout resolves): a hermetic staging copy, the per-artifact
 profile staged as `rod.profile.json` into the crate root, and a `cargo
 build --release --target <triple>` for the requested target. Your tree is
 independent and disposable -- coupled to the teamserver only by the wire
@@ -882,7 +882,8 @@ Publish packs whatever files the rules select, so a plugin package's
 artifact must exist before it does: build the execution half first and
 copy it to the path its `[[plugin.artifacts]]` row names (every official
 package does exactly this -- the repository's `build.sh` cargo-builds
-the crate from `ROD_RUST_TREE` and drops the binary at
+the crate from `ROD_RUST_TREE` (the deployed source root, an extracted
+release tarball, or any checkout) and drops the binary at
 `plugin/<name>-linux-amd64`; `hostenum` is the read-first worked
 example, one artifact row beside its descriptor rows).
 

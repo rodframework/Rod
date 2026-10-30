@@ -103,10 +103,11 @@ enabled admin, is refused (409) so a deployment never strands itself.
    the engagement's Listeners panel.
 3. Build a payload for it (class, target OS/arch, beacon profile, malleable
    transport) and download the artifact from the payload store.
-4. Run the reference implant for a quick end-to-end check:
+4. Run the reference implant for a quick end-to-end check (from a
+   checkout of `rod-implant-rust` with `scripts/fetch-rod-proto.sh` run
+   once, or from wherever `ROD_IMPLANT_RUST_DIR` points):
    `ROD_ENROLL_URL=http://127.0.0.1:8080/implants/enroll
-   ROD_DEPLOY_TOKEN=<secret> cargo run --manifest-path
-   src/implant/rust/Cargo.toml` -- the address is
+   ROD_DEPLOY_TOKEN=<secret> cargo run` -- the address is
    the listener from step 2, not the operator front; `ROD_MODE=stream`
    selects the interactive shape (poll is the default). It appears in the
    implants list (grouped under the host it reported at enroll), takes
@@ -200,8 +201,8 @@ standard `Section__Key` mapping):
 | `Capabilities:AssetModules` | Asset modules (architecture.md Sec 15.1), each a directory carrying a `rod-module.toml` whose `[[assets]]` rows name the files it serves -- the browser hook script, phishing templates. Entries are paths relative to the teamserver binary; a deployment lists its installed set. Nothing is servable until its module is listed (the hook mint answers 503 naming this section), and anything listed but broken aborts startup. See [extending/modules.md](../extending/modules.md). | The empty list: no module content is servable until an asset package is installed and listed. |
 | `Modules:Store` / `Modules:Registry` | The server-side module store and registry (ADR-023): console installs land under `Modules:Store` (a relative path names a directory beside the binary) beside the lock file, and `Modules:Registry` names the index the console browses -- an https base (the static rod-registry publication) or a local checkout. The official set installs from the shipped defaults on day one; a deployment behind its own tap points the registry at it. | `modules-store` beside the binary; `https://rodframework.github.io/rod-registry` (the organization tap's mirror). |
 | `Build:Transforms` | Out-of-tree post-build payload transforms, each a `Namespace.Type, AssemblyName` entry, applied in listed order; the fingerprint and `PayloadBuilt` audit event cover the transformed bytes. | The empty chain (no transform runs; bytes stored as built). |
-| `Build:RustSourceDirectory` | An installed teamserver (a publish with no repo above it) names the Rust crate the build unit compiles at request time. | The repo walk-up a checkout uses (`src/implant/rust`). |
-| `Build:GoSourceDirectory` | The Go build unit's twin: names the Go module the unit compiles at request time. | The repo walk-up a checkout uses (`src/implant/go`). |
+| `Build:RustSourceDirectory` | An installed teamserver (a publish with no repo above it) names the Rust crate the build unit compiles at request time. | The walk-up over the deployed source root an extracted `rod-src.tar.gz` carries; a checkout resolves the pinned release `rod-implants.lock.json` names instead (architecture.md Sec 15.4, with `ROD_IMPLANT_RUST_DIR` naming a local override). |
+| `Build:GoSourceDirectory` | The Go build unit's twin: names the Go module the unit compiles at request time. | The same walk-up over the deployed source root; a checkout resolves the pinned release the lock names (`ROD_IMPLANT_GO_DIR` for a local override). |
 | `Llm` | The opt-in LLM triage client (architecture.md Sec 11): `Enabled`, `BaseUrl` (any OpenAI-compatible chat-completions endpoint, cloud or local), `ApiKey` (bind through the environment, `Llm__ApiKey`), `Model`, plus `RequestTimeoutSeconds`/`MaxInputChars`/`MaxOutputTokens` budgets. Every summarize request is engagement-scoped and audited; the egress decision is the operator's -- see [llm.md](llm.md) before enabling. | Disabled (the summarize route answers 503). |
 | `Recon` | The external recon workbench's halves (architecture.md Sec 11.4): `RdapBaseUrl`, `CtBaseUrl`, `DohBaseUrl`, and `WhoisServer` arm the passive lookups; `ScanOrigin` (`Teamserver` is the only shipped origin) arms the port scan; `RequestTimeoutSeconds` and the `Max*`/`Scan*` caps bound each run. Naming an endpoint is the egress decision -- see [recon.md](recon.md) before arming any half; the scan additionally gates on the engagement's ROE target scope. | Every half closed (each route answers 503 naming this section). |
 | `RuntimeSettings` | Where the operator-facing runtime settings persist: `FilePath` for the session-staleness pair, `BuildFilePath` for the build section (the shared cargo target dir). Best-effort persistence of operator preferences, not engagement data. | `runtime-settings.json` / `runtime-build-settings.json` beside the working directory. |
@@ -393,7 +394,9 @@ convention `Directory.Build.props` documents). The procedure, end to end:
 3. The tag triggers `.github/workflows/release.yml`: it builds the
    assets on a clean runner (no developer host touches what ships) and
    publishes the release with the teamserver tarball, the vendored
-   payload build source, and install.sh.
+   payload build source (assembled from the implant releases the lock
+   pins -- their tags must track this tag's RodVersion, checked at
+   assembly), and install.sh.
 4. Accept: the release page lists the three assets, the startup stamp
    names the tag's version and commit, and the one-command install
    against `latest` resolves to the new tag.

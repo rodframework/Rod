@@ -78,8 +78,8 @@
   over the sealed task channel (`module.load`), join the dispatch table,
   and read in the console exactly like built-in verbs; Linux stages them in
   a memfd and execs them -- nothing on disk. The `hostenum` pair
-  (server package at rod-plugin-hostenum, implant half under
-  `src/implant/rust/modules/`) is the worked example to copy
+  (server package at rod-plugin-hostenum, implant half in the
+  rod-implant-rust repository) is the worked example to copy
   ([docs/extending/modules.md](docs/extending/modules.md)).
 - **Pre-foothold recon on the teamserver.** An engagement-scoped workbench
   runs passive RDAP registration lookups, certificate-transparency
@@ -190,8 +190,8 @@ dotnet run --project src/teamserver/Rod.TeamServer
 4. To try the fleet without a build, run the source-tree dev implant with
    the listener and the deploy token from step 2 --
    `ROD_ENROLL_URL=http://127.0.0.1:8080/implants/enroll
-   ROD_DEPLOY_TOKEN=<secret> cargo run --manifest-path
-   src/implant/rust/Cargo.toml` (`ROD_MODE=stream` for the interactive
+   ROD_DEPLOY_TOKEN=<secret> cargo run`
+   from the rod-implant-rust checkout (`ROD_MODE=stream` for the interactive
    shape; `ROD_VERBOSE=1` narrates to stderr).
 
 The full lifecycle walk -- single-host and multi-host runs, the win-x64

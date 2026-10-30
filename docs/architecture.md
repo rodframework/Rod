@@ -141,17 +141,19 @@ in-house. The dependency rule is enforced by architecture tests.
 
 ### 4.2 External components
 
-- **Build units.** The in-tree units are Rust and Go (`Rod.BuildPipeline`'s
+- **Build units.** The platform units are Rust and Go (`Rod.BuildPipeline`'s
   `RustBuildUnit` and `GoBuildUnit`, claiming the open ids `rod-rust` and
-  `rod-go`). A build request routes to its unit by that id -- an open
+  `rod-go`; their source trees live out-of-tree, pinned by the source
+  lock). A build request routes to its unit by that id -- an open
   kebab-case vocabulary, not an enum (ADR-021) -- and a community unit for
   any language is a package whose manifest declares its `[unit]` table,
   listed under `Build:ExternalUnits` and spawned through the external
   build contract: the teamserver compiles none of it. The project keeps
-  its in-tree references, not one per language (Sec 12.2).
+  its own build-unit code, not one per language (Sec 12.2).
 - **Implants.** Target-resident, disposable, speaking the wire protocol and
   independent of the teamserver language. (Sec. 5.) The **reference Rust
-  implant** lives in the `src/implant/rust` crate: a benign, readable
+  implant** lives in the `rod-implant-rust` repository, resolved through
+  the pinned source lock (Sec 15.4): a benign, readable
   long-haul implant that enrolls over any of the four families' fronts
   (submitting its own public key), contacts under the baked seal, and runs
   the standard-category verb set (Sec 10.1). The fielded artifact is
@@ -171,13 +173,13 @@ in-house. The dependency rule is enforced by architecture tests.
 - **Redirectors.** Near-stateless forwarders (.NET, Native AOT, single static
   binary) for OPSEC
   and infra flexibility. No engagement state, no business logic. (Sec. 8.)
-  The in-tree reference forwarder ships (`src/redirector/dotnet/`): an opaque
+  The in-tree reference forwarder ships (`src/redirector/`): an opaque
   L4 TCP splice published as a single static binary. Together with the
   server-side rotation path -- listener repoint
   (`POST /engagements/{engagementId}/listeners/{id}:repoint`)
   and retire with their audit writes -- a burned redirector is swapped
   end to end; see [operations/redirectors.md](operations/redirectors.md).
-- **Operator CLI.** The `rod` binary (`src/cli/dotnet/`, .NET console):
+- **Operator CLI.** The `rod` binary (`src/cli/`, .NET console):
   the `rod mod` module-lifecycle suite -- init, search, info, install,
   verify, publish -- over the ecosystem's file contracts (Sec 15.2). It
   references nothing in-house: like the redirector, it couples to the
@@ -185,7 +187,7 @@ in-house. The dependency rule is enforced by architecture tests.
   file), so it builds and ships on its own and the contracts stay
   language-neutral.
 - **Conformance harness.** The Tier 0 rig as a shipped component
-  (`src/conformance/dotnet/`, .NET): the `Rod.Conformance` library both
+  (`src/conformance/`, .NET): the `Rod.Conformance` library both
   the in-tree acceptance and the standalone `rod-conform` runner execute,
   so the clause set and report format have exactly one implementation.
   The runner boots the real teamserver in-process and drives any
@@ -210,7 +212,7 @@ under, and a note on its current state are listed.
 | `Rod.Audit` | The append-only, per-engagement audit trail: hash-chained `AuditEvent` records and the `IAuditStore` port, plus the `IArtifactStore` for first-class evidence objects attached to tasks. The evidence backbone (Sec. 11); the source for timeline and report export. | Inner ring -- depends on nothing in-house (crosses the layer boundary with primitive `Guid` ids, never core-state types). | Implemented. In-memory and file-backed (`Audit:DataDirectory`) adapters for the trail and the artifact store; the file store verifies each engagement's chain on recovery and refuses a tampered trail. Also hosts the payload store for built artifacts (Sec 6). |
 | `Rod.Protocol` | **Not a layer.** The protobuf wire protocol: frames and the enrollment/handshake/tasking messages (Sec. 8). The long-lived, language-neutral contract implants of every language build against. | Not a layer -- depends on nothing in-house; never leaks into `Rod.CoreState`. | Implemented. Versioned handshake (major.minor), a status code for every enrollment/handshake refusal, and the chunked exfil frame kind (Sec 8, Sec 10.1). |
 | `Rod.Transport` | Listeners that terminate C2 transports and map core-state use cases onto the operator HTTP API and the implant beacon stream. Owns endpoint routing, TLS termination, and the mapping of use-case failures to wire status codes. | Layer 2 -- may depend on `Rod.CoreState`, `Rod.Protocol`, `Rod.Audit`, `Rod.BuildPipeline`. | Implemented. HTTP(S), DNS, and raw-TCP listeners with the bind decoupled from the public endpoint (a repoint swaps a burned redirector without touching the socket); the full operator API (engagements, deploy tokens, implants with notes and retirement, tasks with queued-task cancellation, artifacts, audit, timeline/report, payloads) and the beacon stream with bounded frames, capped resumable exfil reassembly, and atomic task dispatch (Sec 8, Sec 10.3, Sec 11); the browser hook's mint and guid-gated serving edge with the Origin-only CORS posture (Sec 5.2, Sec 8); the delivery-campaign surface (Sec 11.5) -- per-recipient lure builds through the build pipeline, the SMTP send engine, and the lure-serving public edge. The task, audit, and artifact listings are paged (limit + opaque cursor, newest window first) so a long engagement never grows a listing response without bound; the operator UI walks pages. The operator API also carries the versioned `/api/v1` prefix alias, the first-party OpenAPI 3.1 contract over it, and the token-scope floor gate (Sec 15.3, ADR-006). |
-| `Rod.BuildPipeline` | Drives the external, per-language build units to compile polyglot implants on demand through the uniform build contract, fingerprinting and recording each artifact (Sec. 6). | Layer 3 -- may depend on `Rod.CoreState`. | Implemented. `RustBuildUnit` -- the sole in-tree unit (the .NET unit is deleted with the .NET implant) -- compiles the Rust reference implant in a per-build hermetic staging copy (the build target mapped onto a cargo triple; the retired stager class refused with the fix named at parse time), baking the profile (contact mode, beacon parameters, class verb set) without any key material; loader-tier requests compile the no_std loader crate beside it instead, baked with fetch constants and the delivery seal (Sec 6); the built bytes land in the payload store for operator download (Sec 6). |
+| `Rod.BuildPipeline` | Drives the external, per-language build units to compile polyglot implants on demand through the uniform build contract, fingerprinting and recording each artifact (Sec. 6). | Layer 3 -- may depend on `Rod.CoreState`. | Implemented. `RustBuildUnit` -- one of the two platform units (the .NET unit is deleted with the .NET implant) -- compiles the Rust reference implant (source resolved through the pinned lock, Sec 15.4) in a per-build hermetic staging copy (the build target mapped onto a cargo triple; the retired stager class refused with the fix named at parse time), baking the profile (contact mode, beacon parameters, class verb set) without any key material; loader-tier requests compile the no_std loader crate beside it instead, baked with fetch constants and the delivery seal (Sec 6); the built bytes land in the payload store for operator download (Sec 6). |
 | `Rod.Operators` | Multiplayer operator sessions over the operator API: shared live engagement state, task ownership and attribution, and real-time push to the operator UI. | Layer 4 -- may depend on `Rod.CoreState`, `Rod.Audit`. | Implemented. Cookie-authenticated operator sessions (login/logout/me; the bootstrap-seeded admin of Sec 4.5; hash-only credential port) and the per-engagement SSE live-event bus, with the automation engine (Sec 10.4) and the webhook forwarder (Sec 4.4) beside it as the bus's engine-side consumers. Cookies were chosen over JWT (no client-side token store for a same-origin SPA); ASP.NET Core Identity was rejected (its own user/role tables conflict with the layered stores). Access is the membership model of Sec 4.5 (per-engagement reader/writer tiers granted by the owner) beside the deployment-role split of the account machinery (bootstrap admin, console-created members); the exclusive interaction claims and activity presence mark who drives what; a per-handle login throttle slows brute force. The layer also owns the two agent-facing surfaces the operator front carries: the MCP server (`/mcp`, Streamable HTTP, stateless -- the toolset an external agent client drives through an operator API token: reads at any scope, task-issuing tools behind their own deployment gate, the operate scope floor, and Sec 10.4's unattended red line; runbook [operations/mcp.md](operations/mcp.md)) and the opt-in OpenAI-compatible LLM triage client behind `Microsoft.Extensions.AI`'s `IChatClient` (Sec 11.3; runbook [operations/llm.md](operations/llm.md)), plus the external recon workbench (Sec 11.4; runbook [operations/recon.md](operations/recon.md)) -- the pre-foothold lookups and scan whose findings land as task-less engagement artifacts. |
 | `Rod.Capabilities` | Pluggable post-exploitation capability modules, including the evasion/exploit category contracts (Sec. 10, Sec. 13). Concrete implementations arrive as modules -- the official set's repositories, indexed by the registry (Sec 15), or any community module -- over the contract, registration path, and gate this layer holds. | Layer 6 -- may depend on `Rod.CoreState`, `Rod.Audit`. | Implemented. The capability contract (`ICapabilityModule`, a registration-only contract: a descriptor, no execution surface -- Sec 10.2), the registry, and the registry-backed task-issuance resolver and sensitive-verb policy; every framework verb ships as a placeholder descriptor carrying its OPSEC attributes, and `GET /capabilities` exposes the catalog to the UI. The module host (Sec 15.1) is in place: installed modules load through the `Capabilities:DescriptorModules` config path exactly like any external one (ADR-018 -- pure manifests, no assemblies), and the console installs them from the default registry (ADR-023). Sensitive behavior arrives as modules and stays disabled by default (Sec 10.2, Sec 13, Sec 15). |
 | `Rod.Persistence` | **Not a layer.** The durable PostgreSQL adapters behind the core-state and audit ports (operators, operator credentials, engagements, implants, sessions, tasks, deploy tokens, audit, artifacts, and the collaboration stores -- comments, chat, credentials, and the tsvector search), swapped in at the composition root when `ConnectionStrings:Postgres` is set (Sec 12.1). | Not a layer -- may depend on `Rod.CoreState` and `Rod.Audit`; wired only at the composition root, never by transport. | Implemented. EF Core 10 over Npgsql behind a context factory (singleton-safe), migrations, and the full adapter pair; absent the connection string the in-memory adapters stay registered. |
@@ -746,7 +748,7 @@ boundary every toolchain keeps. On Linux the interface is a byte protocol
 over stdio: length-prefixed request/response frames carrying the same
 string grammar, no dynamic loader and no libc in the picture at all. The
 authoring surface is the `rod-plugin-sdk` crate
-(`src/implant/rust/plugin-sdk/`) either way: a plain Rust trait -- a
+(`plugin-sdk/` in the implant repository) either way: a plain Rust trait -- a
 module names itself and lists its verbs, each verb a `fn(&str) ->
 Result<String, String>` over the shared task grammar -- plus the
 `rod_plugin!` macro (the extern shims the Windows shape maps) and
@@ -864,7 +866,7 @@ A module carrying a novel namespace pairs with a server-side descriptor
 module (`ICapabilityModule`, extending/modules.md) that widens the
 issuance gate -- the two halves of a capability the extending guide
 teaches, now met by a real implant-side half instead of a fork. The
-reference module in-tree (`src/implant/rust/modules/hostenum/`) is the
+reference module (`modules/hostenum/` in the implant repository) is the
 worked example: `recon.hostenum` against the SDK, benign and readable,
 the shape every operator module copies.
 
@@ -874,10 +876,10 @@ The flow: **operator build request -> teamserver emits build params -> the
 language's build unit compiles -> artifact returned -> fingerprinted and
 recorded.**
 
-- **Two in-tree build units (Rust the reference, Go the community slot); polyglot by contract.** `RustBuildUnit`
+- **Two platform build units (Rust the reference, Go the community slot; both sources out-of-tree and pinned); polyglot by contract.** `RustBuildUnit`
   drives cargo for the reference implant (Sec 12.2); `GoBuildUnit` drives
-  the Go toolchain for the community-slot reference under
-  `src/implant/go/` -- the same uniform build contract, the same baked
+  the Go toolchain for the community-slot reference (the
+  `rod-implant-go` repository) -- the same uniform build contract, the same baked
   profile file (`rod.profile.json` staged into the copy's root, embedded
   by the tree's own `include_str!`/`go:embed` -- no unit-specific bake
   code anywhere), vendored dependencies so a payload build never touches
@@ -2764,9 +2766,9 @@ never the lure's content tradecraft.
 |---------|--------|-----|
 | Teamserver (monolithic kernel) | .NET 10 (LTS), ASP.NET Core | Strong async networking, strong typing, mature web UI. LTS to ~2028. |
 | Data store | PostgreSQL (opt-in; in-memory default) | Authoritative teamserver state; per-engagement audit. PostgreSQL is the authoritative store when configured (`ConnectionStrings:Postgres`); absent it, in-memory adapters remain the default for tests and dev deployments (see Sec 12.1). |
-| Build units | Rust and Go (in-tree references; Go is the first community-slot reference, Sec 12.2); C/C++/Nim via out-of-tree community units | Two in-tree toolchains sharing one build contract; polyglot by contract, no teamserver-language coupling. |
+| Build units | Rust and Go (platform units, sources pinned out-of-tree, Sec 15.4; Go is the first community-slot reference, Sec 12.2); C/C++/Nim via out-of-tree community units | Two platform toolchains sharing one build contract; polyglot by contract, no teamserver-language coupling. |
 | Redirectors | .NET Native AOT (shipped), single static binary | Tiny VPS footprint, no runtime install. The opaque L4 forwarder ships in two postures -- the hand-deployed manual rule and the enrolled mode that dials home and serves pushed rules -- and the enrolled-fleet control plane (Sec 8) drives it from the teamserver; deploy/rotate runbook in [operations/redirectors.md](operations/redirectors.md). |
-| Implants | Rust (the reference implant shipped; the Android carrier leg shipped with it -- `carrier/`, Sec 12.2); Go (the community-slot reference, `src/implant/go/`); C/C++/Nim via out-of-tree community units -- per target | One Rust reference implant, static and cross-platform, plus its in-process library leg for Android carriers; the Go reference proves the community slot against the same wire; community implants slot in by contract for targets neither fits. |
+| Implants | Rust (the reference implant shipped; the Android carrier leg shipped with it -- `carrier/`, Sec 12.2); Go (the community-slot reference, `rod-implant-go`); C/C++/Nim via out-of-tree community units -- per target | One Rust reference implant, static and cross-platform, plus its in-process library leg for Android carriers; the Go reference proves the community slot against the same wire; community implants slot in by contract for targets neither fits. |
 | Operator UI | Web (React + TypeScript, Vite), served same-origin by the teamserver | React sources in `src/teamserver/Rod.TeamServer/Client/`; the production build emits into the host's `wwwroot/`, served as static files with an SPA fallback so the client owns deep links, and Vite's dev server proxies the operator API in development. Chosen over Blazor for the larger React ecosystem and audience reach, trading away Blazor's .NET-native service reuse and adding a Node/Vite step to CI. The UI talks to the operator HTTP API over `fetch` (no direct .NET injection), keeping the API the single integration point. |
 
 The wire protocol and capability registry are the long-lived, language-neutral
@@ -2808,7 +2810,9 @@ Rod ships two toolchains with one job each. The **control plane is .NET 10**
 -- the teamserver, the transport, the persistence, the operator layer; the
 C2's logic lives where a managed runtime costs nothing (it runs on the
 operator's own infrastructure). The **implant is Rust**
-(`src/implant/rust/`, built by `RustBuildUnit`): a ~2.25 MB static musl
+(the `rod-implant-rust` repository, built by `RustBuildUnit` against the
+release this tree's `rod-implants.lock.json` pins -- version and sha256,
+Sec 15.4): a ~2.25 MB static musl
 binary for every target a managed runtime cannot serve -- routers,
 appliances, 32-bit ARM IoT Linux -- with both web carriages (the envelope
 POST cycle on poll bakes, the WebSocket stream on stream bakes), the
@@ -2848,8 +2852,9 @@ ARM Windows's MSVC shape resolve natively on their own build hosts,
 while Windows amd64 keeps its GNU cross for the Linux deployment shape. The `Language` enum
 (Go/DotNet/Rust/C/Nim) and build contract stay, so a community implant in
 any language registers a build unit and compiles against the same
-contract. The Go slot carries its in-tree reference (the first community
-slot, `src/implant/go/`, built by `GoBuildUnit`): a Tier 0 wire client --
+contract. The Go slot carries its reference (the first community
+slot, the `rod-implant-go` repository, built by `GoBuildUnit` against the
+same pinned-release contract): a Tier 0 wire client --
 enroll, the envelope POST cycle, tasking -- plus the ADR-010 exfil upload
 arm with byte-offset resume and the staged downstream arm it mirrors
 (`StagedPull`/`StagedChunk` with the sha256 both-side check), over the web
@@ -2874,8 +2879,9 @@ The .NET implant and the .NET stager that preceded this shape are deleted:
 their history is the commit record, and their delivery answers -- the
 launcher one-liners, the token-gated payload fetch -- carry forward
 unchanged. The staged-delivery idea returns as the loader tier done
-natively (Sec 6): `src/implant/rust/loader/`, a ~25 KB `no_std` crate in
-the same tree and the same build unit -- no second in-tree language, no C,
+natively (Sec 6): the `loader/` crate in the implant repository, a ~25 KB
+`no_std` crate in the same tree and the same build unit -- no second
+language, no C,
 the dialer's whole footprint being ELF headers around a few hundred bytes
 of code -- and the surface keeps speaking payload and deploy token: the
 loader names what it `delivers`, the route serves the loader's payload,
@@ -2886,14 +2892,17 @@ reaches 32-bit ARM/MIPS IoT or a ~2 MB static footprint, nor Rust alone
 carries the control plane's velocity); **Go for either half** (a runtime on
 the implant side and an alien toolchain on the control side);
 **asymmetric polyglot -- the reach implant out-of-tree** (the reach story is
-the product's own, not a community add-on).
+the product's own, not a community add-on; the split that since happened
+separates the reference physically without demoting it -- the pinned tarball
+keeps the platform building the implant of record, Sec 15.4).
 
 ## 13. Capability surface statement
 
 Rod's capability surface is governed by **contracts, not by a technique
 allowlist**. The core defines the interfaces, registration, dispatch, and data
 models for every capability family; concrete implementations are
-**capability modules** -- reference modules shipped in-tree (the standard,
+**capability modules** -- reference modules shipped with the reference
+implant (the standard,
 documented surface the framework maintains) or community modules through
 the extension seams and the module registry (server-side modules, the
 crate fork, the plugin seam, the transform chain; Sec 15). Nothing in
@@ -3055,7 +3064,7 @@ property of that layer, never of the kernel.
 (ADR-001; the rename from `Rod.Tradecraft` shipped with the host). The
 reference set lives in the ecosystem (ADR-024): one repository per module
 under the organization, indexed by rod-registry -- the implant-side halves
-still compile from `src/implant/rust/modules/` until the implant split --
+compile from the implant repository's `modules/` tree --
 and the packages load through **exactly the path external modules load
 through**: the server halves are pure descriptor manifests (ADR-018),
 each an installed directory listed under
@@ -3126,7 +3135,7 @@ packages only: the in-proc assembly path stays a deployment owner's
 config-listed decision. OPSEC metadata ("lands on disk" / "memory only")
 shows at search and install, carrying the per-verb OPSEC labeling into
 the catalog. **Shipped** (the `rod` CLI,
-`src/cli/dotnet/`, standing beside the tree with no in-house references --
+`src/cli/`, standing beside the tree with no in-house references --
 its contracts are files): the manifest, the canonical form, the signing
 chain, the six commands, and the official reference set -- thirteen v4 plugin
 packages in their own repositories (ADR-024), each carrying its Linux
@@ -3222,7 +3231,7 @@ structured output reaches its panels at registration. The manifest's
 `[[verbs]]` rows carry the module-scoped versions and optional per-verb
 teamserver floors, ride the signed canonical form, mirror into the
 registry entries, and are checked at install. The acceptance is encoded at
-three levels: `tests/cli/dotnet` (scaffold through verify, including a
+three levels: `tests/cli` (scaffold through verify, including a
 tampered verb row breaking the signature), the server-side
 `ContractTrilogyTests` (a `sweep.*` module the framework never anticipated,
 from registration to schema-rendered catalog to structured products in the
@@ -3281,7 +3290,7 @@ the target's advertisement, not the operator's screen, is the runtime
 gate. The reference declaration rides the set: hostenum
 (rod-plugin-hostenum) requires `plugin-loader`, the honest statement
 that its execution half is a plugin. **Shipped** in the CLI's manifest and registry models, with
-the acceptance in `tests/cli/dotnet`: the vocabulary's refusals, the
+the acceptance in `tests/cli`: the vocabulary's refusals, the
 canonical-form participation, and the end-to-end run from scaffold
 through publish, mirror, info, and install to a tampered requirement
 reading as a trust failure.
@@ -3307,8 +3316,8 @@ module-load picker filter what the live advertisement covers.
 language boundary; three designed on-ramps drop the remaining
 per-language cost without widening the kernel or the wire. The
 **linkable core** (shipped: the `rod_core_*` C-ABI family in the crate's
-lib target, the C contract in `src/implant/rust/include/rod_core.h`, and
-the worked C shell under `src/implant/rust/shell/` passing the
+lib target, the C contract in the implant repository's
+`include/rod_core.h`, and the worked C shell under its `shell/` passing the
 conformance harness's every clause end to end) formalizes the lib target
 as a C-ABI embedding surface -- an init-with-profile, an IO pump, a
 state read, a handful of symbols beside the plugin family's six -- so a
@@ -3318,7 +3327,7 @@ scratch and the crate fork. The **standalone conformance runner**
 packaged the harness so a community author points it at a candidate
 binary without the tree (shipped: `rod conform <candidate>` spawns the
 `rod-conform` runner resolved beside rod, on PATH, or by `--runner` --
-the rig lifted into a shipped harness under `src/conformance/dotnet/`
+the rig lifted into a shipped harness under `src/conformance/`
 whose report and clause set are the in-tree rig's own, while the CLI
 keeps its zero-in-house-reference line). The baked profile's
 presentation keys travel as a standalone profile file any build unit
@@ -3372,8 +3381,8 @@ Where the program touches the existing layers:
 | `Rod.Capabilities` | Contract registry + module host (ADR-001; shipped, its reference set later split to the ecosystem by ADR-024), plus the asset-module host behind `Capabilities:AssetModules` (Sec 15.1; shipped, carrying the hook and lure-template reference modules). |
 | `Rod.Persistence` | `tsvector` full-text indexes; comment and chat tables (ADR-005; shipped, generated columns under GIN on tasks, comments, chat, credentials, and artifacts). |
 | `Rod.TeamServer` | Mounts the new components; the built-in diagnostics endpoint (ADR-008). |
-| `rod-cli` (shipped, `src/cli/dotnet/`) | `rod mod init/search/info/install/verify/publish` over the manifest, signature, registry, and lock contracts (ADR-002, ADR-009); no in-house references. |
-| `rod-conform` (shipped, `src/conformance/dotnet/`) | The conformance harness as the standalone runner `rod conform <candidate>` spawns by file contract (ADR-018): the same rig, clause set, and report the in-tree acceptance runs, against any candidate process -- no tree checkout. |
+| `rod-cli` (shipped, `src/cli/`) | `rod mod init/search/info/install/verify/publish` over the manifest, signature, registry, and lock contracts (ADR-002, ADR-009); no in-house references. |
+| `rod-conform` (shipped, `src/conformance/`) | The conformance harness as the standalone runner `rod conform <candidate>` spawns by file contract (ADR-018): the same rig, clause set, and report the in-tree acceptance runs, against any candidate process -- no tree checkout. |
 
 - **Optional transports** (ADR-004; amended -- shipped). The
   `ITransportProvider` abstraction landed with the in-tree families as its
@@ -3594,33 +3603,42 @@ Where the program touches the existing layers:
 - **Repository organization** (ADR-011). The GitHub organization is
   created early (the name checked against existing products), and the main
   repository moves in with history intact. The platform -- teamserver,
-  UI, protocol, reference implant, loader, redirector, plugin SDK, docs --
-  stays a **monorepo**; the bus-factor answer is the ecosystem, not
-  repository sprawl. Splits happen only along contract seams -- both sides
+  UI, protocol, redirector, docs -- stays a **monorepo**; the bus-factor
+  answer is the ecosystem, not repository sprawl. Splits happen only
+  along contract seams -- both sides
   talking solely through versioned contracts, each independently
   releasable -- in order: `rod-registry` (naturally independent), then
   community module repositories, then third-party build units, then
-  `rod-implant-rust` (`Rod.Protocol` and the module contracts froze at
-  v1.0.0), then redirector and UI (later, or never). The gate the order
+  `rod-implant-rust` and `rod-implant-go` (`Rod.Protocol` and the module
+  contracts froze at v1.0.0), then redirector and UI (later, or never).
+  The gate the order
   guarded on is behind us: the semver releases shipped, and each split
   stays a decision the ladder orders, never an obligation it imposes.
-  The ladder's `rod-implant-rust` rung is designed _(execution
-  deferred)_: the pinned source tarball is the whole coupling contract --
-  the main repository builds against the implant release its lock names
-  (version and sha256), its release assembly packs that tag's tree
+  The ladder's implant rungs have been walked _(shipped)_ -- both in one
+  round, `rod-implant-rust` as designed and `rod-implant-go` beside it
+  (the design's "Go stays in-tree" clause corrected on execution: one
+  pinned-tarball contract serves both references, and holding the Go
+  tree in the platform would have kept a second language's build surface
+  for no coupling it needs). The pinned source tarball is the whole
+  coupling contract: the main repository builds against the implant
+  releases its lock names (`rod-implants.lock.json`, version and sha256
+  per language), its release assembly packs those tags' trees
   cargo-vendored beside the protocol's protos (which stay the main
-  tree's contract, Sec 12.2), and `Build:RustSourceDirectory` defaults
-  to the deployed source root an installed teamserver already reads, a
-  checkout overriding it. The plugin SDK, the C header and worked shell,
-  and the module crates travel with the implant repository -- the plugin
-  packages' build scripts already take the Rust tree through
-  `ROD_RUST_TREE`, the extracted tarball included -- while the Go
-  reference stays in-tree as the community slot. The cargo-shelling
-  pipeline tests move to the implant repository's CI; the platform's
-  integration round trips and conformance candidates consume the pinned
-  tarball. Sec 12.2's rejection of an out-of-tree *reach* implant keeps
-  its meaning -- the split separates the reference physically without
-  demoting it -- and folds this in when it lands.
+  tree's contract, Sec 12.2) under the member layout `rod-src.tar.gz`
+  has always carried, and `Build:RustSourceDirectory` /
+  `Build:GoSourceDirectory` default to the deployed source root an
+  installed teamserver already reads, a checkout resolving through the
+  lock (or the `ROD_IMPLANT_*_DIR` variables) instead. The plugin SDK,
+  the C header and worked shell, and the module crates travel with the
+  implant repository -- the plugin packages' build scripts already take
+  the Rust tree through `ROD_RUST_TREE`, the extracted tarball included.
+  The native cargo/go lanes moved to the implant repositories' CI, and
+  each implant repository additionally runs the platform's build-unit
+  tests against its own checkout through `ROD_IMPLANT_*_DIR`; the
+  platform's integration round trips and conformance candidates consume
+  the pinned tarball. Sec 12.2's rejection of an out-of-tree *reach*
+  implant keeps its meaning -- the split separates the reference
+  physically without demoting it.
 - **Ecosystem repository naming** (ADR-024). One module, one repository;
   official and community ship under the same rules. Repository names
   follow the entry kind: `rod-plugin-<name>` (plugin packages),

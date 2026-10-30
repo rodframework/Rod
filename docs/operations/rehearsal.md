@@ -75,7 +75,7 @@ datagram fronting in front of it deliberately; the reference redirector
 has no UDP story by design.
 
 ```
-dotnet publish src/redirector/dotnet/Rod.Redirector.csproj -r linux-x64 -c Release
+dotnet publish src/redirector/Rod.Redirector.csproj -r linux-x64 -c Release
 rod-redirector -listen <front-a>:443 -upstream <teamserver-https-bind>
 rod-redirector -listen <front-b>:443 -upstream <teamserver-https-bind>
 ```

@@ -4,7 +4,7 @@ Operational runbook for the in-tree reference redirector, the **opaque L4 TCP
 forwarder** that fronts a teamserver listener ([architecture.md](../architecture.md)
 Sec 7 and Sec 8). The
 forwarder source is at
-[the redirector source](https://github.com/rodframework/Rod/tree/main/src/redirector/dotnet).
+[the redirector source](https://github.com/rodframework/Rod/tree/main/src/redirector).
 
 The reference redirector does one thing: accept a TCP connection on its public
 endpoint and splice the byte stream to the listener's bind address, in both
@@ -89,8 +89,8 @@ The redirector targets a single static native binary with no runtime install
 (architecture.md Sec 12.2). Publish it for the redirector host's RID:
 
 ```
-dotnet publish src/redirector/dotnet/Rod.Redirector.csproj -r linux-x64 -c Release
-# -> src/redirector/dotnet/bin/Release/net10.0/linux-x64/publish/rod-redirector
+dotnet publish src/redirector/Rod.Redirector.csproj -r linux-x64 -c Release
+# -> src/redirector/bin/Release/net10.0/linux-x64/publish/rod-redirector
 ```
 
 `PublishAot` is set in the csproj, so a `publish` with a RID is all it takes.
@@ -412,5 +412,5 @@ the one-listener model makes the constraint worth spelling out:
   decision (L4 opaque forwarder, Native AOT, alternatives considered).
 - [architecture.md](../architecture.md) Sec 7 and Sec 8 -- transports,
   listeners, and the redirector abstraction.
-- [The redirector's own README](https://github.com/rodframework/Rod/blob/main/src/redirector/dotnet/README.md)
+- [The redirector's own README](https://github.com/rodframework/Rod/blob/main/src/redirector/README.md)
   -- flags, env, and build for the forwarder binary.
