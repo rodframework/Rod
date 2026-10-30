@@ -858,7 +858,9 @@ under `Capabilities:Modules` / `Capabilities:AssetModules`, the
 implant-side half loaded over the channel with `module.load`. Your
 tests travel with your module's repository (a `tests/` project beside
 the manifest), pin its content, and run in the ecosystem lane the
-platform's module workflow drives.
+platform's module workflow drives. The test project stands alone: it
+declares its own target framework and package versions, inheriting
+nothing from the platform repository's build settings.
 
 ### 4. Publish
 
