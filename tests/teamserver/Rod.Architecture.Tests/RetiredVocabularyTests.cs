@@ -29,9 +29,7 @@ public class RetiredVocabularyTests
     {
         var violations = new List<string>();
         var scanned = 0;
-        // modules/ joined the tree with the in-tree module host (Sec 15.1) and
-        // carries source like any src/ project.
-        foreach (var tree in new[] { Path.Combine("src"), Path.Combine("tests"), Path.Combine("modules") })
+        foreach (var tree in new[] { Path.Combine("src"), Path.Combine("tests") })
         {
             var root = Path.Combine(RepoRoot, tree);
             if (!Directory.Exists(root))

@@ -34,12 +34,13 @@ namespace Rod.Integration.Tests;
 /// runs in the rehearsal walk (docs/operations/rehearsal.md); this is its
 /// CI pin.
 /// </summary>
-public class BrowserHookEndToEndTests
+[Collection("reference-set")]
+public class BrowserHookEndToEndTests(ReferenceSetFixture fixture)
 {
     [Fact]
     public async Task HookedBrowser_EnrollsAsBrowserClass_AndAnswersFingerprintAndCookieReads()
     {
-        await using var env = await HookE2EEnv.StartAsync();
+        await using var env = await HookE2EEnv.StartAsync(fixture);
         var engagementId = await CreateEngagementAsync(env.Http);
         var listenerId = await env.CreateEngagementListenerAsync(engagementId, "http://c2.example.test");
 
@@ -284,15 +285,16 @@ public class BrowserHookEndToEndTests
         public HttpClient Http { get; private set; } = null!;
         public HttpClient Implant { get; private set; } = null!;
 
-        public static async Task<HookE2EEnv> StartAsync()
+        public static async Task<HookE2EEnv> StartAsync(ReferenceSetFixture fixture)
         {
             var env = new HookE2EEnv();
             var operatorBind = $"127.0.0.1:{TestSupport.GetFreeTcpPort()}";
             // The mint renders the listed asset module's template: the
-            // in-tree browserhook module through Capabilities:AssetModules,
-            // the same config path the shipped configuration carries.
+            // installed browser-hook package from the reference-set store
+            // through Capabilities:AssetModules, the same config path a
+            // deployment's installed set carries.
             var config = AuthenticatedHost.BuildConfig(extend: settings =>
-                settings["Capabilities:AssetModules:0"] = Path.Combine(FindRepoRoot(), "modules", "browserhook"));
+                settings["Capabilities:AssetModules:0"] = fixture.ModuleDirectory("browser-hook"));
             env.Host = TransportHost.CreateHostBuilder(
                     configureServices: services => AuthenticatedHost.ComposeServices(
                         services, config, extra: s => s.AddRodCapabilities(config)),
@@ -315,17 +317,6 @@ public class BrowserHookEndToEndTests
             };
             await AuthenticatedHost.LoginAsync(env.Http);
             return env;
-        }
-
-        private static string FindRepoRoot()
-        {
-            for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent!)
-            {
-                if (Directory.Exists(Path.Combine(directory.FullName, "src"))
-                    && Directory.Exists(Path.Combine(directory.FullName, "modules")))
-                    return directory.FullName;
-            }
-            throw new InvalidOperationException("Could not locate the repo root from the test assembly.");
         }
 
         public async Task<string> CreateEngagementListenerAsync(string engagementId, string publicEndpoint)

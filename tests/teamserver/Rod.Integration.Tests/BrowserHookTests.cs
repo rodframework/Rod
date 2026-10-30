@@ -24,12 +24,13 @@ namespace Rod.Integration.Tests;
 /// <see cref="BrowserHookEndToEndTests"/>; this file pins the operator and
 /// serving surfaces themselves.
 /// </summary>
-public class BrowserHookTests
+[Collection("reference-set")]
+public class BrowserHookTests(ReferenceSetFixture fixture)
 {
     [Fact]
     public async Task MintHook_RendersStoresAndAnswersTheServingUrl()
     {
-        await using var env = await HookTestEnv.StartAsync();
+        await using var env = await HookTestEnv.StartAsync(fixture);
         var engagementId = await CreateEngagementAsync(env.Http);
         var listenerId = await env.CreateEngagementListenerAsync(engagementId, "http://c2.example.test");
 
@@ -74,7 +75,7 @@ public class BrowserHookTests
     [Fact]
     public async Task HookRoute_ServesOnTheEngagementListener_AuditsEveryFetch_AndRefusesTheOperatorFront()
     {
-        await using var env = await HookTestEnv.StartAsync();
+        await using var env = await HookTestEnv.StartAsync(fixture);
         var engagementId = await CreateEngagementAsync(env.Http);
         var listenerId = await env.CreateEngagementListenerAsync(engagementId, "http://c2.example.test");
 
@@ -120,7 +121,7 @@ public class BrowserHookTests
     [Fact]
     public async Task HookRoutes_AnswerTheCorsHeader_OnlyWhenABrowserAsked()
     {
-        await using var env = await HookTestEnv.StartAsync();
+        await using var env = await HookTestEnv.StartAsync(fixture);
         var engagementId = await CreateEngagementAsync(env.Http);
         var listenerId = await env.CreateEngagementListenerAsync(engagementId, "http://c2.example.test");
 
@@ -160,7 +161,7 @@ public class BrowserHookTests
     [Fact]
     public async Task RevokeHook_StopsServing_AndTakesTheRecordWithIt()
     {
-        await using var env = await HookTestEnv.StartAsync();
+        await using var env = await HookTestEnv.StartAsync(fixture);
         var engagementId = await CreateEngagementAsync(env.Http);
         var listenerId = await env.CreateEngagementListenerAsync(engagementId, "http://c2.example.test");
 
@@ -192,7 +193,7 @@ public class BrowserHookTests
     [Fact]
     public async Task MintHook_RefusesListenersTheHookCannotRide()
     {
-        await using var env = await HookTestEnv.StartAsync();
+        await using var env = await HookTestEnv.StartAsync(fixture);
         var engagementId = await CreateEngagementAsync(env.Http);
 
         // A foreign engagement's listener: the hook would bake a URL whose
@@ -218,7 +219,7 @@ public class BrowserHookTests
         // answers 503 naming the config section -- the deployment fix -- and
         // spends nothing: no hook record, no audit fact exists for the
         // refused mint.
-        await using var env = await HookTestEnv.StartAsync(withAssetModule: false);
+        await using var env = await HookTestEnv.StartAsync(fixture, withAssetModule: false);
         var engagementId = await CreateEngagementAsync(env.Http);
         var listenerId = await env.CreateEngagementListenerAsync(engagementId, "http://c2.example.test");
 
@@ -232,17 +233,6 @@ public class BrowserHookTests
         var audit = env.Host.Services.GetRequiredService<IAuditStore>();
         Assert.DoesNotContain(await audit.ListAsync(Guid.Parse(engagementId)),
             e => e.Kind == AuditEventKind.HookMinted);
-    }
-
-    private static string FindRepoRoot()
-    {
-        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent!)
-        {
-            if (Directory.Exists(Path.Combine(directory.FullName, "src"))
-                && Directory.Exists(Path.Combine(directory.FullName, "modules")))
-                return directory.FullName;
-        }
-        throw new InvalidOperationException("Could not locate the repo root from the test assembly.");
     }
 
     /// <summary>
@@ -264,19 +254,20 @@ public class BrowserHookTests
         /// Capabilities:AssetModules. The default true is every other test's
         /// seam shape; the mint-refusal test runs the open-not-on default.
         /// </param>
-        public static async Task<HookTestEnv> StartAsync(bool withAssetModule = true)
+        public static async Task<HookTestEnv> StartAsync(ReferenceSetFixture fixture, bool withAssetModule = true)
         {
             var env = new HookTestEnv();
 
             // The seam's config path: the mint renders whatever asset module
-            // the deployment lists -- here the in-tree browserhook module,
-            // loaded through Capabilities:AssetModules exactly as the shipped
-            // configuration lists it, never referenced by the test code.
+            // the deployment lists -- here the installed browser-hook
+            // package from the reference-set store, loaded through
+            // Capabilities:AssetModules exactly as a deployment lists its
+            // installed set, never referenced by the test code.
             var operatorBind = $"127.0.0.1:{TestSupport.GetFreeTcpPort()}";
             var config = AuthenticatedHost.BuildConfig(extend: settings =>
             {
                 if (withAssetModule)
-                    settings["Capabilities:AssetModules:0"] = Path.Combine(FindRepoRoot(), "modules", "browserhook");
+                    settings["Capabilities:AssetModules:0"] = fixture.ModuleDirectory("browser-hook");
             });
             env.Host = TransportHost.CreateHostBuilder(
                     configureServices: services => AuthenticatedHost.ComposeServices(

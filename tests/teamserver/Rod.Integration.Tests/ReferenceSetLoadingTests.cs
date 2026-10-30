@@ -8,51 +8,24 @@ using Rod.CoreState.Implants;
 namespace Rod.Integration.Tests;
 
 /// <summary>
-/// The in-tree module acceptance (architecture.md Sec 15.1, ADR-018): the
-/// reference modules under <c>modules/</c> are pure descriptor manifests --
-/// their verb rows carry the whole server-side half -- and load through
-/// exactly the path an external module takes: a
-/// <c>Capabilities:DescriptorModules</c> config entry naming the directory.
-/// The test host configures the same section the shipped appsettings.json
-/// carries, resolved against the repository's own module trees (the stand-in
-/// for the deploy step, which copies each manifest under
-/// <c>modules/&lt;name&gt;/</c> beside the binary); no test or kernel code
-/// compiles against anything the modules ship.
+/// The reference set's loading acceptance (architecture.md Sec 15.1,
+/// ADR-018): the official modules are pure descriptor manifests -- their
+/// verb rows carry the whole server-side half -- and load through exactly
+/// the path an operator's external module takes: a
+/// <c>Capabilities:DescriptorModules</c> config entry naming the
+/// directory. The set now installs from the organization's registry
+/// (the reference-set fixture), so the directories listed are the store
+/// trees an operator's own install produces; no test or kernel code
+/// compiles against anything the modules ship. The coverage sweep the
+/// release notes ride pins here too, over the same installed store.
 /// </summary>
-public class InTreeModuleLoadingTests
+[Collection("reference-set")]
+public class ReferenceSetLoadingTests(ReferenceSetFixture fixture)
 {
-    private static readonly string RepoRoot = FindRepoRoot(new DirectoryInfo(AppContext.BaseDirectory));
-
-    private static string FindRepoRoot(DirectoryInfo start)
-    {
-        DirectoryInfo? dir = start;
-        while (dir is not null)
-        {
-            if (Directory.Exists(Path.Combine(dir.FullName, "src"))
-                && Directory.Exists(Path.Combine(dir.FullName, "tests")))
-                return dir.FullName;
-            dir = dir.Parent;
-        }
-        throw new InvalidOperationException("Could not locate the repo root from the test assembly.");
-    }
-
-    // Every in-tree descriptor module directory, discovered by shape: a
-    // manifest under modules/ whose entry kind is not "assets" (the asset
-    // modules ride their own section, Capabilities:AssetModules). The same
-    // recognition the architecture tests use, and the same set the shipped
-    // config lists.
-    private static IReadOnlyList<string> DescriptorModuleDirectories() =>
-        Directory.GetDirectories(Path.Combine(RepoRoot, "modules"))
-            .Where(d => File.Exists(Path.Combine(d, "rod-module.toml"))
-                && !File.ReadAllLines(Path.Combine(d, "rod-module.toml"))
-                    .Any(line => line.Trim().Equals("entry = \"assets\"", StringComparison.OrdinalIgnoreCase)))
-            .OrderBy(d => d, StringComparer.Ordinal)
-            .ToArray();
-
-    // The in-tree plugin pairs, verb to module name: the whole reference
-    // set rides the v4 plugin tier (ADR-020), and every package's
-    // requirement rows are its artifact ABI union -- one exec-shape
-    // artifact each, so one loader row each.
+    // The plugin pairs, verb to module name: the reference set rides the
+    // v4 plugin tier (ADR-020), and every package's requirement rows are
+    // its artifact ABI union -- one exec-shape artifact each, so one
+    // loader row each.
     private static readonly (string Verb, string Module)[] PluginPairs =
     [
         ("recon.hostenum", "hostenum"),
@@ -71,14 +44,14 @@ public class InTreeModuleLoadingTests
     ];
 
     [Fact]
-    public async Task InTreeDescriptorModules_LoadThroughTheConfigListedPath()
+    public async Task ReferenceSetDescriptorModules_LoadThroughTheConfigListedPath()
     {
-        // The section the shipped appsettings.json carries, resolved at the
-        // repository trees: the same loader, the same config list, the same
-        // last-registration-wins replacement an operator's external module
-        // rides. Nothing about the modules being in-tree changes the path.
-        var directories = DescriptorModuleDirectories();
-        Assert.True(directories.Count >= 13, "the in-tree descriptor module set shrank below the thirteen shipped modules.");
+        // The section the shipped appsettings.json carries, resolved at
+        // the installed store trees: the same loader, the same config
+        // list, the same last-registration-wins replacement an
+        // operator's external module rides.
+        var directories = fixture.DescriptorDirectories();
+        Assert.True(directories.Count >= 13, "the reference set shrank below the thirteen descriptor modules.");
 
         var index = 0;
         var (client, host, _) = AuthenticatedHost.Create(
@@ -146,19 +119,18 @@ public class InTreeModuleLoadingTests
     }
 
     [Fact]
-    public async Task EveryInTreeDescriptorModule_IsWholeAndSensitiveRowsStillCarryTheirFlags()
+    public async Task EveryReferenceSetDescriptorModule_IsWholeAndSensitiveRowsStillCarryTheirFlags()
     {
         // The whole set loads clean together -- every row carries its
         // category (the loader's wholeness refusal never fired) -- and the
         // sensitive family keeps the flags the registry-backed
         // sensitive-verb policy keys on (Sec 10.4): the evasion rows carry
-        // modifies-defenses, so they stay out of unattended firing now that
-        // the .NET halves are gone.
+        // modifies-defenses, so they stay out of unattended firing.
         var index = 0;
         var (client, host, _) = AuthenticatedHost.Create(
             extendConfig: settings =>
             {
-                foreach (var directory in DescriptorModuleDirectories())
+                foreach (var directory in fixture.DescriptorDirectories())
                     settings[$"Capabilities:DescriptorModules:{index++}"] = directory;
             },
             configureServicesWithConfig: (services, config) => services.AddRodCapabilities(config));
@@ -178,10 +150,53 @@ public class InTreeModuleLoadingTests
         }
     }
 
+    [Fact]
+    public async Task TheInstalledReferenceSet_SweepsAndRenders_WithTheKernelFoldedIn()
+    {
+        // The coverage sweep over the installed store (the tree the
+        // release notes' matrix sweeps): every manifest in the store
+        // validates, asset modules included in the count, and the kernel
+        // catalog folds into the same rows the shipped faces render.
+        var catalog = Path.Combine(
+            FindRepoRoot(), "src", "teamserver", "Rod.CoreState", "Implants", "attack-coverage.json");
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var code = await Rod.Cli.RodCli.RunAsync(
+            ["mod", "coverage", "--path", Path.Combine(fixture.Store, "modules"), "--catalog", catalog],
+            output, error);
+        Assert.True(code == Rod.Cli.RodCli.ExitOk, $"rod mod coverage failed:\n{error}");
+
+        var rendered = output.ToString();
+        Assert.Contains("16 modules swept", rendered);
+
+        // The extension tier's first real entry rides the sweep like every
+        // verb-carrying module: T1057's row carries procwatch beside
+        // whatever the kernel maps to the technique.
+        Assert.Contains("procwatch (recon.procwatch)", rendered);
+
+        // The reference module's declaration rides beside the kernel's own
+        // mapping of the same verb: one row, both carriers.
+        Assert.Contains(
+            "| T1082 | System Information Discovery | discovery | recon.hostenum | hostenum (recon.hostenum) |",
+            rendered);
+    }
+
+    private static string FindRepoRoot()
+    {
+        DirectoryInfo? dir = new(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "Rod.slnx")))
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+        throw new InvalidOperationException("Could not locate the repo root from the test assembly.");
+    }
+
     // The assembly path's liveness: the loader for external .NET modules
     // (Capabilities:Modules) stays the seam it always was, pinned with a
-    // fixture type this test assembly carries -- the in-tree set no longer
-    // rides it, so without a fixture the path would be dead weight.
+    // fixture type this test assembly carries -- the reference set no
+    // longer rides it, so without a fixture the path would be dead weight.
     private sealed class FixtureAssemblyModule : ICapabilityModule
     {
         public CapabilityDescriptor Descriptor { get; } = CapabilityDescriptor.Of(
@@ -193,7 +208,7 @@ public class InTreeModuleLoadingTests
     {
         var (client, host, _) = AuthenticatedHost.Create(
             extendConfig: settings => settings["Capabilities:Modules:0"] =
-                "Rod.Integration.Tests.InTreeModuleLoadingTests+FixtureAssemblyModule, Rod.Integration.Tests",
+                "Rod.Integration.Tests.ReferenceSetLoadingTests+FixtureAssemblyModule, Rod.Integration.Tests",
             configureServicesWithConfig: (services, config) => services.AddRodCapabilities(config));
         using (client)
         using (host)

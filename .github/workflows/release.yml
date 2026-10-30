@@ -109,8 +109,17 @@ jobs:
             -f target_commitish="$GITHUB_SHA" \
             -q .body > dist/release-notes.md
           printf '\n' >> dist/release-notes.md
+          # The matrix sweeps the ecosystem the release serves: every
+          # registry entry installs through the shipped CLI (the digest,
+          # signature, and key pin gates), then the sweep folds the kernel
+          # catalog into the installed set's declarations.
+          git clone --depth 1 https://github.com/rodframework/rod-registry.git "$RUNNER_TEMP/rod-registry"
+          names=$(python3 -c "import json; print(' '.join(json.load(open('$RUNNER_TEMP/rod-registry/modules/registry.json'))))")
+          for name in $names; do
+            dist/cli/rod mod install "$name" --registry "$RUNNER_TEMP/rod-registry" --dir "$RUNNER_TEMP/rod-store"
+          done
           dist/cli/rod mod coverage \
-            --path modules \
+            --path "$RUNNER_TEMP/rod-store/modules" \
             --catalog src/teamserver/Rod.CoreState/Implants/attack-coverage.json \
             >> dist/release-notes.md
       - name: Create the release

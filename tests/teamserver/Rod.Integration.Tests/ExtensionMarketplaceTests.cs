@@ -9,7 +9,6 @@ using Rod.Audit;
 using Rod.BuildPipeline.PayloadBuild;
 using Rod.Capabilities;
 using Rod.Capabilities.Endpoints;
-using Rod.Cli;
 using Rod.Packaging;
 using Rod.Transport;
 using Rod.Transport.Endpoints;
@@ -17,37 +16,35 @@ using Rod.Transport.Endpoints;
 namespace Rod.Integration.Tests;
 
 /// <summary>
-/// The first real extension module, end to end (ADRs 022/023): procwatch
-/// walks the extension tier's whole chain -- the scaffold an external
-/// author starts from (<c>rod mod init --entry extension</c>), the real
-/// publish of the in-tree package into a local registry, the operator
-/// console's marketplace install with the hot registration into the
-/// build catalog, a payload build that ticks the extension in (the
-/// build page's compiled-in selection), and the fielded artifact
-/// running its verb with no environment at all -- the bake is the
-/// configuration. Nothing is mocked at any seam: the signature, the
-/// catalog gate, the overlay merge, and the tasking are the production
-/// ones.
+/// The first real extension module, end to end over the real ecosystem
+/// (ADRs 022/023): procwatch walks the extension tier's whole chain --
+/// the scaffold an external author starts from (<c>rod mod init --entry
+/// extension</c>), the organization's published entry in the registry, the
+/// operator console's marketplace install with the hot registration into
+/// the build catalog, a payload build that ticks the extension in (the
+/// build page's compiled-in selection), and the fielded artifact running
+/// its verb with no environment at all -- the bake is the configuration.
+/// Nothing is mocked at any seam: the signature, the catalog gate, the
+/// overlay merge, and the tasking are the production ones, and the
+/// package is the one an operator downloads.
 /// </summary>
-public class ExtensionMarketplaceTests
+[Collection("reference-set")]
+public class ExtensionMarketplaceTests(ReferenceSetFixture fixture)
 {
     [RustFact]
-    public async Task Procwatch_WalksTheChain_InitPublishInstallBuildAndRun()
+    public async Task Procwatch_WalksTheChain_InitInstallBuildAndRun()
     {
         var root = Path.Combine(Path.GetTempPath(), "rod-ext-procwatch-" + Guid.NewGuid().ToString("N"));
-        var rustDir = ModuleLoadTestSupport.FindRustTree()
-            ?? throw new InvalidOperationException("the Rust implant tree was not found from the test assembly");
-        var repoRoot = Path.GetFullPath(Path.Combine(rustDir, "..", "..", ".."));
 
         // The scaffold leg: the same entry an external author starts
         // from, validated the same way the assets scaffold is.
         var scaffold = Path.Combine(root, "scaffold");
         var initOut = new StringWriter();
         var initErr = new StringWriter();
-        var init = await RodCli.RunAsync(
+        var init = await Rod.Cli.RodCli.RunAsync(
             ["mod", "init", "procwatch", "--entry", "extension", "--path", scaffold],
             initOut, initErr);
-        Assert.True(init == RodCli.ExitOk, $"rod mod init failed:\n{initErr}");
+        Assert.True(init == Rod.Cli.RodCli.ExitOk, $"rod mod init failed:\n{initErr}");
         var (scaffoldManifest, scaffoldErrors) = ManifestToml.LoadFile(
             Path.Combine(scaffold, ManifestToml.FileName));
         Assert.Empty(scaffoldErrors);
@@ -55,41 +52,26 @@ public class ExtensionMarketplaceTests
         Assert.True(File.Exists(Path.Combine(scaffold, "src", "lib.rs")),
             "the scaffold must carry the src/ tree the overlay merges");
 
-        // The publish leg: the real in-tree package, signed into a local
-        // registry with a generated key.
-        var keys = Path.Combine(root, "keys");
-        Directory.CreateDirectory(keys);
-        Rod.Packaging.KeyFiles.Generate(keys);
-        var registry = Path.Combine(root, "registry");
-        var publishOut = new StringWriter();
-        var publishErr = new StringWriter();
-        var publish = await RodCli.RunAsync(
-            ["mod", "publish", "--path", Path.Combine(repoRoot, "modules", "procwatch"),
-             "--registry", registry,
-             "--key", Path.Combine(keys, Rod.Packaging.KeyFiles.SecretFileName),
-             "--out", Path.Combine(root, "dist")],
-            publishOut, publishErr);
-        Assert.True(publish == RodCli.ExitOk, $"rod mod publish failed:\n{publishErr}");
-        var entry = RegistryJson.LoadEntry(Path.Combine(registry, "modules", "procwatch.json"))!;
+        // The registry leg: the organization's real entry, read off the
+        // tap the fixture cloned -- the extension kind, the verb row, no
+        // plugin artifacts (an extension's sources compile in).
+        var entry = RegistryJson.LoadEntry(fixture.EntryPath("procwatch"))!;
         Assert.Equal("extension", entry.Entry);
-        var version = Assert.Single(entry.Versions);
-        Assert.Equal("1.0.0", version.Version);
-        Assert.Contains(version.Verbs!, verb => verb.Name == "recon.procwatch");
-        Assert.Empty(version.PluginArtifacts ?? []);
-        var rollUp = JsonDocument.Parse(
-            await File.ReadAllTextAsync(Path.Combine(registry, "modules", "registry.json")));
-        Assert.Contains(rollUp.RootElement.EnumerateArray(), listed => listed.GetString() == "procwatch");
+        Assert.Contains(entry.Versions,
+            version => version.Verbs!.Any(verb => verb.Name == "recon.procwatch"));
+        Assert.All(entry.Versions, version => Assert.Empty(version.PluginArtifacts ?? []));
 
         // The consumer half: a real teamserver with the module store and
-        // registry composed, the marketplace endpoints mapped, and the
-        // build-side hook wired the way the composition root wires it --
-        // the capabilities layer cannot reference the pipeline, so the
-        // delegate lands here exactly where Program.cs lands it.
+        // the default registry composed, the marketplace endpoints
+        // mapped, and the build-side hook wired the way the composition
+        // root wires it -- the capabilities layer cannot reference the
+        // pipeline, so the delegate lands here exactly where Program.cs
+        // lands it.
         await using var env = await TestEnv.StartAsync(
             extendConfig: settings =>
             {
                 settings["Modules:Store"] = Path.Combine(root, "store");
-                settings["Modules:Registry"] = registry;
+                settings["Modules:Registry"] = fixture.MarketplaceRegistry;
             },
             configureServicesWithConfig: (services, config) =>
             {

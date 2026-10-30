@@ -29,16 +29,16 @@ jobs:
       # audit suites build real artifacts as part of their flows -- so the
       # Rust toolchain below must be complete, and the shared target dir
       # keeps those compiles incremental after the first. Module test
-      # projects (Rod.Modules.*) are excluded too: they travel with their
-      # module and run in modules.yml, on demand -- the main lane's time
-      # must not grow linearly with the module set.
+      # projects used to be excluded here too; they left with their
+      # modules (ADR-024) and now run in modules.yml out of the module
+      # repositories, on demand -- the main lane's time does not grow
+      # linearly with the module set.
       CORE_FILTER: >-
         FullyQualifiedName!~Rod.Conformance.Tests
         &FullyQualifiedName!~RustImplantEndToEndTests
         &FullyQualifiedName!~PayloadBuildTests
         &FullyQualifiedName!~PayloadJobTests
         &FullyQualifiedName!~PayloadTransformChainTests
-        &FullyQualifiedName!~Rod.Modules.
       # The implant-toolchain lane: the complement of the core lane. It
       # compiles the real Rust implant via cargo and proves it against a live
       # teamserver, which needs the toolchain warm and the runner to itself --

@@ -8,7 +8,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Rod.Audit;
 using Rod.Capabilities;
 using Rod.Capabilities.Endpoints;
-using Rod.Cli;
 using Rod.Packaging;
 using Rod.Transport;
 using Rod.Transport.Endpoints;
@@ -16,80 +15,56 @@ using Rod.Transport.Endpoints;
 namespace Rod.Integration.Tests;
 
 /// <summary>
-/// The first real v4 plugin package, end to end (ADRs 020-023): hostenum,
-/// re-tiered from a descriptor-only package to one that carries its
-/// execution half, walks the ecosystem's whole chain -- cargo builds the
-/// artifact, <c>rod mod publish</c> (the real CLI entry, in-process) signs
-/// it into a local registry with the roll-up written, the operator console
-/// installs it off the marketplace, and the implant loads the artifact the
-/// endpoint served. Nothing is mocked at any seam: the signature, the
-/// digest, the lock, and the tasking are the production ones.
+/// The first plugin package, end to end over the real ecosystem (ADRs
+/// 020-023): hostenum, published from its rod-plugin-hostenum repository
+/// into the organization's registry, is browsed and installed off the
+/// operator console against the shipped default registry -- the https
+/// mirror the configuration names -- and the implant loads the artifact
+/// the endpoint served. Nothing is mocked at any seam: the signature, the
+/// digest, the lock, and the tasking are the production ones, and the
+/// package is the one an operator downloads. The reference set fixture
+/// beside this suite installs the same entry once per run for tree-level
+/// reads; this test exercises the console's own install leg.
 /// </summary>
-public class HostenumMarketplaceTests
+[Collection("reference-set")]
+public class HostenumMarketplaceTests(ReferenceSetFixture fixture)
 {
     [RustFact]
-    public async Task Hostenum_PublishesInstallsAndLoads_ThroughTheMarketplace()
+    public async Task Hostenum_InstallsAndLoads_ThroughTheMarketplace()
     {
         var root = Path.Combine(Path.GetTempPath(), "rod-marketplace-" + Guid.NewGuid().ToString("N"));
         var rustDir = ModuleLoadTestSupport.FindRustTree()
             ?? throw new InvalidOperationException("the Rust implant tree was not found from the test assembly");
-        var repoRoot = Path.GetFullPath(Path.Combine(rustDir, "..", "..", ".."));
 
-        // The producer half: build the implant and the module's artifact,
-        // stage the real in-tree manifest plus the artifact into a module
-        // directory, and publish with a generated key -- exactly what a
-        // release operator does for an in-tree module.
+        // The implant binary is still a platform-tree build; the plugin
+        // artifact now travels the ecosystem -- the fixture installed the
+        // real package, and the console must stage exactly those bytes.
         await ModuleLoadTestSupport.RunCargoAsync(rustDir, "build --release");
         var implantBinary = Path.Combine(rustDir, "target", "release", "rod-implant");
         Assert.True(File.Exists(implantBinary), $"cargo reported success but {implantBinary} is missing");
-        var moduleDir = Path.Combine(rustDir, "modules", "hostenum");
-        await ModuleLoadTestSupport.RunCargoAsync(moduleDir, "build --release");
-        var artifact = Path.Combine(moduleDir, "target", "release", "rod-module-hostenum");
-        Assert.True(File.Exists(artifact), $"cargo reported success but {artifact} is missing");
-        var artifactBytes = await File.ReadAllBytesAsync(artifact);
+        var artifactBytes = await File.ReadAllBytesAsync(Path.Combine(
+            fixture.ModuleDirectory("hostenum"), "plugin", "hostenum-linux-amd64"));
 
-        var stagedModule = Path.Combine(root, "module");
-        Directory.CreateDirectory(Path.Combine(stagedModule, "plugin"));
-        File.Copy(
-            Path.Combine(repoRoot, "modules", "hostenum", ManifestToml.FileName),
-            Path.Combine(stagedModule, ManifestToml.FileName));
-        await File.WriteAllBytesAsync(Path.Combine(stagedModule, "plugin", "hostenum-linux-amd64"), artifactBytes);
-
-        var keys = Path.Combine(root, "keys");
-        Directory.CreateDirectory(keys);
-        Rod.Packaging.KeyFiles.Generate(keys);
-        var registry = Path.Combine(root, "registry");
-        var publishOutput = new StringWriter();
-        var publishError = new StringWriter();
-        var publish = await RodCli.RunAsync(
-            ["mod", "publish", "--path", stagedModule, "--registry", registry,
-             "--key", Path.Combine(keys, Rod.Packaging.KeyFiles.SecretFileName),
-             "--out", Path.Combine(root, "dist")],
-            publishOutput, publishError);
-        Assert.True(publish == RodCli.ExitOk, $"rod mod publish failed:\n{publishError}");
-
-        // The registry index carries the entry with the artifact row, and
-        // the roll-up names the module -- the summary the https-side
-        // browser reads.
-        var entry = RegistryJson.LoadEntry(Path.Combine(registry, "modules", "hostenum.json"))!;
+        // The registry index carries the entry with the artifact row, the
+        // organization key, and the release-asset URL the console will
+        // download -- read off the tap the fixture cloned.
+        var entry = RegistryJson.LoadEntry(fixture.EntryPath("hostenum"))!;
         Assert.Equal("plugin", entry.Entry);
         var version = Assert.Single(entry.Versions);
         var artifactRow = Assert.Single(version.PluginArtifacts!);
         Assert.Equal("linux", artifactRow.Platform);
         Assert.Equal("amd64", artifactRow.Arch);
         Assert.Equal("exec-v1", artifactRow.Abi);
-        Assert.StartsWith("file://", version.Url, StringComparison.Ordinal);
-        var rollUp = System.Text.Json.JsonDocument.Parse(
-            await File.ReadAllTextAsync(Path.Combine(registry, "modules", "registry.json")));
-        Assert.Contains(rollUp.RootElement.EnumerateArray(), name => name.GetString() == "hostenum");
+        Assert.StartsWith("https://github.com/rodframework/", version.Url, StringComparison.Ordinal);
+        Assert.Equal("7eb0ea8cc3b2158fe0da3492935cce23", version.Fingerprint);
 
         // The consumer half: a real teamserver with the module store and
-        // registry composed, the marketplace endpoints mapped.
+        // the default registry composed, the marketplace endpoints mapped.
         await using var env = await TestEnv.StartAsync(
             extendConfig: settings =>
             {
                 settings["Modules:Store"] = Path.Combine(root, "store");
-                settings["Modules:Registry"] = registry;
+                settings["Modules:Registry"] = fixture.MarketplaceRegistry;
             },
             configureServicesWithConfig: (services, config) => services.AddRodCapabilities(config),
             mapEndpoints: MapMarketplace);
@@ -102,7 +77,7 @@ public class HostenumMarketplaceTests
         Assert.Equal("plugin", held.GetProperty("entry").GetString());
 
         // The artifact the console stages: the platform-matched row, byte
-        // for byte the binary cargo built.
+        // for byte the package the registry served.
         var staged = await env.Http.GetAsync(
             "/modules/hostenum/artifact?platform=linux&arch=amd64");
         Assert.Equal(HttpStatusCode.OK, staged.StatusCode);

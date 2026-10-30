@@ -3,9 +3,10 @@ namespace Rod.Cli.Tests;
 /// <summary>
 /// <c>rod mod coverage</c> (ADR-007's repository-side face): the matrix a
 /// module tree's declarations produce, the kernel fold-in, the degradation
-/// for catalog-less techniques, and the sweep's validation gate -- including
-/// over this repository's own in-tree modules, which is the CI check that an
-/// in-tree coverage declaration stays honest.
+/// for catalog-less techniques, and the sweep's validation gate. The
+/// command-logic pins ride synthetic scaffold modules; the real reference
+/// set's sweep (the check a release's coverage matrix stays honest) lives
+/// in the integration suite, over the store its registry install produces.
 /// </summary>
 public class CoverageCommandTests
 {
@@ -18,32 +19,6 @@ public class CoverageCommandTests
             directory = directory.Parent;
         return directory?.FullName
             ?? throw new InvalidOperationException("could not locate the repo root from the test assembly.");
-    }
-
-    [Fact]
-    public void TheInTreeModules_SweepAndRender_WithTheKernelFoldedIn()
-    {
-        var run = CliRun.Run("mod", "coverage",
-            "--path", Path.Combine(RepoRoot(), "modules"),
-            "--catalog", Path.Combine(RepoRoot(), "src", "teamserver", "Rod.CoreState", "Implants", "attack-coverage.json"));
-
-        Assert.True(run.Code == 0, run.Error);
-        Assert.Contains("# ATT&CK coverage", run.Output);
-        // Every manifest under modules/ rides the sweep, asset modules
-        // included: the count is the swept tree, not the verb-carrying
-        // subset.
-        Assert.Contains("16 modules swept", run.Output);
-
-        // The extension tier's first real entry rides the sweep like every
-        // verb-carrying module: T1057's row carries procwatch beside
-        // whatever the kernel maps to the technique.
-        Assert.Contains("procwatch (recon.procwatch)", run.Output);
-
-        // The reference module's declaration rides beside the kernel's own
-        // mapping of the same verb: one row, both carriers.
-        Assert.Contains(
-            "| T1082 | System Information Discovery | discovery | recon.hostenum | hostenum (recon.hostenum) |",
-            run.Output);
     }
 
     [Fact]

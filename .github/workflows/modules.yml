@@ -1,31 +1,32 @@
 name: modules
 
-# The module lane, on demand: module content tests travel with the module
-# (architecture.md Sec 15.1 -- under modules/<name>/tests/), so their cost
-# belongs to the trees that carry them, not to every push. The server-side
-# halves under modules/ are pure descriptor manifests (ADR-018) -- no
-# assembly to build -- so the lane's build verdict is the CLI's own manifest
-# validation (parse plus the closed-vocabulary checks `rod mod coverage`
-# runs) over every manifest by shape; the kernel suites hold the loading
-# acceptance (the in-tree modules load through the config-listed path).
-# Asset-module test projects (the content half's .NET trees) run only here,
-# when a module tree or the shared build settings they compile under
-# change. The nightly schedule keeps a standing verdict, the same
-# discipline ci.yml's extended lane carries nightly and the implant matrix
-# weekly; ci.yml's core lane excludes the Rod.Modules.* tests to match.
+# The ecosystem lane, on demand: the reference modules live in their own
+# repositories (ADR-024) and the registry indexes them, so this lane is a
+# health check over the live ecosystem rather than a tree of module
+# content. It walks the production chain the operators walk: install
+# every registry entry through the CLI (digest, signature, and key pin
+# verified -- the same gate an operator's install rides), re-prove the
+# installed set offline, sweep it with the kernel catalog folded in (the
+# matrix a release's notes carry), and run the module test projects out
+# of their repositories, discovered by shape from the index. The nightly
+# schedule keeps a standing verdict; the path filters keep the lane to
+# the tooling that can break it (the CLI, the packaging library, the
+# shared build settings) plus the workflow itself.
 
 on:
   push:
     branches: [main]
     paths:
-      - 'modules/**'
+      - 'src/cli/dotnet/**'
+      - 'src/teamserver/Rod.Packaging/**'
       - 'Directory.Build.props'
       - 'Directory.Packages.props'
       - '.github/workflows/modules.yml'
   pull_request:
     branches: [main]
     paths:
-      - 'modules/**'
+      - 'src/cli/dotnet/**'
+      - 'src/teamserver/Rod.Packaging/**'
       - 'Directory.Build.props'
       - 'Directory.Packages.props'
       - '.github/workflows/modules.yml'
@@ -38,9 +39,12 @@ on:
 permissions:
   contents: read
 
+env:
+  ROD_REGISTRY: https://github.com/rodframework/rod-registry.git
+
 jobs:
   module-tests:
-    name: Validate and test the modules
+    name: Install and validate the ecosystem
     # Pinned like every runner here (ci.yml's rationale): an unpinned label
     # lets a runner image change the toolchain under an unchanged tree.
     runs-on: ubuntu-24.04
@@ -49,36 +53,61 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         # Version comes from global.json (pinned to 10.0.110).
-      - name: Validate the module manifests
-        # Every manifest under modules/ through the CLI's own loader: parse
-        # plus validation, the same gate `rod mod publish` holds -- a broken
-        # descriptor row fails the lane before any kernel suite runs.
-        # Discovery by shape, not by list: a new module joins the lane by
-        # carrying its rod-module.toml, no workflow edit.
+      - name: Build the CLI
+        run: dotnet build src/cli/dotnet/Rod.Cli.csproj --configuration Release
+      - name: Install every registry entry
+        # The tap is cloned once and every entry installs through it: the
+        # digest, the signature, and the key pin are the gates an
+        # operator's install rides, so a broken entry fails the lane here
+        # before any operator meets it.
         run: |
-          shopt -s nullglob
-          manifests=(modules/*/rod-module.toml)
-          if [ ${#manifests[@]} -eq 0 ]; then
-            echo "no module manifests"
-            exit 0
-          fi
-          dotnet build src/cli/dotnet/Rod.Cli.csproj --configuration Release
-          for manifest in "${manifests[@]}"; do
-            directory=$(dirname "$manifest")
+          git clone --depth 1 "$ROD_REGISTRY" "$RUNNER_TEMP/rod-registry"
+          names=$(python3 -c "import json; print(' '.join(json.load(open('$RUNNER_TEMP/rod-registry/modules/registry.json'))))")
+          echo "registry entries: $names"
+          for name in $names; do
             dotnet run --project src/cli/dotnet --no-build --configuration Release -- \
-              mod coverage --path "$directory"
+              mod install "$name" --registry "$RUNNER_TEMP/rod-registry" --dir "$RUNNER_TEMP/rod-store"
           done
+      - name: Re-prove the installed set offline
+        run: |
+          dotnet run --project src/cli/dotnet --no-build --configuration Release -- \
+            mod verify --dir "$RUNNER_TEMP/rod-store"
+      - name: Sweep the installed set with the kernel catalog folded in
+        run: |
+          dotnet run --project src/cli/dotnet --no-build --configuration Release -- \
+            mod coverage --path "$RUNNER_TEMP/rod-store/modules" \
+            --catalog src/teamserver/Rod.CoreState/Implants/attack-coverage.json
       - name: Run the module test projects
-        # Discovery by shape, not by list: a new module's tests join the lane
-        # by existing under modules/<name>/tests/, no workflow edit -- the
-        # same zero-touch rule the kernel suites hold.
+        # Discovery by shape, not by list: each entry's repository is named
+        # by its entry kind (ADR-024), and a repository carrying a test
+        # project under tests/ joins the lane by existing it -- the same
+        # zero-touch rule the kernel suites hold. Server-kind entries are
+        # pure manifests with no repository convention of their own to
+        # clone.
         run: |
           shopt -s nullglob
-          projects=(modules/*/tests/*.csproj)
-          if [ ${#projects[@]} -eq 0 ]; then
-            echo "no module test projects"
-            exit 0
-          fi
-          for project in "${projects[@]}"; do
-            dotnet test "$project" --configuration Release
+          repos=$(python3 - "$RUNNER_TEMP/rod-registry" <<'PY'
+          import json, pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          prefix = {"plugin": "rod-plugin-", "extension": "rod-ext-",
+                    "assets": "rod-assets-", "build-unit": "rod-unit-"}
+          repos = []
+          for entry in sorted((root / "modules").glob("*.json")):
+              if entry.name == "registry.json":
+                  continue
+              kind = json.load(entry.open())["entry"]
+              if kind in prefix:
+                  repos.append(prefix[kind] + entry.stem)
+          print(" ".join(repos))
+          PY
+          )
+          for repo in $repos; do
+            git clone --depth 1 "https://github.com/rodframework/$repo.git" "$RUNNER_TEMP/src/$repo"
+            projects=("$RUNNER_TEMP/src/$repo"/tests/*.csproj)
+            if [ ${#projects[@]} -eq 0 ]; then
+              continue
+            fi
+            for project in "${projects[@]}"; do
+              dotnet test "$project" --configuration Release
+            done
           done

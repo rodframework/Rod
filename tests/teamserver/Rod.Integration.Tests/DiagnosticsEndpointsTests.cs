@@ -28,20 +28,9 @@ namespace Rod.Integration.Tests;
 /// OpenAPI contract (the UI's and the admin's face, not an SDK surface -- the
 /// same placement the capability catalog took).
 /// </summary>
-public class DiagnosticsEndpointsTests
+[Collection("reference-set")]
+public class DiagnosticsEndpointsTests(ReferenceSetFixture fixture)
 {
-    private static string FindRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            if (Directory.Exists(Path.Combine(dir.FullName, "src"))
-                && Directory.Exists(Path.Combine(dir.FullName, "tests")))
-                return dir.FullName;
-            dir = dir.Parent!;
-        }
-        throw new InvalidOperationException("Could not locate the repo root from the test assembly.");
-    }
 
     // The full composition the endpoint needs: the capabilities layer's
     // registry beside the operator/transport/auth core, the diagnostics
@@ -169,11 +158,11 @@ public class DiagnosticsEndpointsTests
     public async Task Diagnostics_ReportsTheLoadedModuleSet()
     {
         // The exact section the shipped appsettings.json carries: the
-        // in-tree hostenum module (a pure descriptor manifest, ADR-018) at
-        // its repository tree, through the same path an external module
-        // takes, so the diagnostics module section reads the real loading
-        // state, not a fixture's.
-        var hostenumDirectory = Path.Combine(FindRepoRoot(), "modules", "hostenum");
+        // installed hostenum package from the reference-set store (a pure
+        // descriptor manifest, ADR-018), through the same path an
+        // operator's installed set takes, so the diagnostics module
+        // section reads the real loading state, not a fixture's.
+        var hostenumDirectory = fixture.ModuleDirectory("hostenum");
         var (client, host) = AdminClient(extendConfig: settings =>
             settings["Capabilities:DescriptorModules:0"] = hostenumDirectory);
         using (client)

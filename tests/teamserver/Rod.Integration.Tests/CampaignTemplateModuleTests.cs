@@ -21,18 +21,9 @@ namespace Rod.Integration.Tests;
 /// The merge grammar itself stays the kernel's contract either way
 /// (<see cref="Rod.CoreState.Campaigns.CampaignLimits"/>).
 /// </summary>
-public class CampaignTemplateModuleTests
+[Collection("reference-set")]
+public class CampaignTemplateModuleTests(ReferenceSetFixture fixture)
 {
-    private static string ModuleRoot()
-    {
-        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent!)
-        {
-            if (Directory.Exists(Path.Combine(directory.FullName, "src"))
-                && Directory.Exists(Path.Combine(directory.FullName, "modules")))
-                return directory.FullName;
-        }
-        throw new InvalidOperationException("Could not locate the repo root from the test assembly.");
-    }
 
     /// <summary>
     /// The in-memory host with the in-tree lure-templates module listed, the
@@ -40,7 +31,7 @@ public class CampaignTemplateModuleTests
     /// seeded engagement listener -- the same parts the campaign walk's
     /// harness composes, with the asset seam added.
     /// </summary>
-    private static async Task<(HttpClient Client, IHost Host, string EngagementId, string ListenerId)> NewAsync(
+    private async Task<(HttpClient Client, IHost Host, string EngagementId, string ListenerId)> NewAsync(
         Action<Dictionary<string, string?>>? extendConfig = null)
     {
         var registry = new InMemoryBuildUnitRegistry();
@@ -50,7 +41,7 @@ public class CampaignTemplateModuleTests
                 services.Replace(ServiceDescriptor.Singleton<IBuildUnitRegistry>(registry)),
             extendConfig: settings =>
             {
-                settings["Capabilities:AssetModules:0"] = Path.Combine(ModuleRoot(), "modules", "lure-templates");
+                settings["Capabilities:AssetModules:0"] = fixture.ModuleDirectory("lure-templates");
                 extendConfig?.Invoke(settings);
             },
             configureServicesWithConfig: (services, config) => services.AddRodCapabilities(config));
