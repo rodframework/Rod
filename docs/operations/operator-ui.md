@@ -803,7 +803,7 @@ The rows survive a teamserver restart when the durable store is
 configured, like every other engagement fact.
 
 **Hook a browser** is the XSS foothold's delivery, the third surface:
-the mint renders the in-tree hook script with its bake (enrollment
+the mint renders the listed hook module's script with its bake (enrollment
 credential, seal key, cadence, verbs) and answers the paste-ready
 `<script src>` tag to inject on the vulnerable page, plus a test page
 URL that enrolls the first browser pointed at it. The pick that matters
