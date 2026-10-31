@@ -121,6 +121,12 @@ jobs:
         # pays the fetch. POSIX under the job's bash default: curl, jq,
         # sha256sum, and tar are on every cell's image.
         run: |
+          # Windows hosts name runner.temp with backslashes (D:\a\_temp), and
+          # the GNU tar Git-bash carries reads them as escapes inside -C
+          # ("tar: D\:\a\\_temp/...: Cannot open") -- the windows cells died
+          # on exactly that. Normalize once, up front; every tool below and
+          # both GITHUB_ENV exports take the forward-slash spelling.
+          ROD_IMPLANT_CACHE="${ROD_IMPLANT_CACHE//\\//}"
           rust_repo="$(jq -r .rust.repository rod-implants.lock.json)"
           rust_version="$(jq -r .rust.version rod-implants.lock.json)"
           rust_sha256="$(jq -r .rust.sha256 rod-implants.lock.json)"
