@@ -202,6 +202,12 @@ jobs:
           test -n "$triple"
           CARGO_TARGET_DIR="$ROD_RUST_TARGET_DIR" \
             cargo build --release --target "$triple" --manifest-path "$ROD_IMPLANT_RUST_TREE/Cargo.toml"
+          # The dev-shape leg compiles the host triple with no --target into
+          # the tree's own target/ -- a different directory from everything
+          # above. Warm that shape too, or the leg pays the same cold
+          # compile inside its five-minute cargo budget (the windows cells
+          # hung exactly there on their first real run).
+          cargo build --release --manifest-path "$ROD_IMPLANT_RUST_TREE/Cargo.toml"
       - name: Build
         run: dotnet build Rod.slnx --configuration Release
       - name: Run the cell's e2e legs

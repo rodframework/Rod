@@ -187,6 +187,12 @@ jobs:
           cargo build --release --target x86_64-unknown-linux-musl --manifest-path "$ROD_IMPLANT_RUST_TREE/Cargo.toml"
           cargo build --release --target x86_64-pc-windows-gnu --manifest-path "$ROD_IMPLANT_RUST_TREE/Cargo.toml"
           cargo build --release --target i686-pc-windows-gnu --manifest-path "$ROD_IMPLANT_RUST_TREE/Cargo.toml"
+          # The dev-shape leg builds the host triple with no --target into
+          # the tree's own target/ -- same cold-compile budget the crosses
+          # above would burn inside a test. Ubuntu clears it warm or cold;
+          # keep it warm anyway, the same discipline the crosses hold.
+          unset CARGO_TARGET_DIR
+          cargo build --release --manifest-path "$ROD_IMPLANT_RUST_TREE/Cargo.toml"
       - name: Build the three-target matrix's WireGuard profiles
         # The optional transport's cross-matrix proof (Sec 15.3 ADR-004 as
         # amended, the item's acceptance): the same three crosses, each with
