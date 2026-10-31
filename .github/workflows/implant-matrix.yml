@@ -93,7 +93,10 @@ jobs:
               brew install protobuf
               ;;
             Windows)
-              choco install protobuf -y
+              # The chocolatey community source ships protoc as "protoc";
+              # there is no "protobuf" package there (the first run's cells
+              # died on exactly that 404).
+              choco install protoc -y
               ;;
           esac
           # One shared cargo target dir per cell: the first pipeline build
