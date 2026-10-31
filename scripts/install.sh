@@ -57,12 +57,17 @@ if [ "$rehearsal" != "1" ]; then
 fi
 
 # Resolve "latest" to a concrete tag through GitHub's stable redirect; an
-# explicit version is normalized to its v-prefixed tag.
+# explicit version is normalized to its v-prefixed tag. Only the first
+# hop is followed: that hop lands on the tag-named download URL
+# (.../releases/download/<tag>/<asset>), while following every hop ends
+# on the asset CDN's signed URL, which carries no tag to extract.
 if [ "$version" = "latest" ]; then
-    effective="$(curl -fsIL -o /dev/null -w '%{url_effective}' \
+    location="$(curl -fsI -o /dev/null -w '%{redirect_url}' \
         "$base_url/latest/download/rod-teamserver-linux-x64.tar.gz")"
-    tag="${effective#*/download/}"
-    tag="${tag%%/*}"
+    case "$location" in
+        */download/*) tag="${location#*/download/}"; tag="${tag%%/*}" ;;
+        *) tag="" ;;
+    esac
     [ -n "$tag" ] || die "could not resolve the latest release tag from $base_url"
 else
     case "$version" in
