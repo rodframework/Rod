@@ -151,8 +151,45 @@ jobs:
           cp src/teamserver/Rod.Protocol/protos/rod.proto \
             "${ROD_IMPLANT_CACHE}/rust/${rust_version}/src/teamserver/Rod.Protocol/protos/"
           echo "ROD_IMPLANT_CACHE=${ROD_IMPLANT_CACHE}" >> "$GITHUB_ENV"
+          echo "ROD_IMPLANT_RUST_TREE=${ROD_IMPLANT_CACHE}/rust/${rust_version}/src/implant/rust" >> "$GITHUB_ENV"
         env:
           ROD_IMPLANT_CACHE: ${{ runner.temp }}/rod-implant-cache
+      - name: Cache the shared Rust target dir
+        # The same warmth ci.yml's lanes keep: the legs' bakes resolve
+        # through ROD_RUST_TARGET_DIR, and a cold cell pays the whole
+        # dependency compile inside one leg's synchronous build POST -- past
+        # the test client's 100-second timeout on the slower runners (the
+        # macos amd64 cell failed exactly this way on the first run). Keyed
+        # per cell: the six cells' dirs carry different-arch artifacts, and
+        # a shared key would hand one cell another's cache.
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/rod-rust-target
+          key: rust-targets-${{ matrix.cell }}-${{ hashFiles('rod-implants.lock.json') }}
+          restore-keys: rust-targets-${{ matrix.cell }}-
+      - name: Warm the shared Rust target dir
+        # One full compile of the cell's bake triple up front, outside any
+        # leg, so no leg's build POST pays the cold dependency compile (a
+        # warm bake only rebuilds the staged implant crate itself, seconds).
+        # The triple is the build unit's host-aware pick: the linux cells
+        # bake their host-arch musl cross, every other cell bakes its host
+        # triple, which rustc itself names -- the windows cells land on the
+        # MSVC pair, the one shape ci.yml's gnu crosses never exercised. No
+        # wireguard feature: no matrix leg bakes a WireGuard listener.
+        run: |
+          case "$RUNNER_OS" in
+            Linux)
+              case "$(uname -m)" in
+                x86_64)  triple=x86_64-unknown-linux-musl ;;
+                aarch64) triple=aarch64-unknown-linux-musl ;;
+              esac
+              ;;
+            *)
+              triple="$(rustc -vV | sed -n 's/^host: //p')"
+              ;;
+          esac
+          test -n "$triple"
+          cargo build --release --target "$triple" --manifest-path "$ROD_IMPLANT_RUST_TREE/Cargo.toml"
       - name: Build
         run: dotnet build Rod.slnx --configuration Release
       - name: Run the cell's e2e legs
