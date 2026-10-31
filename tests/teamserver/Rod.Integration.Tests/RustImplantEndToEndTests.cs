@@ -68,12 +68,14 @@ public sealed class RustLinuxFactAttribute : RustFactAttribute
 /// </summary>
 public class RustImplantEndToEndTests
 {
-    [RustFact]
-    public async Task RustImplant_Enrols_GoesOnline_AndRunsTasking()
+    /// Dev-shape cargo build of the checked-in tree. The read pipes start
+    /// before the wait (ReadToEndAsync alone blocks until the child closes
+    /// its stdout, so a build that outlives its budget hung the leg until
+    /// blame-hang collected it twenty minutes later); a build that does
+    /// outlive the budget is killed with its toolchain tree and failed
+    /// carrying the output it produced.
+    private static async Task<(int ExitCode, string Output)> RunCargoBuildAsync(string rustDir)
     {
-        var rustDir = FindRustTree()
-            ?? throw new InvalidOperationException("the Rust implant tree was not found from the test assembly");
-        // The dev-shape binary: cargo release build of the checked-in tree.
         var build = Process.Start(new ProcessStartInfo
         {
             FileName = "cargo",
@@ -83,10 +85,25 @@ public class RustImplantEndToEndTests
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         });
-        var buildOutput = (await build!.StandardOutput.ReadToEndAsync())
-            + await build.StandardError.ReadToEndAsync();
-        build.WaitForExit(300_000);
-        Assert.True(build.ExitCode == 0, $"cargo build failed:\n{buildOutput}");
+        var stdout = build!.StandardOutput.ReadToEndAsync();
+        var stderr = build.StandardError.ReadToEndAsync();
+        if (!build.WaitForExit(300_000))
+        {
+            try { build.Kill(entireProcessTree: true); } catch { }
+            build.WaitForExit(5000);
+            Assert.Fail($"cargo build did not finish within 300 s:\n{await stdout}\n{await stderr}");
+        }
+        return (build.ExitCode, $"{await stdout}\n{await stderr}");
+    }
+
+    [RustFact]
+    public async Task RustImplant_Enrols_GoesOnline_AndRunsTasking()
+    {
+        var rustDir = FindRustTree()
+            ?? throw new InvalidOperationException("the Rust implant tree was not found from the test assembly");
+        // The dev-shape binary: cargo release build of the checked-in tree.
+        var (exitCode, buildOutput) = await RunCargoBuildAsync(rustDir);
+        Assert.True(exitCode == 0, $"cargo build failed:\n{buildOutput}");
         var binary = Path.Combine(rustDir, "target", "release", "rod-implant" + TestCell.ExeSuffix);
         Assert.True(File.Exists(binary), $"cargo reported success but {binary} is missing");
 
@@ -181,19 +198,8 @@ public class RustImplantEndToEndTests
         // contacts, and the artifact lands whole with the declared hash.
         var rustDir = FindRustTree()
             ?? throw new InvalidOperationException("the Rust implant tree was not found from the test assembly");
-        var build = Process.Start(new ProcessStartInfo
-        {
-            FileName = "cargo",
-            WorkingDirectory = rustDir,
-            ArgumentList = { "build", "--release" },
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        });
-        var buildOutput = (await build!.StandardOutput.ReadToEndAsync())
-            + await build.StandardError.ReadToEndAsync();
-        build.WaitForExit(300_000);
-        Assert.True(build.ExitCode == 0, $"cargo build failed:\n{buildOutput}");
+        var (exitCode, buildOutput) = await RunCargoBuildAsync(rustDir);
+        Assert.True(exitCode == 0, $"cargo build failed:\n{buildOutput}");
         var binary = Path.Combine(rustDir, "target", "release", "rod-implant" + TestCell.ExeSuffix);
 
         await using var env = await TestEnv.StartAsync();
