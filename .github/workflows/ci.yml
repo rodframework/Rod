@@ -178,7 +178,12 @@ jobs:
         # per-build staging copies only recompile the implant crate itself.
         # The aarch64 loader is small enough to build cold in its test. Runs
         # serially here, so the shared dir never contends on cargo's lock.
+        # CARGO_TARGET_DIR is set explicitly: ROD_RUST_TARGET_DIR is the
+        # build pipeline's variable (RustBuildUnit hands it to cargo), plain
+        # cargo never reads it -- unprefixed, this warm-up compiles into the
+        # source tree's own target/ and every bake still starts cold.
         run: |
+          export CARGO_TARGET_DIR="$ROD_RUST_TARGET_DIR"
           cargo build --release --target x86_64-unknown-linux-musl --manifest-path "$ROD_IMPLANT_RUST_TREE/Cargo.toml"
           cargo build --release --target x86_64-pc-windows-gnu --manifest-path "$ROD_IMPLANT_RUST_TREE/Cargo.toml"
           cargo build --release --target i686-pc-windows-gnu --manifest-path "$ROD_IMPLANT_RUST_TREE/Cargo.toml"
@@ -188,6 +193,7 @@ jobs:
         # the wireguard feature -- boringtun compiles clean on every target
         # the implant ships as. The warm dir above keeps these incremental.
         run: |
+          export CARGO_TARGET_DIR="$ROD_RUST_TARGET_DIR"
           cargo build --release --target x86_64-unknown-linux-musl --features wireguard --manifest-path "$ROD_IMPLANT_RUST_TREE/Cargo.toml"
           cargo build --release --target x86_64-pc-windows-gnu --features wireguard --manifest-path "$ROD_IMPLANT_RUST_TREE/Cargo.toml"
           cargo build --release --target i686-pc-windows-gnu --features wireguard --manifest-path "$ROD_IMPLANT_RUST_TREE/Cargo.toml"

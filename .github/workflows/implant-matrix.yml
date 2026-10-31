@@ -176,6 +176,11 @@ jobs:
         # triple, which rustc itself names -- the windows cells land on the
         # MSVC pair, the one shape ci.yml's gnu crosses never exercised. No
         # wireguard feature: no matrix leg bakes a WireGuard listener.
+        # CARGO_TARGET_DIR must be set explicitly: ROD_RUST_TARGET_DIR is
+        # the build pipeline's own variable (RustBuildUnit reads it and
+        # hands it to cargo as CARGO_TARGET_DIR), plain cargo never looks
+        # at it -- unprefixed, the warm-up compiles into the source tree's
+        # own target/ and every bake still starts cold.
         run: |
           case "$RUNNER_OS" in
             Linux)
@@ -189,7 +194,8 @@ jobs:
               ;;
           esac
           test -n "$triple"
-          cargo build --release --target "$triple" --manifest-path "$ROD_IMPLANT_RUST_TREE/Cargo.toml"
+          CARGO_TARGET_DIR="$ROD_RUST_TARGET_DIR" \
+            cargo build --release --target "$triple" --manifest-path "$ROD_IMPLANT_RUST_TREE/Cargo.toml"
       - name: Build
         run: dotnet build Rod.slnx --configuration Release
       - name: Run the cell's e2e legs
