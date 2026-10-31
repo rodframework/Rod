@@ -147,6 +147,13 @@ jobs:
           }
           fetch_pinned "$rust_repo" "$rust_version" "$rust_sha256" rust
           fetch_pinned "$go_repo" "$go_version" "$go_sha256" go
+          # The proto sibling the resolver's C# half copies beside a cached
+          # Rust tree: direct cargo runs there (the warm-up below, and any
+          # bash-side build) resolve the wire contract through build.rs's
+          # ../../teamserver probe, so the sibling must pre-exist.
+          mkdir -p "${ROD_IMPLANT_CACHE}/rust/${rust_version}/src/teamserver/Rod.Protocol/protos"
+          cp src/teamserver/Rod.Protocol/protos/rod.proto \
+            "${ROD_IMPLANT_CACHE}/rust/${rust_version}/src/teamserver/Rod.Protocol/protos/"
           echo "ROD_IMPLANT_CACHE=${ROD_IMPLANT_CACHE}" >> "$GITHUB_ENV"
           echo "ROD_IMPLANT_RUST_TREE=${ROD_IMPLANT_CACHE}/rust/${rust_version}/src/implant/rust" >> "$GITHUB_ENV"
         env:
