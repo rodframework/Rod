@@ -135,6 +135,15 @@ Toolchain caveats (observed SDK behavior, not preference):
   (a set-but-missing directory fails loudly, like the configured source
   directories). `ROD_IMPLANT_ASSET_BASE` redirects the fetch at a mirror
   or a `file://` path.
+- A workflow's first real run is the only proof of it. implant-matrix
+  merged unexecuted -- three rounds of fixes never ran it once -- and
+  its first dispatch then peeled six defects stacked one behind another
+  (a chocolatey package name, a backslashed tar path, warm-ups
+  compiling into directories nothing read, a test that deadlocked
+  instead of failing), each layer reachable only after the one above it
+  was fixed. Dispatch-smoke every new or edited workflow on the day it
+  merges; a cron's first scheduled firing is not a validation, and
+  GitHub schedules land hours late besides.
 
 ## 5. Architecture -- monolithic kernel, layered
 
