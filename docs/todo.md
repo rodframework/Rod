@@ -31,6 +31,61 @@ promotes it ahead of the standing order.
 
 ## Active
 
+The platform line -- the compatibility window orders its first two
+items. Both touch what a deployed artifact carries baked in: the
+seal's key schedule and the contact chain's framing are cheap to
+change while no artifact is fielded and messy to migrate after, so
+they take precedence over the module cadence below until they land:
+
+- **Session key agreement over the baked seal** (serves Sec 8's
+  envelope crypto, Sec 9). The seal today is AES-256-GCM under the
+  key baked into the artifact, so a seized artifact decrypts its own
+  recorded traffic, past and future -- the classical seized-config
+  PCAP class, no quantum needed. Ephemeral X25519 at the handshake,
+  HKDF into the session's sealing keys, the baked key remaining the
+  enrollment identity and root; curves are cheap on every side (.NET
+  ECDH, Go crypto/ecdh, x25519-dalek), so the wire contract's barrier
+  does not move. ML-KEM stays out: the hybrid guards decade-horizon
+  secrets engagement traffic does not carry, and the negotiated-arm
+  pattern (the replay-nonce arm's shape) can add it later without a
+  break.
+  _AC:_ a captured artifact's baked key can no longer open its
+  pre-capture recorded traffic; both pinned trees complete the agreed
+  handshake and the Tier 0 rig pins the exchange
+  (extending/implants.md), the lock bumping the two trees together.
+
+- **Chained contacts through a parent** (serves Sec 5.2's pivot
+  model, Sec 8). The pivot model's implant-side half: a planted host
+  with no egress of its own enrolls and keeps its contact by riding a
+  parent implant, the chain composing level over level toward the one
+  host that can reach the edge. Riding the tunnel set (a parent-side
+  bind fronting its carriage) is the in-design route; a standalone
+  peer-listener transport family reopens the retired SMB/mTLS/QUIC
+  line (Sec 15.3) and must argue it anew, not restate it.
+  _AC:_ an implant on an egress-less segment maintains its session
+  through a parent to the teamserver in the implant e2e matrix, with
+  every hop's records attributed.
+
+- **The CLR assembly host -- execute-assembly** (serves Sec 5.4's
+  loader seam, Sec 13). Windows engagements arrive with a C# toolchain
+  in hand, and hosting it is what they cannot do without: the classic
+  CLR (.NET Framework 4.x) first -- console redirection and
+  AssemblyResolve for the multi-DLL tools, inline mode -- with the
+  sacrificial-process mode and hostfxr (.NET 5+) as the follow-on
+  stages. Native AOT is no substitute (the COM-interop and
+  reflection-heavy tools do not survive it), and the AMSI/ETW posture
+  composes with the shipped avoid and unload modules.
+  _AC:_ a Rubeus/Seatbelt-class .NET Framework tool runs inline with
+  its output captured into the engagement trail; ships disabled,
+  enabled per build profile (Sec 7).
+
+- **Fuzz the coff-v1 parser** (serves Sec 5.4). The parser is
+  host-blind, so a cargo-fuzz campaign over malformed object files
+  runs on today's lanes while the corpus regression matrix below waits
+  on its Windows rig.
+  _AC:_ the parser survives a sustained fuzzing run without panic, and
+  the campaign rides the implant tree's CI.
+
 The module layer's standing line: capability modules advancing the
 ATT&CK coverage matrix (architecture.md Sec 15.1, Sec 5.4), in family
 batches ordered by matrix gap.
@@ -74,9 +129,11 @@ seat as wmi, and the DLL search-order seat as hijack):
   the CI toolchain lane; what parks it is the host: the rig drives a
   live candidate process, the coff loader binds only inside a Windows
   implant, and no lane runs the rig against one (Wine or a Windows
-  runner -- either is new infrastructure, not code). The loader's own
-  host-blind tests carry the tier until a lane exists
-  (extending/implants.md, Tier 2).
+  runner -- either is new infrastructure, not code); a
+  community-corpus regression matrix -- a standing set of mainstream
+  BOFs the lane loads and executes each run -- shares the same
+  blocker. The loader's own host-blind tests carry the tier until a
+  lane exists (extending/implants.md, Tier 2).
 
 - **iOS shell for the Rust implant** (serves architecture.md Sec 12.2).
   Parked on a real device to run the enrollment leg: the implant e2e
@@ -95,13 +152,17 @@ seat as wmi, and the DLL search-order seat as hijack):
 
 Second wave -- take up once real users exist:
 
+- **Purple-team mode** -- verb to technique to expected-detection
+  mapping riding the evidence package: each audited action carries the
+  defender-side telemetry it should have produced (the Sysmon/EDR event
+  ids), and the report gains the blue-team checklist a client's SIEM
+  answers against (Sec 11, reporting domain) -- the assessment asset a
+  procurement cycle can name, not only the operator's weapon.
+
 - **Go SDK** -- the versioned operator API's Go face (Sec 15.3, ADR-006):
   a thin client cut against the committed OpenAPI contract. Split out of
   the MCP item: nothing in-tree or queued consumes it, so it waits for a
   real user to name the need.
-
-- **Purple-team mode** -- verb to technique to expected-detection mapping;
-  the report gains a blue-team checklist (reporting domain).
 
 - **Rule-based alerting** -- an SSE rule engine: new credential seen,
   beacon lost then returning, lure link clicked (management domain).
@@ -123,6 +184,18 @@ engagement names the need:
 
 - **LLM copilot** -- next-step suggestions from entity state and the
   coverage matrix; suggests only, never executes (MCP/LLM layer).
+
+- **Approval-gated MCP writes** -- the shipped write tools gain their
+  policy engine: engagement scope burned into the teamserver (a target
+  allowlist the tools cannot widen), every side-effecting call held
+  for an operator's approval, the audit chain unchanged. The
+  autonomous-chain non-goal below stands: every write stays a single
+  human-approved action, never a chained one (MCP/LLM layer).
+
+- **Full malleable profiles** -- the shipped transport knobs (enroll
+  path, User-Agent, headers, fallback endpoints) deepen into per-verb
+  request and response shape templates, one malleable profile per
+  listener (Sec 8, transports domain).
 
 Explicit non-goals, standing: a cross-engagement organizational knowledge
 base (violates engagement isolation at its root) and autonomous LLM task
