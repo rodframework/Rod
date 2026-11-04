@@ -51,7 +51,20 @@ public static class ChannelVerbs
     /// </summary>
     public const string TunnelSocks = "tunnel.socks";
 
-    private static readonly string[] All = { ShellInteract, TunnelForward, TunnelSocks };
+    /// <summary>
+    /// The chained-contact bind (architecture.md Sec 5.2, the pivot model's
+    /// implant-side half): the arguments string is <c>&lt;host&gt;
+    /// &lt;port&gt;</c>, and the channel's byte stream is the link's own
+    /// connection-multiplexed grammar -- the first packet reports the
+    /// listener's actual address, each accepted connection rides the channel
+    /// under its id, and the teamserver runs each as a contact server-side.
+    /// A chained implant is an ordinary raw-TCP client of the listener, so
+    /// the chain composes level over level toward the host that reaches the
+    /// edge.
+    /// </summary>
+    public const string TunnelBind = "tunnel.bind";
+
+    private static readonly string[] All = { ShellInteract, TunnelForward, TunnelSocks, TunnelBind };
 
     /// <summary>
     /// Whether <paramref name="verb"/>'s tasks run as live channels. Verb

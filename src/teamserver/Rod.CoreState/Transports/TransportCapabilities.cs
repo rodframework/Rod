@@ -104,6 +104,9 @@ public static class TransportCapabilities
     /// <summary>The wire name of <see cref="WireGuard"/>.</summary>
     public const string WireGuardName = "wireguard";
 
+    /// <summary>The wire name of <see cref="Chain"/>.</summary>
+    public const string ChainName = "chain";
+
     /// <summary>The live beacon stream (the WebSocket beacon, the held
     /// socket session): the native channel carrier.</summary>
     public static readonly CarrierCapabilities BeaconStream = new(ChannelSupport.Native);
@@ -136,6 +139,17 @@ public static class TransportCapabilities
     /// transport that serves it.</summary>
     public static readonly CarrierCapabilities WireGuard = new(ChannelSupport.Degraded);
 
+    /// <summary>
+    /// A chained contact (architecture.md Sec 5.2, Sec 8): a contact that
+    /// arrives over a parent implant's tunnel.bind channel rather than a
+    /// listener of its own. The wire shape is the message-pipe family's --
+    /// self-delimited messages carrying envelope bodies -- so the capability
+    /// entry mirrors it: the poll shape is the degraded baseline, and a
+    /// chained build that advertises the live session holds it through the
+    /// same carrying channel.
+    /// </summary>
+    public static readonly CarrierCapabilities Chain = new(ChannelSupport.Degraded);
+
     // Keyed by carrier wire name so a carrier the core does not know can
     // declare itself without editing this file; case-insensitive because the
     // name crosses operator input and persistence as a plain string.
@@ -147,6 +161,7 @@ public static class TransportCapabilities
             [DnsName] = Dns,
             [MessagePipeName] = MessagePipe,
             [WireGuardName] = WireGuard,
+            [ChainName] = Chain,
         };
 
     /// <summary>

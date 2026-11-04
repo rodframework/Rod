@@ -47,7 +47,7 @@ public static class ImplantClassCapabilities
             {
                 "shell.exec", "shell.interact", "file.push", "file.pull", "fs.list", "proc.kill",
                 "beacon.sleep",
-                "tunnel.forward", "tunnel.socks",
+                "tunnel.bind", "tunnel.forward", "tunnel.socks",
                 "recon.portscan", "recon.hostenum", "recon.service", "recon.ps",
                 "lateral.move", "lateral.token", "lateral.exec_remote",
                 "persist.install", "persist.remove", "persist.list",
@@ -70,8 +70,11 @@ public static class ImplantClassCapabilities
             // cannot run their own implant (network/OT gear) and forwards their
             // traffic (architecture.md Sec 5.2). It carries exactly the tunnel
             // set -- a pivot forwards, it does not shell -- so a Pivot-class
-            // build is the minimal tunneling artifact and nothing else.
-            [ImplantClass.Pivot] = new[] { "tunnel.forward", "tunnel.socks" },
+            // build is the minimal tunneling artifact and nothing else. The
+            // set includes the chain bind (Sec 5.2's pivot-model implant-side
+            // half): fronting chained contacts is the seat a pivot exists to
+            // hold.
+            [ImplantClass.Pivot] = new[] { "tunnel.bind", "tunnel.forward", "tunnel.socks" },
 
             // The hooked-browser class (architecture.md Sec 5.2, Sec 10.1):
             // the read-and-steer verbs a hooked page justifies. Everything

@@ -227,6 +227,28 @@ public enum AuditEventKind
     RelayClosed,
 
     /// <summary>
+    /// A chained contact opened over a parent implant's tunnel.bind channel
+    /// (architecture.md Sec 5.2, Sec 8): one connection the parent's
+    /// listener accepted, arriving as a contact the teamserver serves through
+    /// it. The payload carries the connection id and the peer address the
+    /// parent reported; the event is attributed to the parent (the hop the
+    /// bytes crossed) and bound to the bind task. The contact's own records
+    /// -- its enrollment when it enrolls, its tasking arc -- attribute to the
+    /// contact's implant, so every hop of the chain carries its records.
+    /// <see cref="ChainHopClosed"/> records how the contact ended.
+    /// </summary>
+    ChainHopOpened,
+
+    /// <summary>
+    /// A chained contact over a parent implant's tunnel.bind channel ended:
+    /// the contact's connection closed (either side), the bind task
+    /// completed, or the parent's beacon stream died. The payload names the
+    /// connection id and the cause; the event is attributed to the parent
+    /// and bound to the bind task, mirroring <see cref="ChainHopOpened"/>.
+    /// </summary>
+    ChainHopClosed,
+
+    /// <summary>
     /// An operator froze the engagement for close-out (architecture.md Sec 2
     /// step 10). From this event on, the engagement accepts no new tasking and
     /// no new deployments; the payload carries the freeze timestamp, and the

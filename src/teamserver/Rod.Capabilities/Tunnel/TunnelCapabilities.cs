@@ -38,6 +38,18 @@ public static class TunnelCapabilities
     /// </summary>
     public const string Socks = "tunnel.socks";
 
+    /// <summary>
+    /// Bind a chained-contact listener: the arguments are <c>&lt;host&gt;
+    /// &lt;port&gt;</c> (port 0 asks the stack to pick; the channel's first
+    /// packet reports the actual address). The implant listens on its own
+    /// vantage and the channel fronts the session it rides -- each accepted
+    /// connection is one contact an implant on the far side of an egress-less
+    /// segment runs against this teamserver, so the chain composes level over
+    /// level toward the one host that reaches the edge (Sec 5.2, the pivot
+    /// model's implant-side half).
+    /// </summary>
+    public const string Bind = "tunnel.bind";
+
     private static readonly IReadOnlyDictionary<string, string> TouchesNetwork =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -52,6 +64,7 @@ public static class TunnelCapabilities
     {
         CapabilityDescriptor.Of(Forward, CapabilityCategory.Tunnel, "1.0", TouchesNetwork),
         CapabilityDescriptor.Of(Socks, CapabilityCategory.Tunnel, "1.0", TouchesNetwork),
+        CapabilityDescriptor.Of(Bind, CapabilityCategory.Tunnel, "1.0", TouchesNetwork),
     };
 
     /// <summary>Every tunnel verb string, in declared order.</summary>
@@ -59,5 +72,6 @@ public static class TunnelCapabilities
     {
         Forward,
         Socks,
+        Bind,
     };
 }
