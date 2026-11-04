@@ -66,6 +66,27 @@ they take precedence over the module cadence below until they land:
   through a parent to the teamserver in the implant e2e matrix, with
   every hop's records attributed.
 
+- **Implant-carried transports -- the exec-v1 provider seam** (serves
+  Sec 8, Sec 15.1). Open the carrier seam to authors who will never
+  write C#: a `transport-provider/exec-v1` contract (length-delimited
+  protobuf over stdio, the exec-v1 module idiom mirrored server-side)
+  lets a community package carry its carrier's listener half as a
+  supervised process in any language -- two author functions (fetch a
+  sealed body, deliver one) on an SDK skeleton, the generic adapter
+  registering the declared carriers on its behalf so the operator API,
+  carrier table, and audit treat the transport as native. Alongside it
+  the implant-side half: the extension tier reaches the dial dispatch
+  (an extension contributes a contact client), and the build pairs a
+  listener's transport name with the package carrying it, refusing a
+  build it cannot resolve. The frame paths never change -- the provider
+  sees sealed bytes, not frames (extending/transports.md) -- and a
+  carrier passes rod-conform's provider lane before it may name itself.
+  _AC:_ a community carrier (a Discord or Telegram dead-drop is the
+  shape) ships end to end -- install, listener create, build,
+  enrollment -- with zero C# and zero forks; the conformance lane runs
+  its provider leg, and a crashed provider marks its listener
+  unhealthy without touching the teamserver.
+
 - **The CLR assembly host -- execute-assembly** (serves Sec 5.4's
   loader seam, Sec 13). Windows engagements arrive with a C# toolchain
   in hand, and hosting it is what they cannot do without: the classic
