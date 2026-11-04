@@ -5601,6 +5601,27 @@
               "null",
               "string"
             ]
+          },
+          "package": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "packageVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "params": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         }
       },

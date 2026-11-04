@@ -122,11 +122,12 @@ internal sealed class ListenerSupervisor
         ListenerBridgeOptions options)
     {
         var endpoint = ListenerBridgeEndpoint.Bind(listener.Id, options, _logger);
+        CancellationTokenSource? stop = null;
         SupervisedListener? supervised = null;
         try
         {
-            var stop = new CancellationTokenSource();
-            var accept = Task.Run(
+            stop = new CancellationTokenSource();
+            _ = Task.Run(
                 () => endpoint.AcceptAsync((stream, token) => ServePeerAsync(stream, listener, token), stop.Token),
                 stop.Token);
 
@@ -139,7 +140,7 @@ internal sealed class ListenerSupervisor
             var process = Spawn(listener, package, parameters, endpoint.LocalName);
 
             supervised = new SupervisedListener(
-                MonitorAsync(listener, package, parameters, endpoint, accept, process, stop.Token),
+                MonitorAsync(listener, package, parameters, endpoint, process, stop.Token),
                 stop,
                 endpoint);
             return supervised;
@@ -149,7 +150,11 @@ internal sealed class ListenerSupervisor
             if (supervised is not null)
                 await supervised.DisposeAsync();
             else
+            {
+                stop?.Cancel();
+                stop?.Dispose();
                 await endpoint.DisposeAsync();
+            }
             throw;
         }
     }
@@ -162,7 +167,6 @@ internal sealed class ListenerSupervisor
         ListenerPackageInfo package,
         IReadOnlyDictionary<string, string> parameters,
         ListenerBridgeEndpoint endpoint,
-        Task accept,
         Process process,
         CancellationToken stop)
     {
