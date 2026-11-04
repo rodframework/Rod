@@ -569,11 +569,21 @@ Implants differ by purpose, not by a "managed device flavor":
   (Sec 13).
 - **Ephemeral** -- a short-lived, TTL'd implant from a one-liner bootstrap; for
   one-off execution and temporary access.
-- **Pivot** -- an implant that represents hosts which cannot run their own
-  implant (network/OT gear), enrolling each as its own session and forwarding
-  tasking. Its class set is the tunnel set (Sec 10.1): a Pivot-class build is
-  the minimal tunneling artifact, and the parent-fronting shape for
-  unplantable hosts rides the same set. Fronting ships: a Pivot child
+- **Pivot** -- an implant that carries reach for hosts its own network
+  segment holds, in two shapes. The fronted shape represents hosts which
+  cannot run their own implant (network/OT gear): the parent enrolls each as
+  its own session and claims its tasking. The chained shape serves hosts
+  which can run their own implant but have no egress of their own: the
+  parent's `tunnel.bind` channel (Sec 10.1, the tunnel set's chain arm)
+  listens on its vantage, and each accepted connection is a contact the
+  teamserver serves through it -- the chained implant enrolls, handshakes,
+  and runs its own tasking as a full session-holding entity, its raw-TCP
+  carriage dialing the parent's listener and nothing else. The chain
+  composes: a chained implant that runs its own `tunnel.bind` fronts the
+  next level the same way, toward the one host that reaches the edge. Its
+  class set is the tunnel set (Sec 10.1): a Pivot-class build is
+  the minimal tunneling artifact, and both shapes ride the same set.
+  Fronting ships: a Pivot child
   enrolled by a parent (`lateral.move`, this section) has no process of its
   own and never handshakes -- no session, no stream -- so its tasking is
   claimed by the parent's beacon stream (the fronting claim, Sec 10.3),
@@ -1236,7 +1246,8 @@ OPSEC is a design axis, not a feature flag. The architecture bakes in:
   TaskRequest carries the same command signature, and a DNS-delivered task
   verifies exactly like a stream-delivered one. The degraded-mode contract
   rides the session record: every contact stamps the carrier it rode (web,
-  dns, pipe), the roster badges a dns-carried session as
+  dns, pipe, chain -- the last a contact a parent's tunnel.bind channel
+  carried in), the roster badges a dns-carried session as
   degraded, and a task the carrier cannot serve stays queued with its
   visible why -- capability is a property of the carrier at runtime, not of
   the artifact. The reference Rust implant carries this family end to end:
@@ -1427,12 +1438,14 @@ OPSEC is a design axis, not a feature flag. The architecture bakes in:
   TLS requirement to satisfy -- so a plain framed socket is the cheapest
   adequate shape. The Windows segment with no egress at all -- the reach
   the retired SMB family once served -- is covered better by the pivot
-  posture: a parent implant
-  holding the outward session derives children inside the segment
-  (`lateral.move`, Sec 5.2), and the children's tasking rides fronted on
-  the parent's carriage -- implant-to-implant reach that goes deeper into
-  the environment as far as the parent chain goes, with no pipe to name
-  and no second artifact shape to maintain. The listener carries
+  posture, in the shape the segment calls for: hosts that run their own
+  implant ride it out through a parent (`tunnel.bind`, Sec 5.2's chained
+  shape -- the segment's implants dial the parent's listener, each contact
+  served through its channel), and hosts that cannot run one are
+  represented by the parent's fronted children (`lateral.move`, Sec 5.2).
+  Either way the reach goes deeper into the environment as far as the
+  parent chain goes, with no pipe to name and no second artifact shape to
+  maintain. The listener carries
   the same rod.v1 frames the envelope carries -- one self-delimited message
   per direction (a varint byte length, then the envelope's delimited frame
   sequence), because a raw stream lacks the request boundary an HTTP body
@@ -1965,14 +1978,14 @@ capture; on every platform the Rust build does not gate them in, each runs
 only when an operator supplies a module for the verb.
 
 The tunnel verbs are registered the same way
-(`Rod.Capabilities.Tunnel.TunnelCapabilities`, category `Tunnel`):
-`tunnel.forward` and `tunnel.socks` each carry a `touches-network` attribute,
-since each opens network connections from the target. Unlike the categories
+(`Rod.Capabilities.Tunnel.TunnelCapabilities`, category `Tunnel`): the three
+each carry a `touches-network` attribute, since each opens or accepts network
+connections on the target. Unlike the categories
 above they are gated to two classes: Implant (tunneling is a core operation,
 Sec 14) and Pivot (Sec 5.2 -- the tunneling class). Their tasks run as live
 channels (Sec 10.3) -- the channel carries the tunnel's bytes both ways -- so
-the poll transports never claim them, and the reference implant ships both
-channel handlers: `tunnel.forward` connects to the `<host> <port>` named in
+the poll transports never claim them, and the reference implant ships all
+three channel handlers: `tunnel.forward` connects to the `<host> <port>` named in
 the arguments from the implant's own vantage and bridges the channel to the
 socket until the peer closes, with the relay summary as the task's final
 output; `tunnel.socks` takes no arguments at all -- its channel's byte stream
@@ -1982,7 +1995,22 @@ connection id, `close` to end one, `opened` to answer a dial), the
 verb-local escape hatch Sec 10 licenses, so every proxied connection rides
 the one task and the implant dials each destination from its own vantage
 until the operator's eof ends the proxy, with the destinations dialed and
-the bytes moved as the task's final output. The traffic's attribution is end
+the bytes moved as the task's final output; `tunnel.bind` listens on the
+`<host> <port>` named in the arguments (port 0 asks the stack to pick, and
+the channel's first packet up reports the actual address), and its channel's
+byte stream is the link's own connection-multiplexed grammar -- the same
+packet shape the socks proxy rides with this verb's own kinds: a `bound`
+packet naming the listener's actual address, an `open` packet per accepted
+connection, `data` packets under each connection id, and `close` when either
+side ends one. The server half is the chain hub: each connection the parent
+accepted becomes one contact served through the transport-blind stream
+bridge -- enrollment, handshake, ingest, and dispatch, the whole ordinary
+contact flow, with the parent's channel standing in for the listener socket
+-- and the chained implant on the far side is an ordinary raw-TCP client of
+the listener that changes nothing, so the chain composes level over level
+toward the host that reaches the edge (Sec 5.2). A chained contact's
+presence stamps the `chain` carrier; the link lives and dies with its task
+the way every channel does. The traffic's attribution is end
 to end: every byte crossed the channel the signed TaskRequest opened, the
 input posts land as `ChannelInput` audit events, and the transcript plus
 summary is the operator's record. Input posts are the manual shape: a
@@ -2195,6 +2223,24 @@ input route reaches a fronted channel through the parent's sink; every record
 The evolution rules hold: an implant that never implements fronting ignores
 the unknown field, and a server never fronts tasking to one that does not
 (enough: the field is absent on all its frames, the Tier 0 shape unchanged).
+
+**The chained contact.** The fronting claim's sibling (Sec 5.2's other pivot
+half) serves the child that has a process of its own: a chained contact
+arrives over a parent's `tunnel.bind` channel (Sec 10.1) rather than a
+listener, and the chain hub serves it through the transport-blind stream
+bridge -- the same enrollment, handshake, and ingest paths a socket listener
+runs, with the parent's channel standing in for the socket. No fronting
+marking rides its tasking (`target_implant_id` is the fronted shape's alone):
+a chained child claims its own tasking through its own contacts the way every
+poll implant does, negotiates the arms a fronted child never can (the replay
+nonce and the session-key schedule among them, because it handshakes), and
+every record of its arc -- enrollment, session, tasking -- attributes to the
+child while the carriage's records (`ChainHopOpened`/`ChainHopClosed`, the
+bind task's transcript) attribute to the parent, so each hop of the chain
+carries its own attribution end to end. The link lives and dies with its
+carrying stream -- a channel is session-scoped -- and the chained child's
+discipline is the poll cadence: the next contact reconnects through whatever
+parent carriage it finds, the way every poll cycle always has.
 
 **The streaming task shape.** Not every verb is a one-shot round trip:
 `shell.interact` -- `shell.exec`'s interactive shape -- and `tunnel.forward`
@@ -2857,8 +2903,9 @@ binary for every target a managed runtime cannot serve -- routers,
 appliances, 32-bit ARM IoT Linux -- with both web carriages (the envelope
 POST cycle on poll bakes, the WebSocket stream on stream bakes), the
 streaming channel layer (`shell.interact` under a pseudo-terminal,
-`tunnel.forward`, and `tunnel.socks`'s connection-multiplexed proxy --
-live on the stream carriage, the degraded park-and-drain discipline over
+`tunnel.forward`, `tunnel.socks`'s connection-multiplexed proxy, and
+`tunnel.bind`'s chain link -- live on the stream carriage, the degraded
+park-and-drain discipline over
 the poll cycle), the one-shot core verbs, the module family of the plugin
 seam (Sec 5.4, compiled on every platform; Linux loads modules by
 exec'ing them out of a memfd, so the static musl artifact loads them like
@@ -2958,7 +3005,7 @@ The reference implant draws its own line the same way: the compiled core is
 the machinery no plugin could own -- the carriages, the session and channel
 layer, command execution (one-shot and interactive), file transfer both ways
 with the staged and chunked arms, filesystem listing, process termination,
-cadence retuning, and the tunnel pair -- plus the Windows-gated sensitive
+cadence retuning, and the tunnel set -- plus the Windows-gated sensitive
 set, while the long tail (recon sweeps, lateral movement, persistence,
 credential and screen collection) is plugin-domain work for the C-ABI seam,
 composed per engagement rather than compiled into every artifact. Transport

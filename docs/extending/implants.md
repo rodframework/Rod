@@ -455,8 +455,9 @@ and the payload hash travels on the result text's tail
 
 ### Interactive channels (the streaming task shape)
 
-`shell.interact` is `shell.exec`'s live shape, and `tunnel.forward` /
-`tunnel.socks` are the tunnel pair (architecture.md Sec 5.2, Sec 14):
+`shell.interact` is `shell.exec`'s live shape, and `tunnel.forward`,
+`tunnel.socks`, and `tunnel.bind` are the tunnel set (architecture.md
+Sec 5.2, Sec 14):
 each `TaskRequest`
 opens a channel instead of a one-shot round trip, and the task does not
 complete until the channel ends. Flow:
@@ -487,7 +488,9 @@ tunnel; the task stays dispatched server-side). Input is not signed -- like a
 `TaskRequest` opened.
 Keep output chunks at or under 16 KiB. The server routes `ChannelInput` only
 for a task whose verb is one of these channel verbs (`shell.interact`,
-`tunnel.forward`, `tunnel.socks`); a channel task claims over every poll
+`tunnel.forward`, `tunnel.socks`, `tunnel.bind` -- the bind's downstream
+grammar is the server's own, so the operator input route refuses a post to
+one); a channel task claims over every poll
 carrier under the
 store-and-forward discipline (below) -- the envelope cycle, the stream
 family's polls, and the DNS grammar alike (input on the TXT answers,
@@ -974,6 +977,18 @@ Adopt per deployment need; absence degrades the feature, not interop:
   them.
 - **Child derivation** -- the parent-naming enroll flow behind
   `lateral.move` (architecture.md Sec 5.2).
+- **Chain carriage** -- the tunnel set's bind arm (architecture.md Sec 5.2,
+  the pivot model's implant-side half). The riding half is free: a chained
+  implant is an ordinary raw-TCP client whose baked front names the parent's
+  listener (`tcp://host:port`), so nothing about an implant that only rides
+  a chain changes. The carrying half is the `tunnel.bind` channel: bind a
+  listener, report its actual address as the channel's first packet, and
+  carry each accepted connection's bytes both ways under the link's
+  connection-multiplexed grammar (the same packet shape `tunnel.socks`
+  rides, the verb's own kinds). Every chained contact the channel carries
+  is served by the teamserver through the ordinary contact paths -- the
+  chained implant enrolls, handshakes, and runs its own tasking, its
+  lineage recorded from the carriage itself.
 - **Plugin modules** -- the `module.load` / `module.list` /
   `module.unload` family (architecture.md Sec 5.4): staged task content
   carrying a module's bytes, the loader registering its verbs for later
