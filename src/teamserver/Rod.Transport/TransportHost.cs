@@ -403,6 +403,12 @@ public static class TransportHost
         // floor. Singleton because the binding spans the enroll route and the
         // contact route, and the floor spans every contact an implant makes.
         services.AddSingleton<Endpoints.EnvelopeContactKeys>();
+        // The session-key arm's agreements (architecture.md Sec 9, session
+        // key agreement over the baked seal): the derived session sealing
+        // keys, addressed by session id for the R2 bodies and by implant for
+        // the downgrade gate. Singleton because an agreement spans the
+        // handshake contact that made it and every contact the session runs.
+        services.AddSingleton<Endpoints.SessionSealKeys>();
         // The plain-HTTP envelope contact handler (architecture.md Sec 8):
         // one POST is one poll contact, the same frames the live carriages
         // carry as delimited sequences in ordinary request/response bodies.

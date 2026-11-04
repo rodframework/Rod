@@ -29,11 +29,27 @@ namespace Rod.Transport.Payloads;
 /// seals the same way but carries the raw R1 body (no base64 layer: its labels
 /// are already base32, a text encoding inside another would double the
 /// expansion) -- <see cref="WrapBody"/> and friends are that byte-level form.
+///
+/// The R2 shape is the session-key arm's body (architecture.md Sec 9, session
+/// key agreement over the baked seal): once a handshake agrees an ephemeral
+/// pair, both directions seal under the HKDF-derived session keys in a body
+/// whose prefix carries the session id where R1 carries the baked key id --
+/// same layout, different magic, so a decoder routes by shape and a captured
+/// artifact's baked key opens neither direction of the traffic that followed
+/// the agreement.
 /// </summary>
 public static class AesGcmEnvelope
 {
     /// <summary>Plaintext prefix: shape id and version, "R1".</summary>
     public static ReadOnlySpan<byte> Magic => "R1"u8;
+
+    /// <summary>
+    /// The session-key arm's prefix: the same layout as R1 with the magic
+    /// naming the key schedule -- the 16-byte id the body carries is the
+    /// session id, and the AES key is the derived session key, not the baked
+    /// artifact key.
+    /// </summary>
+    public static ReadOnlySpan<byte> SessionMagic => "R2"u8;
 
     /// <summary>The GCM tag size in bytes.</summary>
     public const int TagBytes = 16;
@@ -188,6 +204,27 @@ public static class AesGcmEnvelope
     /// double the encoding expansion); every other purpose sends the string.
     /// </summary>
     public static byte[] WrapBody(byte[] plaintext, Guid keyId, byte[] key, ReadOnlySpan<byte> aad)
+        => WrapLayout(Magic, plaintext, keyId, key, aad);
+
+    /// <summary>
+    /// The session-key arm's request/response body: the R1 layout under the
+    /// <see cref="SessionMagic"/> prefix, sealed with the HKDF-derived session
+    /// key and addressed by the session id. The directional AADs are the
+    /// contact tags R1 uses -- the magic names the key schedule, the purpose
+    /// tags keep their meaning.
+    /// </summary>
+    public static string WrapSession(byte[] plaintext, Guid sessionId, byte[] key, ReadOnlySpan<byte> aad)
+        => Convert.ToBase64String(WrapSessionBody(plaintext, sessionId, key, aad));
+
+    /// <summary>The byte-level form of <see cref="WrapSession"/>.</summary>
+    public static byte[] WrapSessionBody(byte[] plaintext, Guid sessionId, byte[] key, ReadOnlySpan<byte> aad)
+        => WrapLayout(SessionMagic, plaintext, sessionId, key, aad);
+
+    // The one layout both magics share: magic || id(16) || nonce || ct ||
+    // tag. Shared so an R2 body can never drift from the R1 byte order the
+    // three stacks already pin.
+    private static byte[] WrapLayout(
+        ReadOnlySpan<byte> magic, byte[] plaintext, Guid id, byte[] key, ReadOnlySpan<byte> aad)
     {
         ArgumentOutOfRangeException.ThrowIfNotEqual(key.Length, KeyBytes);
         var nonce = RandomNumberGenerator.GetBytes(NonceBytes);
@@ -198,9 +235,9 @@ public static class AesGcmEnvelope
 
         var body = new byte[2 + 16 + NonceBytes + ciphertext.Length + TagBytes];
         var position = 0;
-        Magic.CopyTo(body.AsSpan(position));
+        magic.CopyTo(body.AsSpan(position));
         position += 2;
-        keyId.ToByteArray().AsSpan().CopyTo(body.AsSpan(position));
+        id.ToByteArray().AsSpan().CopyTo(body.AsSpan(position));
         position += 16;
         nonce.AsSpan().CopyTo(body.AsSpan(position));
         position += NonceBytes;
@@ -233,20 +270,50 @@ public static class AesGcmEnvelope
     }
 
     /// <summary>
-    /// The byte-level form <see cref="TryUnwrap"/> decodes into: opens a raw
+    /// The byte-level form of <see cref="TryUnwrap"/>: opens a raw
     /// R1 body under the same key id and <paramref name="aad"/>, or null on
     /// any mismatch. The DNS carriage's reassembled upstream blobs arrive in
     /// this form.
     /// </summary>
     public static byte[]? TryUnwrapBody(ReadOnlySpan<byte> body, Guid keyId, byte[] key, ReadOnlySpan<byte> aad)
+        => TryOpenLayout(body, Magic, keyId, key, aad);
+
+    /// <summary>
+    /// The session-key arm's twin of <see cref="TryUnwrap"/>: opens an R2
+    /// wire value under the session id and session key it was sealed with,
+    /// or null on any mismatch.
+    /// </summary>
+    public static byte[]? TryUnwrapSession(string wrapped, Guid sessionId, byte[] key, ReadOnlySpan<byte> aad)
+    {
+        if (string.IsNullOrEmpty(wrapped))
+            return null;
+        byte[] body;
+        try
+        {
+            body = Convert.FromBase64String(wrapped);
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+        return TryUnwrapSessionBody(body, sessionId, key, aad);
+    }
+
+    /// <summary>The byte-level form of <see cref="TryUnwrapSession"/>.</summary>
+    public static byte[]? TryUnwrapSessionBody(ReadOnlySpan<byte> body, Guid sessionId, byte[] key, ReadOnlySpan<byte> aad)
+        => TryOpenLayout(body, SessionMagic, sessionId, key, aad);
+
+    // The one opener both magics share, mirroring <see cref="WrapLayout"/>.
+    private static byte[]? TryOpenLayout(
+        ReadOnlySpan<byte> body, ReadOnlySpan<byte> magic, Guid id, byte[] key, ReadOnlySpan<byte> aad)
     {
         if (key.Length != KeyBytes)
             return null;
         if (body.Length < 2 + 16 + NonceBytes + TagBytes)
             return null;
-        if (!body.Slice(0, 2).SequenceEqual(Magic))
+        if (!body.Slice(0, 2).SequenceEqual(magic))
             return null;
-        if (!new Guid(body.Slice(2, 16).ToArray()).Equals(keyId))
+        if (!new Guid(body.Slice(2, 16).ToArray()).Equals(id))
             return null;
         var nonce = body.Slice(2 + 16, NonceBytes).ToArray();
         var ciphertextLength = body.Length - 2 - 16 - NonceBytes - TagBytes;
@@ -298,6 +365,38 @@ public static class AesGcmEnvelope
         if (body.Length < 2 + 16 + NonceBytes + TagBytes)
             return null;
         if (!body.Slice(0, 2).SequenceEqual(Magic))
+            return null;
+        return new Guid(body.Slice(2, 16).ToArray());
+    }
+
+    /// <summary>
+    /// Reads the session id off a wire value without a key, so a contact
+    /// route can resolve the session keys before it can open anything --
+    /// the R2 twin of <see cref="TryReadKeyId"/>. Null when the value is not
+    /// the R2 shape (an R1 body or the plaintext framed body included).
+    /// </summary>
+    public static Guid? TryReadSessionKeyId(string wrapped)
+    {
+        if (string.IsNullOrEmpty(wrapped))
+            return null;
+        byte[] body;
+        try
+        {
+            body = Convert.FromBase64String(wrapped);
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+        return TryReadSessionKeyIdBody(body);
+    }
+
+    /// <summary>The byte-level form of <see cref="TryReadSessionKeyId"/>.</summary>
+    public static Guid? TryReadSessionKeyIdBody(ReadOnlySpan<byte> body)
+    {
+        if (body.Length < 2 + 16 + NonceBytes + TagBytes)
+            return null;
+        if (!body.Slice(0, 2).SequenceEqual(SessionMagic))
             return null;
         return new Guid(body.Slice(2, 16).ToArray());
     }
