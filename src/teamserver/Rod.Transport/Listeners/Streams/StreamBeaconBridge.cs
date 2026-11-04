@@ -74,6 +74,7 @@ internal sealed class StreamBeaconBridge
     private readonly IPayloadStore _payloads;
     private readonly Rod.CoreState.Campaigns.ICampaignStore _campaigns;
     private readonly EnvelopeContactKeys _contactKeys;
+    private readonly SessionSealKeys _sessionKeys;
     private readonly ILogger<StreamBeaconBridge> _logger;
     private readonly BeaconSessionRunner _runner;
 
@@ -99,6 +100,7 @@ internal sealed class StreamBeaconBridge
         IPayloadStore payloads,
         Rod.CoreState.Campaigns.ICampaignStore campaigns,
         EnvelopeContactKeys contactKeys,
+        SessionSealKeys sessionKeys,
         ITaskDispatchWake wake,
         LiveChannelHub channels,
         TaskRelayHub relays,
@@ -118,6 +120,7 @@ internal sealed class StreamBeaconBridge
         _payloads = payloads;
         _campaigns = campaigns;
         _contactKeys = contactKeys;
+        _sessionKeys = sessionKeys;
         _logger = logger;
         _runner = new BeaconSessionRunner(
             sessions, tasks, clock, wake, channels, degraded, relays, socks, ingest, tasking);
@@ -148,9 +151,10 @@ internal sealed class StreamBeaconBridge
             if (opened is null)
                 return;
             var frames = opened.Frames;
-            var sealedKey = (KeyId: opened.Sealed ? opened.KeyId : Guid.Empty, opened.Key);
+            var sealedKey = (KeyId: opened.Sealed && opened.Session is null ? opened.KeyId : Guid.Empty, opened.Key);
             var isSealed = opened.Sealed;
             var contactCounter = opened.Counter;
+            var bodySession = opened.Session;
 
             // Enrollment over the stream contact (Sec 8, the same
             // full-independence step QUIC took): the opening message may
@@ -173,9 +177,10 @@ internal sealed class StreamBeaconBridge
                     if (next is null)
                         return;
                     frames = next.Frames;
-                    sealedKey = (next.Sealed ? next.KeyId : Guid.Empty, next.Key);
+                    sealedKey = (next.Sealed && next.Session is null ? next.KeyId : Guid.Empty, next.Key);
                     isSealed = next.Sealed;
                     contactCounter = next.Counter;
+                    bodySession = next.Session;
                 }
             }
 
@@ -187,7 +192,7 @@ internal sealed class StreamBeaconBridge
                 || !TryParseHandshake(frames[0], out handshakeRequest)
                 || !ImplantId.TryParse(handshakeRequest.ImplantId, out var implantId))
             {
-                await RespondAsync(stream, BeaconHandshake.Response(HandshakeStatus.Unspecified, engagementId: null, replayNonces: false), sealedKey, isSealed, stoppingToken);
+                await RespondAsync(stream, BeaconHandshake.Response(HandshakeStatus.Unspecified, engagementId: null, replayNonces: false), sealedKey, isSealed, bodySession, stoppingToken);
                 return;
             }
 
@@ -198,20 +203,66 @@ internal sealed class StreamBeaconBridge
             // downgrade, another artifact's key does not impersonate it --
             // and the counter must clear the floor: a replayed body,
             // whatever it claims, turns away without a session or a touch.
-            // The refusal is the dropped connection, the raw carriage's
-            // answer to the HTTP problem body.
+            // An R2 body authenticates by the session it opened under, so
+            // the baked-key check stands down for it while the session it
+            // addressed must still be this implant's own. The refusal is
+            // the dropped connection, the raw carriage's answer to the HTTP
+            // problem body -- and the session-key arm's contract violations
+            // (an offer on a session body, an offer with frames riding, an
+            // ordinary baked-key body from an implant holding an agreed
+            // session) drop the same way, so the client's reconnect answers
+            // with a fresh agreement contact.
+            var offeredAgreement = false;
             if (_contactKeys.TryGet(implantId) is { } bound)
             {
-                if (!isSealed || sealedKey.KeyId != bound.KeyId)
+                if (!isSealed || (bodySession is null && sealedKey.KeyId != bound.KeyId))
                     return;
             }
+            if (bodySession is { } openedSession && openedSession.Implant != implantId)
+                return;
+            // The arm's contract refusals sit ahead of the floor on purpose:
+            // a refused posture must not advance it, or the forgery would
+            // lock the honest contact out of its counter.
+            if (bodySession is not null && handshakeRequest.HasSessionPublic && handshakeRequest.SessionPublic.Length > 0)
+                return;
+            offeredAgreement = bodySession is null
+                && isSealed
+                && handshakeRequest.HasSessionPublic
+                && handshakeRequest.SessionPublic.Length > 0
+                && sealedKey.Key.Length == AesGcmEnvelope.KeyBytes;
+            if (offeredAgreement && frames.Count > 1)
+                return;
+            if (!offeredAgreement
+                && bodySession is null
+                && isSealed
+                && sealedKey.KeyId != Guid.Empty
+                && _sessionKeys.TryLatest(implantId) is not null)
+                return;
             if (isSealed && !_contactKeys.Accept(implantId, contactCounter))
                 return;
 
             var (response, handshake) = await TryHandshakeAsync(implantId, handshakeRequest);
+
+            // The agreement exchange (Sec 9): the server's ephemeral rides
+            // the handshake response sealed under the baked key -- the last
+            // body that key opens -- and the frames after it on this
+            // connection seal under the session keys. An offer the schedule
+            // cannot take answers without the echo and keeps the baked-key
+            // seal.
+            SessionSealKeys.Entry? agreedSession = null;
+            if (offeredAgreement
+                && response.Status == HandshakeStatus.Ok
+                && handshake is not null
+                && _sessionKeys.Agree(
+                    handshake.ImplantId, sealedKey.KeyId, sealedKey.Key, handshakeRequest.SessionPublic.Span)
+                    is { } agreement)
+            {
+                response.SessionPublic = ByteString.CopyFrom(agreement.ServerPublic);
+                agreedSession = agreement.Entry;
+            }
             if (response.Status != HandshakeStatus.Ok || handshake is null)
             {
-                await RespondAsync(stream, response, sealedKey, isSealed, stoppingToken);
+                await RespondAsync(stream, response, sealedKey, isSealed, bodySession, stoppingToken);
                 return;
             }
 
@@ -236,7 +287,7 @@ internal sealed class StreamBeaconBridge
             var active = await _sessions.GetActiveAsync(session.Implant, cancellationToken);
             if (active is null || active.Id != session.SessionId)
             {
-                await RespondAsync(stream, response, sealedKey, isSealed, stoppingToken);
+                await RespondAsync(stream, response, sealedKey, isSealed, bodySession, stoppingToken);
                 return;
             }
 
@@ -252,10 +303,13 @@ internal sealed class StreamBeaconBridge
             // the poll exchange carries: every inbound message is a fresh
             // counter over the contact purpose tag, every outbound frame
             // leaves sealed under the response tag when the connection
-            // opened sealed.
+            // opened sealed. A connection that just agreed session keys runs
+            // its held traffic under them; the agreement's own handshake
+            // response sealed under the baked key above.
             if (session.Capabilities.Contains(LiveSessionCapability))
             {
-                await RespondAsync(stream, response, sealedKey, isSealed, stoppingToken);
+                await RespondAsync(stream, response, sealedKey, isSealed, bodySession, stoppingToken);
+                var liveSession = agreedSession ?? bodySession;
                 var livePending = new Queue<Frame>(frames.Skip(1));
                 await _runner.RunAsync(
                     session,
@@ -264,7 +318,7 @@ internal sealed class StreamBeaconBridge
                         while (livePending.Count == 0)
                         {
                             var message = await TryReadLiveMessageAsync(
-                                stream, implantId, sealedKey, isSealed, liveToken);
+                                stream, implantId, sealedKey, isSealed, liveSession, liveToken);
                             if (message is null)
                                 throw new EndOfStreamException();
                             foreach (var frame in message)
@@ -272,9 +326,19 @@ internal sealed class StreamBeaconBridge
                         }
                         return livePending.Dequeue();
                     },
-                    (frame, liveToken) => WriteLiveFrameAsync(stream, frame, sealedKey, isSealed, liveToken),
+                    (frame, liveToken) => WriteLiveFrameAsync(stream, frame, sealedKey, isSealed, liveSession, liveToken),
                     stoppingToken,
                     carrier: "pipe");
+                return;
+            }
+
+            // An agreed poll connection closes on the agreement: the
+            // handshake response is the whole answer, sealed under the baked
+            // key, and the connection's next cycle runs under the session
+            // keys.
+            if (agreedSession is not null)
+            {
+                await RespondAsync(stream, response, sealedKey, isSealed, bodySession, stoppingToken);
                 return;
             }
 
@@ -364,7 +428,7 @@ internal sealed class StreamBeaconBridge
                 outbound.AddRange(_degraded.Drain(session.Implant, budget));
             }
 
-            await ReplyAsync(stream, outbound, sealedKey, isSealed, stoppingToken);
+            await ReplyAsync(stream, outbound, sealedKey, isSealed, bodySession, stoppingToken);
         }
         catch (Exception ex) when (
             ex is OperationCanceledException
@@ -381,14 +445,16 @@ internal sealed class StreamBeaconBridge
 
     // One live-session message in: the framed body, or the same counter-
     // covered sealed shape every contact body carries (a fresh counter per
-    // message, the floor turned by the same ledger the poll exchange uses).
-    // Null drops the connection -- an unsealable or malformed body is the
-    // refused cycle, not a negotiated one.
+    // message, the floor turned by the same ledger the poll exchange uses) --
+    // under the session keys once the connection agreed them, under the
+    // baked key otherwise. Null drops the connection -- an unsealable or
+    // malformed body is the refused cycle, not a negotiated one.
     private async Task<List<Frame>?> TryReadLiveMessageAsync(
         Stream stream,
         ImplantId implantId,
         (Guid KeyId, byte[] Key) sealedKey,
         bool isSealed,
+        SessionSealKeys.Entry? session,
         CancellationToken cancellationToken)
     {
         byte[] body;
@@ -413,18 +479,40 @@ internal sealed class StreamBeaconBridge
             }
         }
 
+        if (session is not null)
+        {
+            if (EnvelopeBeaconContact.TryReadSessionSealedKeyId(body, out var sessionText) is not { } sessionId
+                || sessionId != session.SessionId)
+                return null;
+            var plain = AesGcmEnvelope.TryUnwrapSession(
+                sessionText, session.SessionId, session.RequestKey, AesGcmEnvelope.ContactRequestAad);
+            if (plain is null || plain.Length < 8)
+                return null;
+            var sessionCounter = System.Buffers.Binary.BinaryPrimitives.ReadInt64BigEndian(plain);
+            if (!_contactKeys.Accept(implantId, sessionCounter))
+                return null;
+            try
+            {
+                return EnvelopeFraming.Parse(plain[8..]);
+            }
+            catch (EnvelopeFramingException)
+            {
+                return null;
+            }
+        }
+
         if (EnvelopeBeaconContact.TryReadSealedKeyId(body, out var sealedText) is not { } keyId
             || keyId != sealedKey.KeyId)
             return null;
-        var plain = AesGcmEnvelope.TryUnwrap(sealedText, sealedKey.KeyId, sealedKey.Key, AesGcmEnvelope.ContactRequestAad);
-        if (plain is null || plain.Length < 8)
+        var plainBaked = AesGcmEnvelope.TryUnwrap(sealedText, sealedKey.KeyId, sealedKey.Key, AesGcmEnvelope.ContactRequestAad);
+        if (plainBaked is null || plainBaked.Length < 8)
             return null;
-        var counter = System.Buffers.Binary.BinaryPrimitives.ReadInt64BigEndian(plain);
+        var counter = System.Buffers.Binary.BinaryPrimitives.ReadInt64BigEndian(plainBaked);
         if (!_contactKeys.Accept(implantId, counter))
             return null;
         try
         {
-            return EnvelopeFraming.Parse(plain[8..]);
+            return EnvelopeFraming.Parse(plainBaked[8..]);
         }
         catch (EnvelopeFramingException)
         {
@@ -433,38 +521,47 @@ internal sealed class StreamBeaconBridge
     }
 
     // One live-session frame out: its own message, sealed under the response
-    // purpose tag when the connection opened sealed -- the runner's one
+    // purpose tag -- under the session keys once the connection agreed them,
+    // else under the baked key when it opened sealed -- the runner's one
     // frame per message, the held stream's own shape.
     private static async Task WriteLiveFrameAsync(
         Stream stream, Frame frame, (Guid KeyId, byte[] Key) sealedKey, bool isSealed,
-        CancellationToken cancellationToken)
+        SessionSealKeys.Entry? session, CancellationToken cancellationToken)
     {
         var body = EnvelopeFraming.Encode(new[] { frame });
-        if (isSealed)
+        if (session is not null)
+            body = System.Text.Encoding.UTF8.GetBytes(AesGcmEnvelope.WrapSession(
+                body, session.SessionId, session.ResponseKey, AesGcmEnvelope.ContactResponseAad));
+        else if (isSealed)
             body = System.Text.Encoding.UTF8.GetBytes(AesGcmEnvelope.Wrap(
                 body, sealedKey.KeyId, sealedKey.Key, AesGcmEnvelope.ContactResponseAad));
         await StreamContactFraming.WriteMessageAsync(stream, body, cancellationToken);
     }
 
     // One response message out: the framed body, or the same body sealed
-    // under the key the request verified with -- a sealed cycle answers
-    // sealed, handshake refusals included, so the wire carries no readable
-    // frame bytes in either direction.
+    // under the key the request verified with -- the session's response key
+    // when the body opened under a session, else the baked key -- a sealed
+    // cycle answers sealed, handshake refusals included, so the wire carries
+    // no readable frame bytes in either direction.
     private static async Task ReplyAsync(
         Stream stream, IReadOnlyList<Frame> outbound, (Guid KeyId, byte[] Key) sealedKey, bool isSealed,
-        CancellationToken stoppingToken)
+        SessionSealKeys.Entry? session, CancellationToken stoppingToken)
     {
         var body = EnvelopeFraming.Encode(outbound);
-        if (isSealed)
+        if (session is not null)
+            body = System.Text.Encoding.UTF8.GetBytes(AesGcmEnvelope.WrapSession(
+                body, session.SessionId, session.ResponseKey, AesGcmEnvelope.ContactResponseAad));
+        else if (isSealed)
             body = System.Text.Encoding.UTF8.GetBytes(AesGcmEnvelope.Wrap(
                 body, sealedKey.KeyId, sealedKey.Key, AesGcmEnvelope.ContactResponseAad));
         await StreamContactFraming.WriteMessageAsync(stream, body, stoppingToken);
     }
 
     private async Task RespondAsync(
-        Stream stream, HandshakeResponse response, (Guid, byte[]) sealedKey, bool isSealed, CancellationToken stoppingToken)
+        Stream stream, HandshakeResponse response, (Guid, byte[]) sealedKey, bool isSealed,
+        SessionSealKeys.Entry? session, CancellationToken stoppingToken)
         => await ReplyAsync(
-            stream, new[] { HandshakeFrame(response) }, sealedKey, isSealed, stoppingToken);
+            stream, new[] { HandshakeFrame(response) }, sealedKey, isSealed, session, stoppingToken);
 
     // The enroll exchange on the opening connection (Sec 8): a kind-bearing
     // EnrollRequest frame -- the enroll body the web route carries, promoted
@@ -572,10 +669,13 @@ internal sealed class StreamBeaconBridge
     private static string? NullWhenEmpty(string value)
         => value.Length == 0 ? null : value;
 
-    // One decoded inbound message: the frames, and -- when the body was the
-    // sealed shape -- the key it verified under and the counter it carried.
+    // One decoded inbound message: the frames, and -- when the body was a
+    // sealed shape -- the key it verified under and the counter it carried
+    // (the session entry instead of the baked key when the body was the R2
+    // shape).
     private sealed record DecodedMessage(
-        List<Frame> Frames, bool Sealed, Guid KeyId, byte[] Key, long Counter);
+        List<Frame> Frames, bool Sealed, Guid KeyId, byte[] Key, long Counter,
+        SessionSealKeys.Entry? Session = null);
 
     // Reads one message and decodes its body: the plaintext framed shape, or
     // the sealed shape (architecture.md Sec 8/9) -- base64 of
@@ -602,6 +702,7 @@ internal sealed class StreamBeaconBridge
 
         var framed = body;
         var sealedShape = (Sealed: false, KeyId: Guid.Empty, Key: Array.Empty<byte>());
+        SessionSealKeys.Entry? session = null;
         long counter = 0;
         if (EnvelopeBeaconContact.TryReadSealedKeyId(body, out var sealedText) is { } keyId)
         {
@@ -622,11 +723,30 @@ internal sealed class StreamBeaconBridge
             framed = plain;
             sealedShape = (true, keyId, key);
         }
+        else if (EnvelopeBeaconContact.TryReadSessionSealedKeyId(body, out var sessionText) is { } sessionId)
+        {
+            // The R2 body (Sec 9, session key agreement): the session id
+            // addresses an agreement this process made -- none to find is
+            // the dropped connection, so the client's reconnect runs the
+            // agreement again.
+            var entry = _sessionKeys.TryGet(sessionId);
+            if (entry is null)
+                return null;
+            var plain = AesGcmEnvelope.TryUnwrapSession(
+                sessionText, sessionId, entry.RequestKey, AesGcmEnvelope.ContactRequestAad);
+            if (plain is null || plain.Length < 8)
+                return null;
+            counter = System.Buffers.Binary.BinaryPrimitives.ReadInt64BigEndian(plain);
+            framed = plain[8..];
+            session = entry;
+            sealedShape = (true, Guid.Empty, Array.Empty<byte>());
+        }
 
         try
         {
             return new DecodedMessage(
-                EnvelopeFraming.Parse(framed), sealedShape.Sealed, sealedShape.KeyId, sealedShape.Key, counter);
+                EnvelopeFraming.Parse(framed), sealedShape.Sealed, sealedShape.KeyId, sealedShape.Key,
+                counter, session);
         }
         catch (EnvelopeFramingException)
         {

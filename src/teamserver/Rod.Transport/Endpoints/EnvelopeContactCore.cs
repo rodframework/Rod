@@ -98,6 +98,7 @@ internal sealed class EnvelopeContactCore
     private readonly TimeProvider _clock;
     private readonly IPayloadStore _payloads;
     private readonly EnvelopeContactKeys _contactKeys;
+    private readonly SessionSealKeys _sessionKeys;
     private readonly DegradedChannelHub _degraded;
     private readonly EnrollmentService _enrollment;
     private readonly IDeployTokenService _tokens;
@@ -114,6 +115,7 @@ internal sealed class EnvelopeContactCore
         TimeProvider clock,
         IPayloadStore payloads,
         EnvelopeContactKeys contactKeys,
+        SessionSealKeys sessionKeys,
         DegradedChannelHub degraded,
         EnrollmentService enrollment,
         IDeployTokenService tokens,
@@ -129,6 +131,7 @@ internal sealed class EnvelopeContactCore
         _clock = clock;
         _payloads = payloads;
         _contactKeys = contactKeys;
+        _sessionKeys = sessionKeys;
         _degraded = degraded;
         _enrollment = enrollment;
         _tokens = tokens;
@@ -156,8 +159,15 @@ internal sealed class EnvelopeContactCore
         // carrier that enrolls in-band may instead carry the enroll seal (no
         // counter -- the enrollment is a one-shot exchange, not a session's
         // replayable stream).
+        //
+        // The R2 shape (Sec 9, session key agreement over the baked seal) is
+        // the same body under the session id and the HKDF-derived session
+        // keys a handshake agreed: the baked key never touches it, so the
+        // traffic a captured artifact recorded past its agreement stays
+        // closed to the key the capture surrenders.
         long contactCounter = 0;
         var sealedKey = (KeyId: Guid.Empty, Key: Array.Empty<byte>());
+        SessionSealKeys.Entry? sessionKeys = null;
         var isSealed = false;
         var framed = body;
         if (EnvelopeBeaconContact.TryReadSealedKeyId(body, out var sealedText) is { } keyId)
@@ -186,18 +196,41 @@ internal sealed class EnvelopeContactCore
             sealedKey = (keyId, key);
             isSealed = true;
         }
+        else if (EnvelopeBeaconContact.TryReadSessionSealedKeyId(body, out var sessionText) is { } sessionId)
+        {
+            var entry = _sessionKeys.TryGet(sessionId);
+            if (entry is null)
+                return EnvelopeContactResult.Refused(
+                    401, "The contact body did not verify under its session key.");
+            var plain = AesGcmEnvelope.TryUnwrapSession(
+                sessionText, sessionId, entry.RequestKey, AesGcmEnvelope.ContactRequestAad);
+            if (plain is null || plain.Length < CounterBytes)
+                return EnvelopeContactResult.Refused(
+                    401, "The contact body did not verify under its session key.");
+            contactCounter = BinaryPrimitives.ReadInt64BigEndian(plain);
+            framed = plain[CounterBytes..];
+            sessionKeys = entry;
+            isSealed = true;
+        }
 
         // Every envelope response after a verified unwrap seals the same way,
         // handshake refusals included: the sealed client must be able to read
         // its own refusal statuses, and the carrier leaks no frame bytes in
-        // either direction.
+        // either direction. A session body answers under the session's
+        // response key; a baked-key body -- the agreement contact included --
+        // answers under the baked key.
         byte[] Reply(IReadOnlyList<Frame> outbound)
-            => isSealed
+            => sessionKeys is { } session
                 ? Encoding.UTF8.GetBytes(
-                    AesGcmEnvelope.Wrap(
-                        EnvelopeFraming.Encode(outbound), sealedKey.KeyId, sealedKey.Key,
+                    AesGcmEnvelope.WrapSession(
+                        EnvelopeFraming.Encode(outbound), session.SessionId, session.ResponseKey,
                         AesGcmEnvelope.ContactResponseAad))
-                : EnvelopeFraming.Encode(outbound);
+                : isSealed
+                    ? Encoding.UTF8.GetBytes(
+                        AesGcmEnvelope.Wrap(
+                            EnvelopeFraming.Encode(outbound), sealedKey.KeyId, sealedKey.Key,
+                            AesGcmEnvelope.ContactResponseAad))
+                    : EnvelopeFraming.Encode(outbound);
 
         List<Frame> frames;
         try
@@ -236,7 +269,11 @@ internal sealed class EnvelopeContactCore
         // exactly that key (a plaintext body from it is the refused downgrade;
         // another artifact's key does not impersonate it), and the counter
         // must clear the floor -- a replayed body, whatever it claims, turns
-        // away without a session, a touch, or an audit record.
+        // away without a session, a touch, or an audit record. An R2 body
+        // authenticates by the session it opened under instead: the baked-key
+        // id check does not apply to it, but the session it addressed must
+        // belong to the implant the handshake names.
+        var offeredAgreement = false;
         if (ImplantId.TryParse(handshakeRequest.ImplantId, out var sealedImplant))
         {
             if (_contactKeys.TryGet(sealedImplant) is { } bound)
@@ -244,10 +281,44 @@ internal sealed class EnvelopeContactCore
                 if (!isSealed)
                     return EnvelopeContactResult.Refused(
                         401, "This implant contacts under its artifact key; the plaintext frame body is refused.");
-                if (sealedKey.KeyId != bound.KeyId)
+                if (sessionKeys is null && sealedKey.KeyId != bound.KeyId)
                     return EnvelopeContactResult.Refused(
                         401, "The contact body did not verify under its artifact key.");
             }
+            if (sessionKeys is { } opened && opened.Implant != sealedImplant)
+                return EnvelopeContactResult.Refused(
+                    401, "The contact body did not verify under its session key.");
+
+            // The session-key arm (Sec 9): the offer rides an R1
+            // handshake-only contact -- a body that carries its handshake and
+            // nothing else, sealed under the baked key. An offer anywhere
+            // else, or frames riding with it, is the refused contract
+            // violation; an ordinary R1 body from an implant holding an
+            // agreed session is the refused downgrade (the baked-key seal is
+            // exactly what a capture of the artifact opens, so a session
+            // implant may not slip back to it -- while an offer itself is
+            // always taken, the re-agreement a restarted implant or a
+            // restarted teamserver needs). These refusals sit ahead of the
+            // floor on purpose: a refused posture must not advance it, or
+            // the forgery would lock the honest contact out of its counter.
+            if (sessionKeys is not null && handshakeRequest.HasSessionPublic && handshakeRequest.SessionPublic.Length > 0)
+                return EnvelopeContactResult.Refused(
+                    401, "The session-key offer rides the baked-key handshake contact, not a session body.");
+            offeredAgreement = sessionKeys is null
+                && isSealed
+                && handshakeRequest.HasSessionPublic
+                && handshakeRequest.SessionPublic.Length > 0
+                && sealedKey.Key.Length == AesGcmEnvelope.KeyBytes;
+            if (offeredAgreement && frames.Count > 1)
+                return EnvelopeContactResult.Refused(
+                    401, "The session agreement contact carries its handshake and nothing else.");
+            if (!offeredAgreement
+                && sessionKeys is null
+                && isSealed
+                && sealedKey.KeyId != Guid.Empty
+                && _sessionKeys.TryLatest(sealedImplant) is not null)
+                return EnvelopeContactResult.Refused(
+                    401, "This implant contacts under its session key; the baked-key body is refused.");
             if (isSealed && !_contactKeys.Accept(sealedImplant, contactCounter))
                 return EnvelopeContactResult.Refused(
                     401, "The contact body carries a counter at or below the accepted floor.");
@@ -286,6 +357,22 @@ internal sealed class EnvelopeContactCore
         var active = await _sessions.GetActiveAsync(session.Implant, cancellationToken);
         if (active is null || active.Id != session.SessionId)
             return EnvelopeContactResult.Ok(Reply(new[] { EnvelopeBeaconContact.HandshakeFrame(response) }), isSealed);
+
+        // The agreement contact closes with its own exchange: the server's
+        // ephemeral rides the handshake response and nothing else does --
+        // the contact answers sealed under the baked key, the last body that
+        // key ever opens for the session. An offer the schedule cannot take
+        // (a malformed point) answers without the echo, and the implant
+        // keeps its baked-key seal -- the negotiated-arm fallback.
+        if (offeredAgreement)
+        {
+            if (_sessionKeys.Agree(
+                    handshake.ImplantId, sealedKey.KeyId, sealedKey.Key, handshakeRequest.SessionPublic.Span)
+                is { } agreement)
+                response.SessionPublic = ByteString.CopyFrom(agreement.ServerPublic);
+            return EnvelopeContactResult.Ok(
+                Reply(new[] { EnvelopeBeaconContact.HandshakeFrame(response) }), isSealed);
+        }
 
         var outbound = new List<Frame> { EnvelopeBeaconContact.HandshakeFrame(response) };
 

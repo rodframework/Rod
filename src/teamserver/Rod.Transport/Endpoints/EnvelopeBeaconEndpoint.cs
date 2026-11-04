@@ -200,4 +200,16 @@ internal sealed class EnvelopeBeaconContact
         sealedText = Encoding.UTF8.GetString(body).Trim();
         return AesGcmEnvelope.TryReadKeyId(sealedText);
     }
+
+    /// <summary>
+    /// The session-key arm's twin of <see cref="TryReadSealedKeyId"/>: reads
+    /// the session id off an R2 request body, or null when the body is not
+    /// the session-sealed shape (the baked-key R1 and the plaintext framed
+    /// body included).
+    /// </summary>
+    internal static Guid? TryReadSessionSealedKeyId(byte[] body, out string sealedText)
+    {
+        sealedText = Encoding.UTF8.GetString(body).Trim();
+        return AesGcmEnvelope.TryReadSessionKeyId(sealedText);
+    }
 }
