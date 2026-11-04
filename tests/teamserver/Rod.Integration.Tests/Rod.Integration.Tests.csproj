@@ -35,6 +35,11 @@
          target-dir lock) badly enough to fail batches for environmental
          reasons. Wall time is traded for a result that means something. -->
     <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The bridge acceptance fixture (ADR-025): the candidate listener
+         package (manifest and a stdlib-Python server process), packed and
+         installed through the real lifecycle chain, like any package a
+         publisher ships. -->
+    <Content Include="fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -59,6 +64,10 @@
          plugin package rides the identical chain a publisher's shell rides,
          never a test-side reimplementation. -->
     <ProjectReference Include="..\..\..\src\cli\Rod.Cli.csproj" />
+    <!-- Referenced so the bridge acceptance leg runs the conformance rig's
+         own minimal implant (the AC's implant half) against the candidate
+         listener process, in-process like the rig's self-test does. -->
+    <ProjectReference Include="..\..\..\src\conformance\Rod.Conformance\Rod.Conformance.csproj" />
   </ItemGroup>
 
 </Project>

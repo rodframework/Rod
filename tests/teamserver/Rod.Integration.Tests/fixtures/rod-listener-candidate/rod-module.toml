@@ -1,0 +1,37 @@
+# The bridge acceptance fixture (ADR-025): a candidate listener package
+# written in a non-C# language, exercising the queue item's acceptance
+# criterion -- the conformance rig's minimal implant carried end to end
+# entirely over the bridge. The medium is point-to-point HTTP on an
+# operated loopback segment, so the id-only posture is the honest one.
+[module]
+name = "rod-listener-candidate"
+version = "1.0.0"
+entry = "listener"
+license = "Apache-2.0"
+description = "The bridge acceptance candidate: a stdlib-Python HTTP byte pipe."
+
+[compatibility]
+teamserver = "1.0.0"
+
+[opsec]
+lands-on-disk = false
+
+[listener]
+seal-tier = "id-only"
+third-party-medium = false
+channel = "degraded"
+carriers = ["envelope"]
+command = "python3"
+args = ["server.py"]
+
+[[listener.params]]
+name = "bind"
+kind = "string"
+required = true
+description = "The host:port the HTTP front binds."
+
+[[listener.params]]
+name = "pidfile"
+kind = "string"
+required = false
+description = "Where to write the server's pid (the acceptance kill leg reads it)."
