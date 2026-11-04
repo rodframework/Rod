@@ -46,8 +46,8 @@ public class ProtoSurfaceTests
             ExfilChunk: task_id=1 name=2 content_type=3 sequence=4 terminal=5 data=6 offset=7 payload_sha256=8
             ExfilProgress: task_id=1 name=2 held_bytes=3
             Frame: payload=2 kind=3 reserved=1
-            HandshakeRequest: version=1 implant_id=2 capabilities=3 replay_nonces=4 task_acks=5 sleep_seconds=6 jitter_seconds=7
-            HandshakeResponse: status=1 version=2 engagement_id=3 replay_nonces=4 task_acks=5
+            HandshakeRequest: version=1 implant_id=2 capabilities=3 replay_nonces=4 task_acks=5 sleep_seconds=6 jitter_seconds=7 session_public=8
+            HandshakeResponse: status=1 version=2 engagement_id=3 replay_nonces=4 task_acks=5 session_public=6
             ProtocolVersion: major=1 minor=2
             StagedChunk: task_id=1 sequence=2 terminal=3 data=4 offset=5
             StagedPull: task_id=1 offset=2 prefix_sha256=3

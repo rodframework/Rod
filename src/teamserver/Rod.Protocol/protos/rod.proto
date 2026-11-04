@@ -364,6 +364,21 @@ message HandshakeRequest {
   // contact without a frame of its own.
   optional double sleep_seconds = 6;
   optional double jitter_seconds = 7;
+  // The implant's offer of the session-key arm (architecture.md Sec 9 --
+  // session key agreement over the baked seal): an ephemeral P-256 public
+  // key, an uncompressed SEC1 point, on a contact that carries the
+  // handshake and nothing else. The offer rides sealed under the baked
+  // key like every contact body, so the exchange is authenticated by the
+  // artifact key already -- possession of that key stays the enrollment
+  // identity and root, while HKDF binds the session's sealing keys to
+  // both it and the ephemeral agreement. The server answers its own
+  // ephemeral on HandshakeResponse.session_public; from the next contact
+  // on, both directions seal under the derived session keys (the R2
+  // body), so a captured artifact's baked key no longer decrypts the
+  // traffic it recorded before capture. Absent, the contact is an
+  // ordinary one and everything keeps the baked-key seal -- the
+  // negotiated-arm fallback that keeps an unupgraded pair interoperating.
+  optional bytes session_public = 8;
 }
 
 // Outcome of the handshake. OK means presence is recorded and the stream is
@@ -408,6 +423,17 @@ message HandshakeResponse {
   // for it, and a result for a task this server never requeued is recorded
   // first-wins so a retransmitting implant cannot double-count.
   optional bool task_acks = 5;
+  // The server's half of the session-key arm (HandshakeRequest.
+  // session_public): this handshake's own ephemeral P-256 public key,
+  // present only when the request offered one and the server accepted.
+  // Both sides derive the session's sealing keys from the ephemeral pair
+  // and the baked key (HKDF, the baked key as salt and root); the
+  // exchange itself -- this response included -- stays sealed under the
+  // baked key, and it is the last body that key ever opens for the
+  // session. Absent when the implant did not offer or the server does
+  // not serve the arm: the implant keeps sealing under the baked key,
+  // the shape an unupgraded server interoperate with unchanged.
+  optional bytes session_public = 6;
 }
 
 // Tasking over the Contact stream. After the handshake the stream
