@@ -1367,7 +1367,11 @@ OPSEC is a design axis, not a feature flag. The architecture bakes in:
   per attempt and the route refuses one at or below its floor (a replayed
   body turns away without a session or a touch), and an enrollment that
   redeemed a build-minted token is bound to that build's key, so its contacts
-  cannot downgrade to the plaintext frame. The plaintext framed body is the
+  cannot downgrade to the plaintext frame. Once a handshake agrees the
+  session-key arm (Sec 9), both directions seal under the derived session
+  keys instead -- the R2 body, the same layout addressed by the session id --
+  and the agreement contact that opened it is the last body the baked key
+  ever opens for the session. The plaintext framed body is the
   lab-debug toggle's shape (contact protection off at build), served only
   for implants no key was ever bound to. The reference implant picks its
   contact client by the baked dial's shape: an `http(s)://` URL runs the
@@ -1587,6 +1591,41 @@ fleet-wide code execution. Security is a first-class concern.
   after a lost response never trips the floor. The floor and the binding are
   process-local like the sessions they protect; the key itself lives exactly
   as long as its payload record.
+- **Session key agreement over the baked seal.** The per-artifact key has
+  one structural weakness: it seals the traffic and it lives in the
+  artifact, so a seized artifact's key decrypts its own recorded traffic,
+  past and future -- the classical seized-config PCAP class, no quantum
+  needed. The arm closes it as a negotiated handshake addition (the
+  replay-nonce arm's shape, never imposed): the first handshake of a
+  sealed run offers an ephemeral P-256 public (`session_public` on the
+  `HandshakeRequest`), the server answers its own ephemeral on the
+  `HandshakeResponse`, and both sides derive the session's sealing keys
+  with HKDF-SHA256 -- the ECDH shared secret as input, the baked key as
+  the salt (the root: possession of it still opens a *new* session, for it
+  is the enrollment identity, but never a recorded one), and the purpose
+  label, baked key id, and implant id as the info; eighty bytes out carry
+  the session id and the two directional keys. The agreement contact
+  carries its handshake and nothing else -- the exchange rides sealed
+  under the baked key, the last body that key opens for the session --
+  and every body after it, both directions on every framed carriage (the
+  envelope, the WebSocket beacon, the socket family, the WireGuard
+  datagram), is the R2 body: the R1 layout under the `R2` magic, the
+  session id in the key id's place, the counter discipline unchanged. The
+  server holds the line in both directions: an implant holding an agreed
+  session is refused an ordinary baked-key body (the downgrade is exactly
+  what a capture of the artifact would replay), while an agreement offer
+  is always taken -- a re-roll, latest-wins, the recovery path a restarted
+  implant or a restarted teamserver needs (the agreements are in-memory
+  with the floors and bindings; the implant's 401-or-dropped-connection
+  fallback re-offers under the baked key). ML-KEM stays out of the
+  schedule: the hybrid guards decade-horizon secrets engagement traffic
+  does not carry, and the negotiated-arm pattern can add it later without
+  a break. The DNS carriage keeps the baked-key discipline for now -- its
+  poll cycle carries no framed handshake to hang the agreement on; its
+  exchange is a named follow-up there. The conformance harness pins the
+  arm (`handshake.session-keys`): the agreement must land server-side and
+  a baked-key body forged after it must be refused --
+  extending/implants.md carries the client half.
 - **Production implant CA.** The teamserver consumes an externally provisioned
   engagement CA; it does not generate the production CA. When
   `Pki:CaCertificatePath` and `Pki:CaPrivateKeyPath` are configured,
@@ -1687,7 +1726,8 @@ fleet-wide code execution. Security is a first-class concern.
   untrusted redirectors cannot read or alter them. Deferred because the
   concrete adversary is absent today: the reference redirector is an opaque
   L4 splice, and the contact bodies are already sealed at the application
-  layer under the per-artifact key, so an untrusted hop sees only
+  layer -- under the per-artifact key or the session keys a handshake agreed
+  -- so an untrusted hop sees only
   ciphertext -- and mainstream platforms ship nothing
   equivalent. Building it would put mandatory cryptography on every implant's
   task path (against the implant contract's evolution rules). If it is ever

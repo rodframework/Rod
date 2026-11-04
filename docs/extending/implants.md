@@ -275,6 +275,54 @@ authentication -- the web transports request no TLS client certificate at
 all -- and the seal is the confidentiality: over cleartext `http`, everything
 past the TLS-less wire is still ciphertext to a listener.
 
+#### The session-key arm (Tier 1)
+
+The baked key has one structural weakness: a seized artifact surrenders it,
+and the key that seals the traffic also decrypts the PCAP recorded around
+it -- past and future (the seized-config class). The arm closes that: the
+first handshake of a sealed run offers an ephemeral P-256 public key
+(`session_public` on the `HandshakeRequest`, an uncompressed SEC1 point),
+the server answers its own ephemeral on the `HandshakeResponse`, and both
+sides HKDF the pair into the session's sealing keys. The baked key stays
+the enrollment identity and the root -- it is the HKDF salt, and it still
+opens *new* sessions -- but never a recorded one.
+
+The arm's contact discipline:
+
+- **The agreement contact carries its handshake and nothing else.** The
+  offer rides an R1 body (sealed under the baked key, counter as usual);
+  the response carries the echoed server ephemeral under the baked key and
+  nothing else rides it either side -- so the only plaintext a seized key
+  ever recovers past enrollment is handshake skeletons, never tasking,
+  results, or exfil.
+- **After the agreement, both directions seal under the session keys** in
+  the R2 body -- the R1 layout with the `R2` magic, the session id where
+  R1 carries the baked key id, and the same request/response purpose tags:
+  ```
+  body   := base64( b"R2" || sessionId(16) || nonce(12) || ciphertext || tag(16) )
+  plain  := counter(8, big-endian) || delimited-frames    (requests)
+          | delimited-frames                                (responses)
+  ```
+- **The schedule** (identical in every stack, pinned by a shared test
+  vector): `shared` is the P-256 ECDH secret of the two ephemerals (the
+  x-coordinate), then
+  `HKDF-SHA256(salt = bakedKey, ikm = shared, info = "rod-session-v1" || 0x00 || bakedKeyId || implantId)`,
+  80 bytes out: `sessionId(16) || requestKey(32) || responseKey(32)`. The
+  session id is derived, never exchanged.
+- **The fallback.** A 401 (or a dropped connection) while session keys are
+  held means the server no longer holds the agreement (a restart forgets
+  it, like the counter floor): drop the keys and offer a fresh agreement
+  on the next contact. An answer with no echo (an unupgraded server) keeps
+  the baked-key seal -- the addition is negotiated, never imposed, and an
+  implant that never offers changes nothing.
+- **The server holds the line**: once an implant agreed a session, an
+  ordinary R1 body from it is the refused downgrade (a replay of the
+  baked-key shape the capture would open), while an agreement offer always
+  re-rolls the keys. The framed carriages run the arm (the envelope, the
+  WebSocket beacon, the socket family, the WireGuard datagram); the DNS
+  carriage keeps the baked-key discipline -- its poll cycle carries no
+  framed handshake to hang the agreement on.
+
 ### The WebSocket beacon (the web posture's stream)
 
 `GET /implants/beacon/stream` against any web listener -- the same route
@@ -865,6 +913,12 @@ the server cannot observe whether an implant adopted any of them:
   accepted floor, so a captured frame replayed to this implant is refused and
   the refusal surfaces on the task. The reference implant always advertises;
   skipping the arm leaves replay protection to the channel.
+- **Session key agreement over the baked seal.** The arm above: offer the
+  ephemeral at the first handshake, derive the session keys from the echo,
+  seal every later body under them, and fall back to a fresh agreement on a
+  401 or a dropped connection. Skipping it leaves the baked key able to
+  decrypt the artifact's own recorded traffic -- the seized-config class the
+  arm exists to close. The reference implants always offer.
 - **Kill date.** Refuse to start past the baked kill date and re-check it
   each cycle. The teamserver refuses handshakes past it regardless; the local
   check bounds a lost implant that can no longer reach any server.
@@ -1051,10 +1105,14 @@ reporting pass/fail per clause -- `enroll.public-key-and-token`,
 `handshake.first-frame-ok`, `task.round-trip`, `chunk.discipline`,
 `signature.verification` (against a hostile tasking probe that feeds
 unsigned, wrongly signed, cross-implant, and correctly signed control
-tasks), and `kill-date.refusal`. Pointing it at the reference implant
-passes every clause; pointing it at a deliberately broken one fails with
-the violated clause named. The rig's own `MinimalImplant` is a worked
-Tier 0/Tier 1 example with switchable defects.
+tasks), `kill-date.refusal`, and `handshake.session-keys` (the
+session-key arm: the rig provisions a keyed artifact shape, asserts the
+agreement landed server-side, and proves a baked-key body forged after it
+is refused -- the seized-config property itself). Pointing it at the
+reference implant passes every clause; pointing it at a deliberately
+broken one fails with the violated clause named. The rig's own
+`MinimalImplant` is a worked Tier 0/Tier 1 example with switchable
+defects.
 
 **The standalone runner.** A community author never touches the tree: the
 release's `rod-cli-linux-x64.tar.gz` ships `rod`, the `rod-conform`
@@ -1079,8 +1137,12 @@ it to `ConformanceRig.RunAsync`.
 
 **The candidate process contract.** The runner launches the candidate
 once per phase -- a fresh front and credential each time -- with
-`ROD_ENROLL_URL`, `ROD_DEPLOY_TOKEN`, and, in the kill-date phase,
-`ROD_KILL_DATE` in its environment; the working directory is the
+`ROD_ENROLL_URL`, `ROD_DEPLOY_TOKEN`, and, per phase, the extras the
+clause under test needs: `ROD_KILL_DATE` in the kill-date phase, and
+`ROD_ENVELOPE_KEY` (plus `ROD_ENVELOPE`/`ROD_CONTACT_ENVELOPE` set to
+`aesgcm`) in the session-keys phase, pointing at the baked key the keyed
+artifact shape carries -- the same dev shape the reference implants read.
+The working directory is the
 candidate's own. The candidate enrolls through that front and runs its
 contact loop until terminated; it must contact at a cadence the harness's
 30-second observation deadlines accommodate (the reference implant runs

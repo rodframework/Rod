@@ -36,27 +36,11 @@ naming one promotes it ahead of the standing order.
 
 Sequential platform work, precedence-ordered; an item leaves the
 moment its acceptance criterion lands. The compatibility window
-orders the first two: the seal's key schedule and the contact chain's
-framing both touch what a deployed artifact carries baked in -- cheap
+orders what touches what a deployed artifact carries baked in -- cheap
 to change while no artifact is fielded, messy to migrate after -- so
-they order ahead of the standing line below until they land:
-
-- **Session key agreement over the baked seal** (serves Sec 8's
-  envelope crypto, Sec 9). The seal today is AES-256-GCM under the
-  key baked into the artifact, so a seized artifact decrypts its own
-  recorded traffic, past and future -- the classical seized-config
-  PCAP class, no quantum needed. Ephemeral X25519 at the handshake,
-  HKDF into the session's sealing keys, the baked key remaining the
-  enrollment identity and root; curves are cheap on every side (.NET
-  ECDH, Go crypto/ecdh, x25519-dalek), so the wire contract's barrier
-  does not move. ML-KEM stays out: the hybrid guards decade-horizon
-  secrets engagement traffic does not carry, and the negotiated-arm
-  pattern (the replay-nonce arm's shape) can add it later without a
-  break.
-  _AC:_ a captured artifact's baked key can no longer open its
-  pre-capture recorded traffic; both pinned trees complete the agreed
-  handshake and the Tier 0 rig pins the exchange
-  (extending/implants.md), the lock bumping the two trees together.
+the contact chain's framing orders ahead of the standing line below
+(the seal's key schedule, the window's other half, shipped as the
+session-key arm over the baked seal):
 
 - **Chained contacts through a parent** (serves Sec 5.2's pivot
   model, Sec 8). The pivot model's implant-side half: a planted host
