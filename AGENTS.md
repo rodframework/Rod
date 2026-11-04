@@ -176,6 +176,16 @@ fail a test.
   and the ids resolve nowhere. Never add new ones to code, comments, or commit
   messages; when touching an old comment that still cites one, drop the id.
 - No attribution trailers (see Sec 2).
+- **Never push, anywhere.** Pushing is the owner's action alone -- in this
+  repository and in every ecosystem or spun-out repository the work touches
+  (`rod-implant-*`, `rod-listener-*`, `rod-registry`, any of them; the rule
+  follows the work out of this tree). Development commits are unsigned
+  (`commit.gpgsign=false`); the owner re-signs the locally-ahead commits,
+  verifies every `%G?` reads `G`, and pushes. An agent-pushed unsigned
+  history happened once -- a fresh repository that then needed a force-push
+  overwrite -- and that cleanup is why this rule exists. Leave the branch
+  ahead of its origin and say so; never `git push`, never force-push, and
+  never push on the owner's behalf even when asked to "just sync it up".
 
 ## 7. Capability discipline
 
