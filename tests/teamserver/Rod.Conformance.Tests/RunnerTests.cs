@@ -143,6 +143,7 @@ public class RunnerTests
         yield return ConformanceRig.RoundTripClause;
         yield return ConformanceRig.ChunkClause;
         yield return ConformanceRig.SignatureClause;
+        yield return ConformanceRig.SessionKeysClause;
         yield return ConformanceRig.KillDateClause;
     }
 }

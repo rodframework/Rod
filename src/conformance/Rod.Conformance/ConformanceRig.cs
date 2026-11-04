@@ -35,14 +35,17 @@ namespace Rod.Conformance;
 
 /// <summary>
 /// Where a candidate phase points: the enroll URL to dial (the contact route
-/// derives off the same front), the credential to redeem, and -- for the
-/// kill-date phase -- the baked kill date the candidate must refuse to
-/// outlive.
+/// derives off the same front), the credential to redeem, and -- per phase --
+/// the extras the clause under test needs: the baked kill date the candidate
+/// must refuse to outlive, or the baked envelope key (the base64 form a
+/// build bakes) that turns the phase into the sealed posture with the
+/// session-key arm.
 /// </summary>
 public sealed record ConformanceTarget(
     string EnrollUrl,
     string DeployToken,
-    DateTimeOffset? KillDate = null)
+    DateTimeOffset? KillDate = null,
+    string? EnvelopeKey = null)
 {
     /// <summary>The contact route hanging off the enroll URL's own front --
     /// the single-front shape every candidate dials.</summary>
@@ -114,6 +117,7 @@ public sealed class ConformanceRig : IAsyncDisposable
     public const string KillDateClause = "kill-date.refusal";
     public const string PluginLoadClause = "plugin.load-exec-v1";
     public const string PluginArtifactClause = "plugin.artifact-return";
+    public const string SessionKeysClause = "handshake.session-keys";
 
     private static readonly TimeSpan ObserveDeadline = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan KillDateGrace = TimeSpan.FromSeconds(8);
@@ -128,10 +132,12 @@ public sealed class ConformanceRig : IAsyncDisposable
     private readonly IArtifactStore _artifacts;
     private readonly ITaskRepository _taskRecords;
     private readonly OperatorId _operator;
+    private readonly Rod.Transport.Endpoints.SessionSealKeys _sessionKeys;
 
     public int EnrollPort { get; }
     public int ProbePort { get; }
     public string EnrollUrl => $"http://127.0.0.1:{EnrollPort}/implants/enroll";
+    public string BeaconUrl => $"http://127.0.0.1:{EnrollPort}/implants/beacon";
     public string ProbeEnrollUrl => $"http://127.0.0.1:{ProbePort}/implants/enroll";
 
     private ConformanceRig(
@@ -147,6 +153,7 @@ public sealed class ConformanceRig : IAsyncDisposable
         _taskService = host.Services.GetRequiredService<TaskService>();
         _artifacts = host.Services.GetRequiredService<IArtifactStore>();
         _taskRecords = host.Services.GetRequiredService<ITaskRepository>();
+        _sessionKeys = host.Services.GetRequiredService<Rod.Transport.Endpoints.SessionSealKeys>();
         _operator = host.Services.GetRequiredService<IOperatorRepository>()
             .FindByHandleAsync("conformance").GetAwaiter().GetResult()!.Id;
         EnrollPort = enrollPort;
@@ -247,10 +254,11 @@ public sealed class ConformanceRig : IAsyncDisposable
     }
 
     /// <summary>
-    /// Runs the clause battery against one candidate, in three phases: the
+    /// Runs the clause battery against one candidate, in four phases: the
     /// live server (enroll, handshake, tasking, chunking), the probe
-    /// (signature verification), and a past kill date (self-termination
-    /// before any contact).
+    /// (signature verification), the sealed posture (session-key agreement
+    /// over the baked seal, plus the baked-key refusal that pins it), and a
+    /// past kill date (self-termination before any contact).
     /// </summary>
     public async Task<ConformanceReport> RunAsync(IImplantCandidate candidate, byte[]? execPlugin = null)
     {
@@ -440,7 +448,50 @@ public sealed class ConformanceRig : IAsyncDisposable
             }
         }
 
-        // ---- Phase 3: the past kill date.
+        // ---- Phase 3: the session-key arm over the baked seal. A fresh
+        // engagement in the shape a pipeline build leaves behind -- a deploy
+        // token bound to a payload record carrying a freshly minted envelope
+        // key -- and the candidate pointed at it with the baked key. The
+        // clause's two halves: the agreement the handshake made observable
+        // in the server's session store, and the refusal a body sealed
+        // under the baked key earns after it -- exactly the bytes a holder
+        // of a captured artifact's key could produce, turned away because
+        // the session holds and the baked-key seal is the refused downgrade.
+        {
+            var keyed = await MintKeyedArtifactShapeAsync();
+            var implantId = default(ImplantId);
+            var agreed = false;
+            try
+            {
+                await candidate.StartAsync(new ConformanceTarget(
+                    EnrollUrl, keyed.Token, EnvelopeKey: keyed.Baked));
+                var enrolled = await UntilAsync(ObserveDeadline, async () =>
+                {
+                    var first = (await _implants.ListByEngagementAsync(keyed.EngagementId)).FirstOrDefault();
+                    if (first is null)
+                        return false;
+                    implantId = first.Id;
+                    return true;
+                });
+                agreed = enrolled && await UntilAsync(ObserveDeadline, () =>
+                    Task.FromResult(
+                        _sessionKeys.TryLatest(implantId) is { } entry
+                        && entry.SessionId != keyed.KeyId));
+            }
+            finally
+            {
+                await candidate.StopAsync();
+            }
+            var refused = agreed && await BakedKeyBodyRefusedAsync(keyed, implantId);
+            clauses.Add(new ConformanceClause(SessionKeysClause, agreed && refused,
+                !agreed
+                    ? "no session agreement appeared in the store within the deadline (the offer never rode the handshake, or the sealed posture never enrolled)"
+                    : refused
+                        ? "the handshake agreed session keys -- a session id the baked key does not name -- and a baked-key body after the agreement was refused"
+                        : "the agreement landed but a baked-key body after it was still accepted -- the seized-config door stayed open"));
+        }
+
+        // ---- Phase 4: the past kill date.
         var killEngagement = await MintEngagementTokenAsync();
         try
         {
@@ -477,6 +528,67 @@ public sealed class ConformanceRig : IAsyncDisposable
         var minted = await _engagements.MintDeployTokenAsync(
             new MintDeployTokenCommand(created.EngagementId, _operator));
         return (created.EngagementId, minted.Secret);
+    }
+
+    // The sealed-posture phase's engagement, in the shape a pipeline build
+    // leaves behind: the deploy token minted for the artifact, a payload
+    // record carrying the token id beside a freshly minted envelope key,
+    // and the baked key the artifact would carry. An enrollment that
+    // redeems the token binds to the key through the record, exactly the
+    // way a build-baked credential binds a real artifact's enrollment.
+    private async Task<KeyedArtifact> MintKeyedArtifactShapeAsync()
+    {
+        var created = await _engagements.CreateEngagementAsync(
+            new CreateEngagementCommand(_operator, "conformance-keyed-" + Guid.NewGuid().ToString("N")[..8]));
+        var minted = await _engagements.MintDeployTokenAsync(
+            new MintDeployTokenCommand(created.EngagementId, _operator));
+
+        var (keyId, key) = Rod.Transport.Payloads.AesGcmEnvelope.Mint();
+        var payloads = _host.Services.GetRequiredService<IPayloadStore>();
+        await payloads.SaveAsync(new PayloadRecord(
+            Guid.NewGuid(), created.EngagementId.Value, "Implant", "DotNet",
+            "application/octet-stream", new string('a', 64), Array.Empty<byte>(), 0,
+            DateTimeOffset.UtcNow,
+            TokenId: minted.DeployTokenId.Value, EnvelopeKeyId: keyId, EnvelopeKey: key));
+
+        return new KeyedArtifact(
+            created.EngagementId, minted.Secret, keyId, key,
+            Rod.Transport.Payloads.AesGcmEnvelope.Bake(keyId, key));
+    }
+
+    private sealed record KeyedArtifact(
+        EngagementId EngagementId, string Token, Guid KeyId, byte[] Key, string Baked);
+
+    // The session-key clause's negative probe: a contact body sealed under
+    // the baked key with a counter far above anything the candidate ran (so
+    // the floor cannot be the refusal's cause), carrying an ordinary
+    // offer-less handshake -- exactly the bytes a holder of a captured
+    // artifact's key could produce against the recorded-traffic class the
+    // arm exists to close. Refused is the pass.
+    private async Task<bool> BakedKeyBodyRefusedAsync(KeyedArtifact keyed, ImplantId implant)
+    {
+        var frames = EnvelopeProbeCodec.Encode(new[]
+        {
+            new Frame
+            {
+                Payload = ByteString.CopyFrom(new HandshakeRequest
+                {
+                    Version = new ProtocolVersion { Major = 1, Minor = 0 },
+                    ImplantId = implant.ToString(),
+                }.ToByteArray()),
+            },
+        });
+        var plain = new byte[8 + frames.Length];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(plain, 1_000_000);
+        frames.CopyTo(plain, 8);
+        var body = Rod.Transport.Payloads.AesGcmEnvelope.Wrap(
+            plain, keyed.KeyId, keyed.Key, Rod.Transport.Payloads.AesGcmEnvelope.ContactRequestAad);
+
+        using var http = new HttpClient();
+        using var response = await http.PostAsync(
+            BeaconUrl,
+            new StringContent(body, System.Text.Encoding.UTF8, "text/plain"));
+        return response.StatusCode == System.Net.HttpStatusCode.Unauthorized;
     }
 
     private static async Task<bool> UntilAsync(TimeSpan deadline, Func<Task<bool>> condition)

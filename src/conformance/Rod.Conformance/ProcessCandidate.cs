@@ -45,6 +45,16 @@ public sealed class ProcessCandidate : IImplantCandidate
         psi.Environment["ROD_DEPLOY_TOKEN"] = target.DeployToken;
         if (target.KillDate is { } killDate)
             psi.Environment["ROD_KILL_DATE"] = killDate.ToString("O");
+        if (target.EnvelopeKey is { } envelopeKey)
+        {
+            // The sealed-posture phase names the whole dev shape, not just
+            // the key: the envelope knobs ride with it so a candidate whose
+            // own environment turned the seal off still runs the posture the
+            // clause tests.
+            psi.Environment["ROD_ENVELOPE_KEY"] = envelopeKey;
+            psi.Environment["ROD_ENVELOPE"] = "aesgcm";
+            psi.Environment["ROD_CONTACT_ENVELOPE"] = "aesgcm";
+        }
         _process = Process.Start(psi)
             ?? throw new InvalidOperationException($"Failed to start the candidate '{_binary}'.");
         // Drain both pipes so a chatty candidate cannot stall on a full one;

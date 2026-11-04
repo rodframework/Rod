@@ -21,5 +21,6 @@ public class ClauseNameTests
         Assert.Equal("kill-date.refusal", ConformanceRig.KillDateClause);
         Assert.Equal("plugin.load-exec-v1", ConformanceRig.PluginLoadClause);
         Assert.Equal("plugin.artifact-return", ConformanceRig.PluginArtifactClause);
+        Assert.Equal("handshake.session-keys", ConformanceRig.SessionKeysClause);
     }
 }

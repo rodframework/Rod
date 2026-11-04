@@ -27,6 +27,7 @@ public static class Program
         }
         DateTimeOffset? killDate = DateTimeOffset.TryParse(
             Environment.GetEnvironmentVariable("ROD_KILL_DATE"), out var kill) ? kill : null;
+        var envelopeKey = Environment.GetEnvironmentVariable("ROD_ENVELOPE_KEY");
         var defectNames = (Environment.GetEnvironmentVariable("ROD_DEFECTS") ?? "")
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (!ImplantDefects.TryParse(defectNames, out var defects, out var unknown))
@@ -39,7 +40,7 @@ public static class Program
         // The runner stops the process between phases; until then the loop
         // is the whole program.
         await new MinimalImplantLoop(defects).RunAsync(
-            new ConformanceTarget(enrollUrl, token, killDate), CancellationToken.None);
+            new ConformanceTarget(enrollUrl, token, killDate, envelopeKey), CancellationToken.None);
         return 0;
     }
 }

