@@ -18,24 +18,28 @@ and a real engagement's needs reorder that queue rather than gate it.
 Refactors, deletions, and answering with docs instead of code stay
 first-class items here, equal to features.
 
-Active is advisory order, not a queue: the batches order themselves
-(low-risk ground first, the sensitive families behind their default-off
-gates), and inside a batch the right module to take is still the one an
-engagement or the matrix names. On hold is parking, not rejection: each
-item there names the fact or decision that reopens it, and a cleared
-condition prompts the move back into Active -- it does not make the move
+Four zones. The queue is ordered platform work: an item takes its
+place by precedence and leaves the moment its acceptance criterion
+lands. The standing line is the module conveyor: it never empties and
+carries no order to work in -- the batches order themselves (low-risk
+ground first, the sensitive families behind their default-off gates),
+and inside a batch the right module to take is still the one an
+engagement or the matrix names. On hold is parking, not rejection:
+each item there names the fact or decision that reopens it, and a
+cleared condition prompts the move back -- it does not make the move
 on its own. Backlog is the candidate pool: platform and product
 candidates wait there for a real user to name the need; capability-module
-candidates are this line's future batches, and an engagement naming one
-promotes it ahead of the standing order.
+candidates are the standing line's future batches, and an engagement
+naming one promotes it ahead of the standing order.
 
-## Active
+## The queue
 
-The platform line -- the compatibility window orders its first two
-items. Both touch what a deployed artifact carries baked in: the
-seal's key schedule and the contact chain's framing are cheap to
-change while no artifact is fielded and messy to migrate after, so
-they take precedence over the module cadence below until they land:
+Sequential platform work, precedence-ordered; an item leaves the
+moment its acceptance criterion lands. The compatibility window
+orders the first two: the seal's key schedule and the contact chain's
+framing both touch what a deployed artifact carries baked in -- cheap
+to change while no artifact is fielded, messy to migrate after -- so
+they order ahead of the standing line below until they land:
 
 - **Session key agreement over the baked seal** (serves Sec 8's
   envelope crypto, Sec 9). The seal today is AES-256-GCM under the
@@ -107,9 +111,13 @@ they take precedence over the module cadence below until they land:
   _AC:_ the parser survives a sustained fuzzing run without panic, and
   the campaign rides the implant tree's CI.
 
-The module layer's standing line: capability modules advancing the
-ATT&CK coverage matrix (architecture.md Sec 15.1, Sec 5.4), in family
-batches ordered by matrix gap.
+## The standing line
+
+The module layer's conveyor: capability modules advancing the ATT&CK
+coverage matrix (architecture.md Sec 15.1, Sec 5.4), in family batches
+ordered by matrix gap. It never empties -- a family item ships
+entries, folds them into its shipped list, and keeps going; the pace
+is whatever the matrix gaps and real engagements set, not a schedule.
 
 First batch, the Windows long tail (the domain-discovery family and
 the persistence family both shipped -- the module line's second worked
