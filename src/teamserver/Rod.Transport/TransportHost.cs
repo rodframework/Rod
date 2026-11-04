@@ -213,7 +213,7 @@ public static class TransportHost
         // take, so the supervisor below consumes it without referencing the
         // ecosystem's layers.
         services.AddSingleton<Rod.CoreState.Listeners.IListenerPackageCatalog>(
-            new NullListenerPackageCatalog());
+            new Listeners.Bridge.NullListenerPackageCatalog());
         // The durable home for engagement-scoped listener definitions:
         // in-memory by default (the process's lifetime, like the rest of core
         // state without Postgres), Postgres-backed when the connection string
