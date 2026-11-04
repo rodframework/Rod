@@ -5,11 +5,11 @@ name: implant-matrix
 # BOTH reference implants on its own OS and arch through the real contracts --
 # the pipeline bakes the artifact for the cell's target, the artifact enrolls
 # against a live teamserver, and a dispatched task completes. The harness is
-# host-aware (TestCell), so the same five legs prove every cell. The trees
+# host-aware (TestCell), so the same legs prove every cell. The trees
 # resolve through the pinned implant lock (architecture.md Sec 15.4).
 #
 # Weekly, not per push or nightly: six cells of a full solution build plus
-# cold cargo compiles is a heavy standing load, and the same five e2e
+# cold cargo compiles is a heavy standing load, and the same e2e
 # families already run nightly on ubuntu in ci.yml's scheduled extended
 # lane -- the matrix is the cross-OS confirmation of a contract the nightly
 # witnesses on one OS every night. The badge in the README carries this
@@ -54,15 +54,19 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 90
     env:
-      # The five round-trip legs: each unit's dev shape plus its
-      # pipeline-baked artifact on both contact modes (poll and stream).
-      # The deep channel legs -- tunnels, dns, exfil, the linux-only
-      # wireguard carriage -- stay on ci.yml's ubuntu lanes, where their
-      # seams live.
+      # The six round-trip legs: each unit's dev shape plus its
+      # pipeline-baked artifact on both contact modes (poll and stream),
+      # and the chain leg -- a parent's tunnel.bind channel carrying an
+      # egress-less child's whole session, pure loopback so every cell
+      # runs it (architecture.md Sec 5.2's acceptance). The deep channel
+      # legs -- tunnels, dns, exfil, the linux-only wireguard carriage,
+      # the level-over-level chain composition -- stay on ci.yml's ubuntu
+      # lanes, where their seams live.
       MATRIX_FILTER: >-
         FullyQualifiedName~Rod.Integration.Tests.RustImplantEndToEndTests.RustImplant_Enrols_GoesOnline_AndRunsTasking
         |FullyQualifiedName~Rod.Integration.Tests.RustImplantEndToEndTests.RustImplant_BuildsThroughThePipeline_AndRunsFromTheBake
         |FullyQualifiedName~Rod.Integration.Tests.RustImplantEndToEndTests.RustImplant_StreamsOverTheWebSocketBeacon_FromTheBake
+        |FullyQualifiedName~Rod.Integration.Tests.RustImplantEndToEndTests.RustImplant_KeepsItsSessionThroughAParentChain
         |FullyQualifiedName~Rod.Integration.Tests.GoImplantEndToEndTests.GoImplant_EnrollsRunsTasking_AndExfilsPastTheContactBudget
         |FullyQualifiedName~Rod.Integration.Tests.GoImplantEndToEndTests.GoImplant_BuildsThroughThePipeline_AndRunsFromTheBake
     steps:

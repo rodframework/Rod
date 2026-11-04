@@ -27,10 +27,10 @@ public class StubBuildUnitTests
         new BeaconProfile(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(10), DateTimeOffset.UtcNow.AddDays(30)));
 
     [Theory]
-    [InlineData(ImplantClass.Implant, "shell.exec,shell.interact,file.push,file.pull,fs.list,proc.kill,beacon.sleep,tunnel.forward,tunnel.socks,recon.portscan,recon.hostenum,recon.service,recon.ps,lateral.move,lateral.token,lateral.exec_remote,persist.install,persist.remove,persist.list,collect.cred,collect.keylog,collect.screenshot,collect.minidump,inject.shellcode,exfil.push,exfil.stage,module.load,module.unload,module.list")]
+    [InlineData(ImplantClass.Implant, "shell.exec,shell.interact,file.push,file.pull,fs.list,proc.kill,beacon.sleep,tunnel.bind,tunnel.forward,tunnel.socks,recon.portscan,recon.hostenum,recon.service,recon.ps,lateral.move,lateral.token,lateral.exec_remote,persist.install,persist.remove,persist.list,collect.cred,collect.keylog,collect.screenshot,collect.minidump,inject.shellcode,exfil.push,exfil.stage,module.load,module.unload,module.list")]
     [InlineData(ImplantClass.WebShell, "shell.exec")]
     [InlineData(ImplantClass.Ephemeral, "shell.exec")]
-    [InlineData(ImplantClass.Pivot, "tunnel.forward,tunnel.socks")]
+    [InlineData(ImplantClass.Pivot, "tunnel.bind,tunnel.forward,tunnel.socks")]
     public async Task Build_BakesTheClassReducedVerbSet_IntoTheManifest(ImplantClass @class, string expectedVerbs)
     {
         // The class's reduced verb set is baked into the artifact

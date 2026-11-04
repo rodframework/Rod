@@ -35,24 +35,7 @@ naming one promotes it ahead of the standing order.
 ## The queue
 
 Sequential platform work, precedence-ordered; an item leaves the
-moment its acceptance criterion lands. The compatibility window
-orders what touches what a deployed artifact carries baked in -- cheap
-to change while no artifact is fielded, messy to migrate after -- so
-the contact chain's framing orders ahead of the standing line below
-(the seal's key schedule, the window's other half, shipped as the
-session-key arm over the baked seal):
-
-- **Chained contacts through a parent** (serves Sec 5.2's pivot
-  model, Sec 8). The pivot model's implant-side half: a planted host
-  with no egress of its own enrolls and keeps its contact by riding a
-  parent implant, the chain composing level over level toward the one
-  host that can reach the edge. Riding the tunnel set (a parent-side
-  bind fronting its carriage) is the in-design route; a standalone
-  peer-listener transport family reopens the retired SMB/mTLS/QUIC
-  line (Sec 15.3) and must argue it anew, not restate it.
-  _AC:_ an implant on an egress-less segment maintains its session
-  through a parent to the teamserver in the implant e2e matrix, with
-  every hop's records attributed.
+moment its acceptance criterion lands.
 
 - **Implant-carried transports -- the exec-v1 provider seam** (serves
   Sec 8, Sec 15.1). Open the carrier seam to authors who will never
