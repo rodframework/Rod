@@ -47,6 +47,9 @@ public static class ManifestToml
         [TomlPropertyName("unit")]
         public UnitSection? Unit { get; set; }
 
+        [TomlPropertyName("listener")]
+        public ListenerSection? Listener { get; set; }
+
         [TomlPropertyName("verbs")]
         public List<VerbRow>? Verbs { get; set; }
 
@@ -73,6 +76,26 @@ public static class ManifestToml
         [TomlPropertyName("id")] public string? Id { get; set; }
         [TomlPropertyName("command")] public string? Command { get; set; }
         [TomlPropertyName("timeout-minutes")] public long? TimeoutMinutes { get; set; }
+    }
+
+    private sealed class ListenerSection
+    {
+        [TomlPropertyName("seal-tier")] public string? SealTier { get; set; }
+        [TomlPropertyName("third-party-medium")] public bool? ThirdPartyMedium { get; set; }
+        [TomlPropertyName("channel")] public string? Channel { get; set; }
+        [TomlPropertyName("carriers")] public List<string>? Carriers { get; set; }
+        [TomlPropertyName("command")] public string? Command { get; set; }
+        [TomlPropertyName("args")] public List<string>? Args { get; set; }
+        [TomlPropertyName("params")] public List<ListenerParamRow>? Params { get; set; }
+    }
+
+    private sealed class ListenerParamRow
+    {
+        [TomlPropertyName("name")] public string? Name { get; set; }
+        [TomlPropertyName("kind")] public string? Kind { get; set; }
+        [TomlPropertyName("required")] public bool? Required { get; set; }
+        [TomlPropertyName("description")] public string? Description { get; set; }
+        [TomlPropertyName("secret")] public bool? Secret { get; set; }
     }
 
     private sealed class ModuleSection
@@ -187,7 +210,7 @@ public static class ManifestToml
         string? license = TrimOrNull(module?.License);
         if (name is null) errors.Add("module.name is missing.");
         if (versionText is null) errors.Add("module.version is missing.");
-        if (entryText is null) errors.Add("module.entry is missing (server, plugin, extension, build-unit, or assets).");
+        if (entryText is null) errors.Add("module.entry is missing (server, plugin, extension, build-unit, assets, or listener).");
         if (license is null) errors.Add("module.license is missing; use an SPDX identifier.");
 
         string? teamserverText = TrimOrNull(compatibility?.Teamserver);
@@ -204,7 +227,7 @@ public static class ManifestToml
         if (!SemVer.TryParse(versionText!, out var version))
             errors.Add($"module.version '{versionText}' is not a SemVer version (M.m.p[-pre]).");
         if (!ModuleEntryKindNames.TryParse(entryText!, out var entry))
-            errors.Add($"module.entry '{entryText}' is not one of: server, plugin, extension, build-unit, or assets.");
+            errors.Add($"module.entry '{entryText}' is not one of: server, plugin, extension, build-unit, assets, or listener.");
         if (!SemVer.TryParse(teamserverText!, out var teamserverMin))
             errors.Add($"compatibility.teamserver '{teamserverText}' is not a SemVer version.");
 
@@ -420,6 +443,69 @@ public static class ManifestToml
                 declaredUnit.TimeoutMinutes is null ? null : (int)declaredUnit.TimeoutMinutes);
         }
 
+        // The listener package's medium contract (ADR-025): the section maps
+        // onto the model as-is and the validator names what is wrong with it
+        // -- the same parse-maps, validate-judges split every other section
+        // keeps. A section any field of which is set must be whole: the
+        // required fields name themselves when missing.
+        ListenerDeclaration? listener = null;
+        var listenerSection = document.Listener;
+        if (listenerSection is { } declaredListener
+            && (declaredListener.SealTier is not null || declaredListener.ThirdPartyMedium is not null
+                || declaredListener.Channel is not null || declaredListener.Carriers is not null
+                || declaredListener.Command is not null || declaredListener.Args is not null
+                || declaredListener.Params is not null))
+        {
+            var sealTier = ListenerSealTier.Sealed;
+            var sealTierOk = true;
+            if (TrimOrNull(declaredListener.SealTier) is not { } sealTierText
+                || !ListenerSealTierNames.TryParse(sealTierText, out sealTier))
+            {
+                errors.Add($"listener.seal-tier '{declaredListener.SealTier ?? ""}' is not one of: sealed, id-only.");
+                sealTierOk = false;
+            }
+            var channel = TrimOrNull(declaredListener.Channel);
+            if (channel is null)
+                errors.Add("listener.channel is missing (native, degraded, or none).");
+            var command = TrimOrNull(declaredListener.Command);
+            if (command is null)
+                errors.Add("listener.command is missing (the process the supervisor spawns).");
+
+            var listenerParams = new List<ListenerParamDeclaration>();
+            for (var i = 0; i < (declaredListener.Params?.Count ?? 0); i++)
+            {
+                var row = declaredListener.Params![i];
+                var paramName = TrimOrNull(row.Name);
+                var paramKind = TrimOrNull(row.Kind);
+                if (paramName is null || paramKind is null)
+                {
+                    errors.Add($"listener.params[{i}] needs both a name and a kind.");
+                    continue;
+                }
+                listenerParams.Add(new ListenerParamDeclaration(
+                    paramName,
+                    paramKind,
+                    row.Required ?? false,
+                    TrimOrNull(row.Description),
+                    row.Secret ?? false));
+            }
+
+            if (sealTierOk && channel is not null && command is not null)
+                listener = new ListenerDeclaration(
+                    sealTier,
+                    declaredListener.ThirdPartyMedium ?? false,
+                    channel,
+                    (declaredListener.Carriers ?? [])
+                        .Where(c => !string.IsNullOrWhiteSpace(c))
+                        .Select(c => c.Trim())
+                        .ToList(),
+                    command,
+                    (declaredListener.Args ?? [])
+                        .Select(a => a.Trim())
+                        .ToList(),
+                    listenerParams);
+        }
+
         if (errors.Count > 0)
             return errors;
 
@@ -443,6 +529,7 @@ public static class ManifestToml
             Assets = assets,
             PluginArtifacts = pluginArtifacts,
             Unit = unit,
+            Listener = listener,
             Package = package,
         };
         errors.AddRange(manifest.Validate());
@@ -477,7 +564,7 @@ public static class ManifestToml
         sb.AppendLine("[module]");
         sb.AppendLine($"name = {Quote(name)}");
         sb.AppendLine($"version = {Quote(version.ToString())}");
-        sb.AppendLine($"entry = {Quote(ModuleEntryKindNames.ToString(entry))}  # server | plugin | extension | build-unit | assets");
+        sb.AppendLine($"entry = {Quote(ModuleEntryKindNames.ToString(entry))}  # server | plugin | extension | build-unit | assets | listener");
         sb.AppendLine($"license = {Quote(license)}  # SPDX identifier; publish refuses UNLICENSED");
         sb.AppendLine($"description = {Quote(description ?? "")}");
         sb.AppendLine();
@@ -545,7 +632,35 @@ public static class ManifestToml
             sb.AppendLine($"path = {Quote($"assets/{name}.txt")}");
             sb.AppendLine();
         }
-        else if (entry != ModuleEntryKind.BuildUnit)
+        else if (entry == ModuleEntryKind.Listener)
+        {
+            // The listener package's medium contract (ADR-025): the seal
+            // tier, the carriers, and the supervisor's spawn command. The
+            // scaffold names the point-to-point lab posture honestly -- an
+            // author whose medium rests on third-party infrastructure flips
+            // third-party-medium to true and must then ship sealed.
+            sb.AppendLine("# The medium contract (ADR-025): what the kernel enforces on both");
+            sb.AppendLine("# ends. A carrier whose bytes rest on third-party infrastructure (chat,");
+            sb.AppendLine("# mail, a CDN) must declare seal-tier = \"sealed\".");
+            sb.AppendLine("[listener]");
+            sb.AppendLine("seal-tier = \"id-only\"  # sealed | id-only");
+            sb.AppendLine("third-party-medium = false");
+            sb.AppendLine("channel = \"degraded\"  # native | degraded | none -- the medium's channel honesty");
+            sb.AppendLine("carriers = [\"envelope\"]  # the contact carriers the medium serves");
+            sb.AppendLine("command = \"./server\"  # the process the supervisor spawns, run inside the installed package");
+            sb.AppendLine("# args = [\"--verbose\"]");
+            sb.AppendLine();
+            sb.AppendLine("# The medium parameters a listener carries (the config schema): the");
+            sb.AppendLine("# fields an operator sets at creation, in declaration order.");
+            sb.AppendLine("[[listener.params]]");
+            sb.AppendLine("name = \"bind\"");
+            sb.AppendLine("kind = \"string\"  # string, text, number, boolean, enum, file, array");
+            sb.AppendLine("required = true");
+            sb.AppendLine("description = \"The address the medium front binds.\"");
+            sb.AppendLine("# secret = false  # true for rows the console never echoes back");
+            sb.AppendLine();
+        }
+        else if (entry is not (ModuleEntryKind.BuildUnit or ModuleEntryKind.Listener))
         {
             sb.AppendLine("# The verb rows: each carries its module-scoped version, an optional");
             sb.AppendLine("# per-verb teamserver floor, and the verb's ATT&CK techniques (ADR-007).");

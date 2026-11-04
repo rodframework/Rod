@@ -653,7 +653,7 @@ public class ManifestTests
     [Theory]
     [InlineData("name = \"Demo_Sweep\"", "kebab-case")]
     [InlineData("version = \"1.0\"", "SemVer")]
-    [InlineData("entry = \"sidecar\"", "server, plugin, extension, build-unit, or assets")]
+    [InlineData("entry = \"sidecar\"", "server, plugin, extension, build-unit, assets, or listener")]
     public void InvalidValues_FailValidation(string line, string expectedFragment)
     {
         // Each variant omits the field under test from the base document so
@@ -1076,10 +1076,10 @@ public class CanonicalFormTests
     public void TheForm_CarriesItsVersionLineAndNoTrailingNewline()
     {
         var form = CanonicalForm.Build(Manifest(), new Dictionary<string, string>());
-        // v4 names the form whose field set carries the plugin artifact
-        // rows, the targets' build-unit targeting, and the [unit] table
-        // (ADRs 020 through 022) -- the shape change is the bump.
-        Assert.StartsWith("rod-module-manifest-v4\n", form);
+        // v5 names the form whose field set carries the listener package
+        // declaration's [listener] table and its param rows (ADR-025) --
+        // the shape change is the bump.
+        Assert.StartsWith("rod-module-manifest-v5\n", form);
         Assert.False(form.EndsWith('\n'));
         Assert.StartsWith("name=demo-sweep\n", form[(CanonicalForm.VersionLine.Length + 1)..]);
     }
@@ -1140,7 +1140,7 @@ public class CanonicalFormTests
         };
 
         Assert.Equal("""
-            rod-module-manifest-v4
+            rod-module-manifest-v5
             name=golden-demo
             version=1.2.3
             entry=plugin
@@ -1153,6 +1153,8 @@ public class CanonicalFormTests
             techniques=T1005,T1082
             targets=implant/linux/amd64 unit=rod-rust unit-floor=1.2.0,implant/windows/amd64
             unit=-
+            listener=-
+            listener-command=-
             plugin-artifact/linux/amd64=path=bin/golden-linux abi=exec-v1
             plugin-artifact/linux/arm64=path=bin/golden-arm abi=exec-v1
             requires=plugin-loader/exec-v1,staged-uploads
@@ -1168,6 +1170,132 @@ public class CanonicalFormTests
             file/bin/golden-arm=aa
             file/bin/golden-linux=bb
             """, CanonicalForm.Build(manifest, digests));
+    }
+
+    // A listener package's own base: the [listener] table in its honest
+    // point-to-point posture. Reused by the listener tests below.
+    private const string ListenerPackage = """
+        [module]
+        name = "rod-listener-demo"
+        version = "1.0.0"
+        entry = "listener"
+        license = "MIT"
+        description = "A demonstration listener package."
+
+        [compatibility]
+        teamserver = "1.0.0"
+
+        [opsec]
+        lands-on-disk = false
+
+        [listener]
+        seal-tier = "id-only"
+        third-party-medium = false
+        channel = "degraded"
+        carriers = ["envelope"]
+        command = "python3"
+        args = ["server.py"]
+
+        [[listener.params]]
+        name = "bind"
+        kind = "string"
+        required = true
+        description = "The address the medium front binds."
+        """;
+
+    [Fact]
+    public void AListenerManifest_ParsesItsMediumContract()
+    {
+        var errors = ManifestToml.Load(ListenerPackage, out var manifest);
+
+        Assert.Empty(errors);
+        Assert.NotNull(manifest);
+        Assert.Equal(ModuleEntryKind.Listener, manifest!.Entry);
+        Assert.NotNull(manifest.Listener);
+        Assert.Equal(ListenerSealTier.IdOnly, manifest.Listener.SealTier);
+        Assert.False(manifest.Listener.ThirdPartyMedium);
+        Assert.Equal("degraded", manifest.Listener.Channel);
+        Assert.Equal(["envelope"], manifest.Listener.Carriers);
+        Assert.Equal("python3", manifest.Listener.ProcessCommand);
+        Assert.Equal(["server.py"], manifest.Listener.ProcessArgs);
+        var parameter = Assert.Single(manifest.Listener.Params);
+        Assert.Equal("bind", parameter.Name);
+        Assert.True(parameter.Required);
+    }
+
+    [Fact]
+    public void AThirdPartyMedium_MustDeclareSealed()
+    {
+        // The seal rule the kernel enforces (ADR-025): id-only is the
+        // point-to-point posture on a segment the operator operates; a
+        // carrier whose bytes rest on third-party infrastructure refuses
+        // the manifest at publish, before the kernel trusts it.
+        var toml = ListenerPackage.Replace(
+            "third-party-medium = false",
+            "third-party-medium = true");
+        var errors = ManifestToml.Load(toml, out _);
+
+        Assert.Contains(errors, e => e.Contains("must be 'sealed'"));
+    }
+
+    [Fact]
+    public void ASealedThirdPartyMedium_IsTheHonestPosture()
+    {
+        var toml = ListenerPackage.Replace("seal-tier = \"id-only\"", "seal-tier = \"sealed\"")
+            .Replace("third-party-medium = false", "third-party-medium = true");
+        var errors = ManifestToml.Load(toml, out _);
+
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void AListenerTable_OnAnotherEntryKind_IsRefused()
+    {
+        var toml = ListenerPackage.Replace("entry = \"listener\"", "entry = \"server\"");
+        var errors = ManifestToml.Load(toml, out _);
+
+        Assert.Contains(errors, e => e.Contains("a server module carries none"));
+    }
+
+    [Fact]
+    public void AListenerEntry_WithoutItsTable_IsRefused()
+    {
+        var toml = ListenerPackage[..ListenerPackage.IndexOf("[listener]")];
+        var errors = ManifestToml.Load(toml, out _);
+
+        Assert.Contains(errors, e => e.Contains("carries no [listener] table"));
+    }
+
+    [Fact]
+    public void APartialListenerTable_NamesItsMissingFields()
+    {
+        // A section any field of which is set must be whole: a params-only
+        // table reports the fields it lacks, not a silent default.
+        var toml = ListenerPackage[..ListenerPackage.IndexOf("seal-tier")]
+            + ListenerPackage[ListenerPackage.IndexOf("[[listener.params]]")..];
+        var errors = ManifestToml.Load(toml, out _);
+
+        Assert.Contains(errors, e => e.Contains("listener.seal-tier"));
+        Assert.Contains(errors, e => e.Contains("listener.channel is missing"));
+        Assert.Contains(errors, e => e.Contains("listener.command is missing"));
+    }
+
+    [Fact]
+    public void AListenerDeclaration_RidesTheSignedCanonicalForm()
+    {
+        // The declaration's every field breaks the signature when tampered:
+        // the seal posture, the carriers, the spawn contract, and the config
+        // schema each ride their own line.
+        ManifestToml.Load(ListenerPackage, out var manifest);
+        Assert.NotNull(manifest);
+
+        var form = CanonicalForm.Build(manifest!, new Dictionary<string, string>());
+        Assert.Contains("listener=seal=id-only third-party=false channel=degraded carriers=envelope\n", form);
+        Assert.Contains("listener-command=python3\n", form);
+        Assert.Contains("listener-arg/0=server.py\n", form);
+        Assert.Contains(
+            "listener-param/bind=kind=string required=true secret=false description=The address the medium front binds.\n",
+            form);
     }
 
 }

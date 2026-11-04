@@ -20,10 +20,11 @@ public static class CanonicalForm
     // to the signed field set; v3 added the verb rows' descriptor half
     // (category, OPSEC flags, parameter schema, output declaration); v4
     // adds the plugin artifact rows, the targets' build-unit targeting,
-    // and the [unit] table (ADRs 020 through 022) -- the form's identity
-    // names its own shape, so a field-set change is a version bump, never
-    // a silent mismatch.
-    public const string VersionLine = "rod-module-manifest-v4";
+    // and the [unit] table (ADRs 020 through 022); v5 adds the listener
+    // package declaration's [listener] table and its param rows (ADR-025)
+    // -- the form's identity names its own shape, so a field-set change is
+    // a version bump, never a silent mismatch.
+    public const string VersionLine = "rod-module-manifest-v5";
 
     /// <summary>Builds the signed message: one line per field in fixed
     /// order, then one digest line per payload file sorted by path. Lines
@@ -74,6 +75,31 @@ public static class CanonicalForm
         Line("unit", manifest.Unit is { } unitDefinition
             ? $"{unitDefinition.Id} command={unitDefinition.Command} timeout={unitDefinition.TimeoutMinutes?.ToString() ?? "-"}"
             : "-");
+
+        // The listener package declaration (ADR-025): the seal tier and the
+        // third-party flag are the posture the kernel enforces, and the
+        // carriers and channel are the claim semantics the roster reads --
+        // a tampered any of them breaks verification like every other field.
+        // The spawn args ride one line per arg (index-keyed, so order is
+        // data and a comma inside an argument cannot forge the line).
+        Line("listener", manifest.Listener is { } listener
+            ? $"seal={ListenerSealTierNames.ToString(listener.SealTier)} third-party={Bool(listener.ThirdPartyMedium)} "
+            + $"channel={listener.Channel} carriers="
+            + (listener.Carriers.Count == 0
+                ? "-"
+                : string.Join(",", listener.Carriers.Distinct().OrderBy(c => c, StringComparer.Ordinal)))
+            : "-");
+        Line("listener-command", manifest.Listener is { } withCommand ? withCommand.ProcessCommand : "-");
+        for (var i = 0; i < (manifest.Listener?.ProcessArgs.Count ?? 0); i++)
+            Line($"listener-arg/{i}", manifest.Listener!.ProcessArgs[i]);
+        if (manifest.Listener is { } withParams)
+        {
+            foreach (var parameter in withParams.Params.OrderBy(p => p.Name, StringComparer.Ordinal))
+                Line(
+                    "listener-param/" + parameter.Name,
+                    $"kind={parameter.Kind} required={Bool(parameter.Required)} secret={Bool(parameter.Secret)} "
+                    + $"description={parameter.Description ?? "-"}");
+        }
 
         // The plugin artifact rows ride one line per artifact, target-sorted:
         // the path and the ABI together, so a tampered binary (the digest

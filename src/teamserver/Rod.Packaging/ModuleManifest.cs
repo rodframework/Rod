@@ -5,10 +5,12 @@ namespace Rod.Packaging;
 /// <summary>
 /// The entry kind a module ships as (architecture.md Sec 15.2): a
 /// server-side capability module, a portable implant-side plugin package, an
-/// implant-native extension compiled into a build, a build unit, or a pure
-/// asset module (script and template files the teamserver serves, no code).
-/// The kind decides how an installed package is consumed, not how it
-/// travels -- one manifest shape, one registry, one CLI.
+/// implant-native extension compiled into a build, a build unit, a pure
+/// asset module (script and template files the teamserver serves, no code),
+/// or a listener package (the externalized-listener model's server process
+/// plus its medium contract, ADR-025). The kind decides how an installed
+/// package is consumed, not how it travels -- one manifest shape, one
+/// registry, one CLI.
 /// </summary>
 public enum ModuleEntryKind
 {
@@ -17,6 +19,7 @@ public enum ModuleEntryKind
     Extension,
     BuildUnit,
     Assets,
+    Listener,
 }
 
 public static class ModuleEntryKindNames
@@ -30,6 +33,7 @@ public static class ModuleEntryKindNames
             case "extension": kind = ModuleEntryKind.Extension; return true;
             case "build-unit": kind = ModuleEntryKind.BuildUnit; return true;
             case "assets": kind = ModuleEntryKind.Assets; return true;
+            case "listener": kind = ModuleEntryKind.Listener; return true;
             default: kind = default; return false;
         }
     }
@@ -41,6 +45,7 @@ public static class ModuleEntryKindNames
         ModuleEntryKind.Extension => "extension",
         ModuleEntryKind.BuildUnit => "build-unit",
         ModuleEntryKind.Assets => "assets",
+        ModuleEntryKind.Listener => "listener",
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 }
@@ -298,6 +303,97 @@ public sealed record PluginArtifact(string Platform, string Arch, string Path, s
 public sealed record UnitDefinition(string Id, string Command, int? TimeoutMinutes = null);
 
 /// <summary>
+/// The seal tier a listener package declares for its medium (ADR-025):
+/// whether contacts cross the carrier sealed end to end under the
+/// per-artifact key, or identified by the handshake alone. The declaration
+/// is the kernel's to enforce, not the author's to choose freely -- a
+/// carrier whose bytes rest on third-party infrastructure must declare
+/// <see cref="Sealed"/>, because id-only traffic on a medium the operator
+/// does not operate is plaintext on someone else's disk.
+/// </summary>
+public enum ListenerSealTier
+{
+    Sealed,
+    IdOnly,
+}
+
+public static class ListenerSealTierNames
+{
+    public const string Sealed = "sealed";
+    public const string IdOnly = "id-only";
+
+    public static bool TryParse(string text, out ListenerSealTier tier)
+    {
+        switch (text)
+        {
+            case Sealed: tier = ListenerSealTier.Sealed; return true;
+            case IdOnly: tier = ListenerSealTier.IdOnly; return true;
+            default: tier = default; return false;
+        }
+    }
+
+    public static string ToString(ListenerSealTier tier) => tier switch
+    {
+        ListenerSealTier.Sealed => Sealed,
+        ListenerSealTier.IdOnly => IdOnly,
+        _ => throw new ArgumentOutOfRangeException(nameof(tier)),
+    };
+}
+
+/// <summary>
+/// The channel support a listener package declares for its medium: the
+/// lowercase spelling of the teamserver's own <c>ChannelSupport</c> carrier
+/// entry (Rod.CoreState), the same honesty the in-tree carrier table keeps
+/// -- channel verbs claim only on a carrier that can carry them.
+/// </summary>
+public static class ListenerChannelNames
+{
+    public const string Native = "native";
+    public const string Degraded = "degraded";
+    public const string None = "none";
+
+    public static readonly IReadOnlyList<string> Known = [Native, Degraded, None];
+
+    public static bool IsKnown(string name) => Known.Contains(name, StringComparer.Ordinal);
+}
+
+/// <summary>
+/// One row of a listener package's config schema (the medium parameters a
+/// listener carries): the field the operator sets at listener creation, in
+/// declaration order. A <c>secret</c> row is one the operator console never
+/// echoes back (a bot token, an account password) -- the marking rides the
+/// declaration so every consumer applies it without a second convention.
+/// </summary>
+public sealed record ListenerParamDeclaration(
+    string Name,
+    string Kind,
+    bool Required = false,
+    string? Description = null,
+    bool Secret = false);
+
+/// <summary>
+/// The <c>[listener]</c> table of a listener-entry manifest (ADR-025): the
+/// medium contract the kernel enforces on both ends. The seal tier and the
+/// third-party-medium flag carry the identity posture (the kernel refuses
+/// an id-only package whose bytes rest on third-party infrastructure), the
+/// carriers name the contact carriers the medium serves (wire names from
+/// the carrier table's open registry, so a new medium's carrier declares
+/// itself rather than waiting on a vocabulary edit), the channel support is
+/// the carrier-table honesty, and the process rows are the supervisor's
+/// spawn contract: the command the kernel runs inside the installed
+/// package, with its static arguments, when a listener binds this package.
+/// Everything here rides the signed canonical form like every other field.
+/// </summary>
+public sealed record ListenerDeclaration(
+    ListenerSealTier SealTier,
+    bool ThirdPartyMedium,
+    string Channel,
+    IReadOnlyList<string> Carriers,
+    string ProcessCommand,
+    IReadOnlyList<string> ProcessArgs,
+    IReadOnlyList<ListenerParamDeclaration> Params);
+
+/// <summary>
 /// The manifest's conformance report (ADR-017): what a build unit's
 /// candidate proved against the conformance harness -- the tier achieved,
 /// the harness generation, the run's date, and the clauses that passed.
@@ -342,6 +438,7 @@ public sealed record ModuleManifest
     public IReadOnlyList<AssetDeclaration> Assets { get; init; } = [];
     public IReadOnlyList<PluginArtifact> PluginArtifacts { get; init; } = [];
     public UnitDefinition? Unit { get; init; }
+    public ListenerDeclaration? Listener { get; init; }
     public PackageRules? Package { get; init; }
 
     private static readonly Regex NamePattern = new("^[a-z0-9][a-z0-9-]{0,63}$", RegexOptions.Compiled);
@@ -413,7 +510,7 @@ public sealed record ModuleManifest
             else if (!seenRequires.Add(Requires[i]))
                 errors.Add($"compatibility.requires[{i}] '{Requires[i]}' is declared twice.");
         }
-        if (seenRequires.Count > 0 && Entry is ModuleEntryKind.BuildUnit or ModuleEntryKind.Assets or ModuleEntryKind.Extension)
+        if (seenRequires.Count > 0 && Entry is ModuleEntryKind.BuildUnit or ModuleEntryKind.Assets or ModuleEntryKind.Extension or ModuleEntryKind.Listener)
             errors.Add(
                 "compatibility.requires constrains an implant hosting this module's execution half; "
                 + $"a {ModuleEntryKindNames.ToString(Entry)} module carries none.");
@@ -480,6 +577,79 @@ public sealed record ModuleManifest
         else if (Entry == ModuleEntryKind.BuildUnit)
         {
             errors.Add("a build-unit manifest carries no [unit] table; the id and the command are the pipeline's spawn contract.");
+        }
+
+        // The listener package declaration (ADR-025): the medium contract the
+        // kernel enforces at both ends. The seal rule is the trust-carrying
+        // one -- a carrier whose bytes rest on third-party infrastructure
+        // (chat, mail, a CDN) must declare sealed; id-only is the
+        // point-to-point posture on a segment the operator operates, and a
+        // package that claims it for a third-party medium is refused here,
+        // at publish, before the kernel ever trusts its declaration.
+        if (Listener is { } listenerDeclaration)
+        {
+            if (Entry != ModuleEntryKind.Listener)
+            {
+                errors.Add(
+                    "[listener] declares a listener package's medium contract; "
+                    + $"a {ModuleEntryKindNames.ToString(Entry)} module carries none.");
+            }
+            else
+            {
+                if (listenerDeclaration.Carriers.Count == 0)
+                    errors.Add("listener.carriers is empty; declare the contact carriers the medium serves, e.g. [\"envelope\"].");
+                var seenCarriers = new HashSet<string>(StringComparer.Ordinal);
+                for (var i = 0; i < listenerDeclaration.Carriers.Count; i++)
+                {
+                    var carrier = listenerDeclaration.Carriers[i];
+                    if (carrier.Length == 0
+                        || carrier.Contains('\n') || carrier.Contains('\r')
+                        || carrier.Contains('/') || carrier.Contains(','))
+                        errors.Add($"listener.carriers[{i}] must be a single carrier token with no '/', or ',' (it participates in the signed canonical form).");
+                    else if (!seenCarriers.Add(carrier))
+                        errors.Add($"listener.carriers[{i}] '{carrier}' is declared twice.");
+                }
+                if (listenerDeclaration.ThirdPartyMedium
+                    && listenerDeclaration.SealTier != ListenerSealTier.Sealed)
+                    errors.Add(
+                        "listener.seal-tier must be 'sealed': a carrier whose bytes rest on third-party "
+                        + "infrastructure (chat, mail, a CDN) may not declare id-only.");
+                if (!ListenerChannelNames.IsKnown(listenerDeclaration.Channel))
+                    errors.Add(
+                        $"listener.channel '{listenerDeclaration.Channel}' is not a channel support level; "
+                        + $"the vocabulary is: {string.Join(", ", ListenerChannelNames.Known)}.");
+                if (listenerDeclaration.ProcessCommand.Length == 0
+                    || listenerDeclaration.ProcessCommand.Contains('\n')
+                    || listenerDeclaration.ProcessCommand.Contains('\r'))
+                    errors.Add("listener.command is required and must be a single line (it is the supervisor's spawn contract).");
+                for (var i = 0; i < listenerDeclaration.ProcessArgs.Count; i++)
+                {
+                    if (listenerDeclaration.ProcessArgs[i].Contains('\n')
+                        || listenerDeclaration.ProcessArgs[i].Contains('\r'))
+                        errors.Add($"listener.args[{i}] must be a single line (it participates in the signed canonical form).");
+                }
+                var seenParams = new HashSet<string>(StringComparer.Ordinal);
+                for (var i = 0; i < listenerDeclaration.Params.Count; i++)
+                {
+                    var parameter = listenerDeclaration.Params[i];
+                    if (!NamePattern.IsMatch(parameter.Name))
+                        errors.Add($"listener.params[{i}] '{parameter.Name}' must be kebab-case: lowercase letters, digits, hyphens, at most 64 characters.");
+                    else if (!seenParams.Add(parameter.Name))
+                        errors.Add($"listener.params[{i}] '{parameter.Name}' is declared twice.");
+                    if (!ManifestVocabularies.IsParameterKind(parameter.Kind))
+                        errors.Add(
+                            $"listener.params[{i}] '{parameter.Name}' kind '{parameter.Kind}' is not a parameter kind; "
+                            + $"the vocabulary is: {string.Join(", ", ManifestVocabularies.ParameterKinds)}.");
+                    if ((parameter.Description ?? "").Contains('\n') || (parameter.Description ?? "").Contains('\r'))
+                        errors.Add($"listener.params[{i}] '{parameter.Name}' description must be a single line (it participates in the signed canonical form).");
+                }
+            }
+        }
+        else if (Entry == ModuleEntryKind.Listener)
+        {
+            errors.Add(
+                "a listener manifest carries no [listener] table; the seal tier, the carriers, and "
+                + "the process command are the supervisor's spawn contract.");
         }
 
         // The plugin artifact rows (ADR-020): one prebuilt execution half per

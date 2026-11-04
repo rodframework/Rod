@@ -28,7 +28,7 @@ public static class InitCommand
 
         var entry = ModuleEntryKind.Server;
         if (parsed.Has("entry") && !ModuleEntryKindNames.TryParse(parsed.Require("entry", "entry kind"), out entry))
-            throw new CliError("--entry must be server, plugin, extension, build-unit, or assets.");
+            throw new CliError("--entry must be server, plugin, extension, build-unit, assets, or listener.");
 
         var directory = parsed.Value("path") ?? name;
         if (File.Exists(Path.Combine(directory, ManifestToml.FileName)))
@@ -87,6 +87,14 @@ public static class InitCommand
                 // Rod.Capabilities contract and lists the type under
                 // Capabilities:Modules; the manifest rows stay the packaging
                 // truth either way.
+                break;
+            case ModuleEntryKind.Listener:
+                // The server process is the author's own, in any language
+                // that can speak the bridge carriage (ADR-025): the scaffold
+                // carries no source because there is no in-tree language to
+                // presume. The manifest's [listener] table names the command
+                // the supervisor spawns; extending/listeners.md is the
+                // builder's manual.
                 break;
             case ModuleEntryKind.Plugin:
                 {

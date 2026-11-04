@@ -185,6 +185,8 @@ public static class InstallCommand
                 output.WriteLine($"next: load it the config-listed way -- list the installed directory under Capabilities:DescriptorModules so its verb rows register (an assembly module instead lists its type under Capabilities:Modules).");
             else if (manifest.Entry == ModuleEntryKind.Assets)
                 output.WriteLine($"next: point Capabilities:AssetModules at the installed directory so the teamserver serves its assets.");
+            else if (manifest.Entry == ModuleEntryKind.Listener)
+                output.WriteLine($"next: install it on the teamserver's module store; a listener created against the package spawns its server process under the supervisor (extending/listeners.md).");
             return RodCli.ExitOk;
         }
         finally
