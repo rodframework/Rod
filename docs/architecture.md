@@ -1092,6 +1092,13 @@ OPSEC is a design axis, not a feature flag. The architecture bakes in:
 
 ## 8. Transports, listeners, and redirectors
 
+> **The migration note.** The families and redirectors this section
+> documents are the pre-ADR-025 shape: the adapter migration (ADR-025,
+> Sec 15.3) moves every implant ingress out of the kernel into listener
+> adapter packages and replaces the redirector with the edge host, leg by
+> leg, as [todo.md](todo.md) orders. The contracts below are what the
+> adapters carry, not a claim of permanent kernel residency.
+
 - **Listeners come in two tiers, and only one of them is implant ingress.**
   The startup configuration names the shared tier -- the operator front the
   UI and API ride -- which carries **no implant ingress at all**: enrollment
@@ -3453,7 +3460,7 @@ one-module-one-repository rule, and the license rules for ecosystem
 code are stated once, in the ecosystem repository naming discipline of
 Sec 15.4 (ADR-024).
 
-### 15.3 Platform widenings (ADR-004 through ADR-008, ADR-010)
+### 15.3 Platform widenings (ADR-004 through ADR-008, ADR-010, ADR-025 through ADR-027)
 
 Where the program touches the existing layers:
 
@@ -3612,6 +3619,116 @@ Where the program touches the existing layers:
   a 500-beacon fleet enrolling through the real ingress and sustaining
   contact load against one teamserver. Runbook:
   [operations/range.md](operations/range.md).
+- **Listener adapters -- the kernel carries no implant-ingress sockets**
+  (ADR-025; agreed -- the migration is ordered in todo.md, and each leg
+  carries its own _(shipped)_ marker as it lands). Every implant ingress
+  leaves the kernel process: a **listener adapter** -- a supervised process
+  in any language, one per running listener -- speaks the existing rod.v1
+  `Beacon.Contact` stream to the kernel over a local socket (a Unix domain
+  socket; a named pipe on Windows), and the kernel's implant-facing surface
+  shrinks to that bridge. The adapter is a **per-peer byte pipe** over its
+  medium: one distinguishable medium peer (a chat user, a mail sender, an
+  ICMP id, a held socket) is one bridge stream, bytes both ways, nothing
+  parsed -- no rod.v1 grammar, no engagement keys, no implant identity, no
+  engagement data. Medium credentials (a bot token) are the adapter's own
+  configuration; the application-layer seal crosses intact, the same
+  load-bearing wall the L4 redirector data plane kept, lifted onto
+  application media. The whys, in order: protocol parsing is the largest
+  surface a C2 serves, and a parser defect now dies in a child process
+  instead of the one holding every engagement key and the audit chain; crash
+  isolation runs both directions (the kernel restarts a dead adapter
+  without losing a session); and a community carrier ships with zero kernel
+  code and zero C# -- the real friction the in-process `ITransportProvider`
+  seam left, which made the kernel indifferent to who registered a name but
+  still made the author write .NET. Naming settles with it: **listener** is
+  the operator's word -- a running binding of adapter, medium parameters,
+  engagement scope, and audit trail -- and **adapter** names the registry
+  package, the image-to-container relationship; the UI, API, and audit
+  events speak "listener" only. Process lifecycle is the whole control
+  plane: spawn with the socket path, restart on exit, exit code as the
+  health signal -- no second RPC surface arrives, and the web families'
+  asset routes (hooks, lures, artifact fetch) forward through the https
+  adapter to the operator tier. **Identity and seal become carrier
+  attributes** the adapter package declares and the kernel enforces:
+  `sealed` (the per-artifact key, end to end) or `id-only`; a carrier whose
+  bytes rest on third-party infrastructure (chat, mail, CDN) must declare
+  sealed -- the kernel refuses the package otherwise -- while
+  point-to-point carriers on an operated segment may declare id-only, the
+  posture the raw-TCP family already documented. Enrollment gains listener
+  tiers: `strict` (the default, deploy-token redemption) and `open`
+  (anonymous, scoped by the listener's engagement alone -- the shellcatch
+  exposure model, marked in the console); a minimal implant -- no seal, no
+  token redemption, one target, poll only -- is a declaring citizen, not a
+  second-class one (ADR-027). **Official adapters are exactly two**:
+  `https` (the envelope POST, the beacon stream, and the plain-http variant
+  inside) and `doh` (the DNS grammar over RFC 8484, the UDP variant
+  inside), organization repositories pinned by version like the implant
+  trees and installed from the registry, never preinstalled. The raw-TCP
+  family retires with the migration (no-egress reach is the pivot chain's),
+  WireGuard moves to the community slot or retires (it shipped
+  default-off), and shellcatch returns as an adapter package. The
+  redirector is replaced by the **edge** host: an enrolled remote node that
+  pulls adapter packages and runs listeners under kernel control, the same
+  bridge over TLS, the enrollment and credential model the redirector
+  fleet already carries. ADR-004's in-tree families are superseded as the
+  legs land: `ITransportProvider` and the in-process registration retire
+  once the official adapters serve the reference implants' e2e legs, and
+  [extending/transports.md](extending/transports.md) retires for
+  [extending/adapters.md](extending/adapters.md).
+- **The baked config block and the two build paths** (ADR-026; agreed --
+  queued with ADR-025's migration). The bake becomes one byte format with
+  two producing paths. The **config block** is the existing
+  rod.profile.json bytes -- deterministic, key-sorted, unchanged -- behind
+  an 8-byte magic (`RODCFG01`) and a length, embedded as a same-length
+  placeholder at build time; the implant reads one code path no matter how
+  the bytes arrived. The **compile path** is today's pipeline (pinned
+  source, staged profile, native toolchain) and stays the default. The
+  **patch path** adds a template build unit: a prebuilt placeholder
+  artifact plus a block-layout declaration; the patcher scans the magic,
+  checks the length, writes the real profile bytes -- no compiler,
+  milliseconds, and `-ldflags`-style variable injection unified into the
+  same block rather than a second mechanism. The OPSEC statement lands
+  once, in the docs and on every build: a patched artifact's container
+  bytes are its template's bytes, so a burned template burns every
+  artifact cut from it -- open-source families are compile-path families
+  (their templates are public and perfectly signable), and the patch path
+  serves closed-source families and rapid iteration. A template is a
+  prebuilt black-box build unit: its provenance is the registry's (signed
+  package, `rod mod verify`) and the operator's informed choice, and the
+  patch path never bakes a field the compile path could not. No build
+  environment ever stands beside the teamserver (Sec 15's deployment
+  constraint keeps holding) -- the patch path exists precisely because it
+  needs none.
+- **Implant manifests -- metadata off the wire, forms out of the kernel**
+  (ADR-027; agreed -- queued with ADR-025's migration). An implant's
+  capability metadata lives in its registry package -- the **implant
+  manifest**, the module manifest concept (ADR-009) widened to implant
+  packages -- not on the wire. It declares identity and version (the source
+  ref), supported carriers, verbs with their argument forms, targets,
+  contact modes, seal tiers, feature arms (kill date, fallback walk,
+  receive acks, ...), and offered templates (ADR-026). The wire shrinks to
+  identity and version: **verb authority is the build record** -- every
+  enrollment redeems a build-minted token, so every tasked implant holds a
+  build record binding source ref and manifest by construction -- and the
+  handshake's full verb advertisement deprecates into a fixed 32-byte
+  **capability digest**, a drift canary: the kernel compares it against
+  the manifest's verb set, and a forked implant whose manifest lagged shows
+  as a visible roster flag, not a silent mismatch. The build and tasking
+  UIs render from manifests alone, over a field-type vocabulary (enum,
+  text, duration, bool, secret) the kernel provides: no fixed platform
+  form survives -- one target declared is one target offered, an implant
+  without a kill date renders no kill-date field, a package without
+  templates offers no patch path -- and a build refuses a pair whose
+  declarations do not resolve (the listener's carrier against the
+  manifest's carriers). Server-side capability descriptors (Sec 10.2)
+  demote from a tasking prerequisite to optional enrichment -- OPSEC
+  annotations and automation hints -- because the manifest alone suffices
+  to task. The whys: metadata arrives from a hash-pinned, signed package
+  instead of a remote device's live report, which removes the
+  hostile-metadata surface (an implant injecting into the operator
+  console) and rides the provenance chain the ecosystem already runs; and
+  Tier 0 shrinks with it -- read and write rod.v1 frames, everything above
+  a declared arm.
 
 ### 15.4 Product disciplines (ADR-011 through ADR-015, ADR-024)
 
@@ -3731,7 +3848,8 @@ Where the program touches the existing layers:
   follow the entry kind: `rod-plugin-<name>` (plugin packages),
   `rod-ext-<name>` (implant-native extensions),
   `rod-assets-<name>` (asset packages), `rod-unit-<name>` (external
-  build units), `rod-implant-<name>` (implant projects); `rod-registry`
+  build units), `rod-implant-<name>` (implant projects),
+  `rod-adapter-<name>` (listener adapters, ADR-025); `rod-registry`
   is the one platform-component repository, the index tap itself. Every
   ecosystem component carries the `rod-` prefix and avoids existing
   product names (Armory and Arsenal name Sliver's ecosystem factually,
@@ -3773,3 +3891,6 @@ Where the program touches the existing layers:
 | 022 | The compiled-in extension tier: source-merge overlays under `src/extensions/extensions_impl/`, build-unit targeting rows as the hard gate, the dispatch chain core -> extensions -> plugins | Sec 5.3, Sec 6 |
 | 023 | `Rod.Packaging` as the one packaging-contract library, and the server-side module lifecycle: store, registry browser, verified hot-registering installs, the operator console's marketplace | Sec 15.2 |
 | 024 | Ecosystem repository naming: one module one repository, `rod-<kind>-<name>` prefixes, organization and community under the same rules, the registry indexes by manifest name | Sec 15.4 |
+| 025 | Listener adapters: the kernel carries no implant-ingress sockets; per-peer byte pipes over the `Beacon.Contact` bridge; official `https` and `doh`; the edge host replaces the redirector | Sec 8, Sec 15.3 |
+| 026 | The baked config block (`RODCFG01` + profile bytes) and the two build paths: compile the default, patch for prebuilt templates | Sec 5.1, Sec 6, Sec 15.3 |
+| 027 | Implant manifests: registry metadata, build-record verb authority, the 32-byte capability digest, manifest-driven build and tasking forms | Sec 6, Sec 10.2, Sec 15.3 |
