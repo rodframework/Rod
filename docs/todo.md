@@ -37,19 +37,6 @@ naming one promotes it ahead of the standing order.
 Sequential platform work, precedence-ordered; an item leaves the
 moment its acceptance criterion lands.
 
-- **The listener bridge and the supervisor** (serves Sec 8, ADR-025).
-  The kernel-side skeleton of the externalized-listener model: a
-  per-listener Unix-domain-socket / named-pipe endpoint serving the
-  rod.v1 `Beacon.Contact` stream; spawn/restart/exit-code lifecycle for
-  local listener processes; carrier and seal-tier registration read from
-  the package manifest, with the third-party-medium seal rule enforced;
-  and the asset-route forwarding shape the https listener needs.
-  Subsumes the exec-v1 provider seam this queue once carried.
-  _AC:_ a candidate listener process in a non-C# language carries the
-  conformance rig's minimal implant end to end -- enroll, contact, task
-  round trip -- entirely over the bridge, and a killed process marks its
-  listener unhealthy without touching the teamserver.
-
 - **The official https and doh listener packages** (serves Sec 8,
   ADR-025). The two organization packages, any language, pinned by
   version like the implant trees and installed from the registry:

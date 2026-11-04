@@ -40,17 +40,48 @@ data to leak.
 
 ## The bridge
 
-The listener process speaks gRPC to the kernel: the `rod.v1
-Beacon.Contact` stream already defined in
-`src/teamserver/Rod.Protocol/protos/rod.proto` (compile it with your own
-toolchain). Enrollment rides the same stream as an `EnrollRequest` frame --
-there is no second interface and no second protocol to learn.
+The listener process speaks the bridge carriage to the kernel over its
+per-listener local socket: a duplex stream of self-delimited messages
+(the same varint-length-prefixed framing the raw-TCP family carries), one
+connection per medium peer. The peer's first byte selects the carriage:
+
+- **`C` -- the contact stream.** The rod.v1 `Beacon.Contact` carriage:
+  each message is one contact body (the same delimited-frame bodies the
+  envelope carries, sealed or plaintext), served by the same bridge core
+  the raw-TCP family runs. Enrollment rides the opening message as an
+  `EnrollRequest` frame -- no second interface, no second protocol. A
+  held-stream build (the live session) holds the connection instead of
+  cycling it. A byte-pipe listener relays these bodies without parsing
+  them; a listener whose medium natively carries them (a held socket)
+  splices.
+- **`R` -- the route-forward carriage.** The https shape: one
+  request/answer unit per message. The request unit carries the method,
+  the path, the observed peer address and User-Agent, and the body; the
+  kernel routes by path onto the same cores its own routes drive (the
+  JSON enroll exchange, the envelope contact, and the web families'
+  asset routes -- hooks, lures, artifact fetch) and answers with the
+  status, the content type, and the body. The listener terminates the
+  medium's HTTP face and carries bytes; the kernel never sees the medium
+  socket.
+
+Why not gRPC: the repository dropped the HTTP/2 requirement when the
+envelope endpoint retired the gRPC service, and the bridge keeps that
+posture -- sealed contact bodies are opaque byte units (a `Contact(stream
+Frame)` grammar cannot carry them without a listener that parses), and a
+byte-pipe listener in any language implements the delimited carriage from
+its standard library alone. The `service Beacon` declaration in
+`src/teamserver/Rod.Protocol/protos/rod.proto` stays the logical
+contract; the bridge carries the same stream over the same framing the
+in-tree stream family runs.
 
 - **Local child (the default):** the kernel spawns the listener process
-  with the bridge socket path in its environment; the socket is a Unix
-  domain socket (a named pipe on Windows), permission-restricted to the
-  kernel's user -- no port, no network stack, nothing for another process
-  or host to reach.
+  with the bridge socket in its environment; the socket is a Unix domain
+  socket (a named pipe on Windows), permission-restricted to the kernel's
+  user -- no port, no network stack, nothing for another process or host
+  to reach. The environment carries three variables:
+  `ROD_BRIDGE_SOCKET` (the socket to dial), `ROD_LISTENER_ID` (the
+  listener's id), and `ROD_LISTENER_PARAMS` (the medium parameters the
+  operator set at creation, as a JSON object).
 - **Remote host (the edge):** the listener process faces the same local
   socket it always faces -- on an edge, the socket belongs to the edge
   host's own supervisor, and the process cannot tell an edge from the
@@ -113,19 +144,26 @@ requires it.
 
 ## Declarations the kernel enforces
 
-Two declarations ride the package manifest, and the kernel checks both
-rather than trusting either:
+Three declarations ride the package manifest (`[listener]` in
+`rod-module.toml`, entry kind `listener`), and the kernel checks them
+rather than trusting them:
 
 - **Identity and seal tier** -- `sealed` (contacts carry the per-artifact
   key's seal end to end) or `id-only`. A carrier whose bytes rest on
-  third-party infrastructure (chat, mail, CDN) must declare `sealed`; the
-  kernel refuses the package otherwise. Point-to-point carriers on an
-  operated segment may declare `id-only`, with the posture documented in
-  the medium contract.
+  third-party infrastructure (`third-party-medium = true`: chat, mail,
+  CDN) must declare `sealed`; the manifest is refused at publish and the
+  kernel's catalog refuses it again at resolve. Point-to-point carriers
+  on an operated segment may declare `id-only`, with the posture
+  documented in the medium contract.
 - **Channel support** -- `native` (a live stream), `degraded`
   (store-and-forward over the poll unit), or `none`, the same honesty the
-  carrier table kept: channel verbs claim only on a carrier that can carry
-  them, and the roster badges the difference.
+  carrier table kept: channel verbs claim only on a carrier that can
+  carry them, and the roster badges the difference.
+- **The spawn contract** -- `command` and `args`: the process the
+  supervisor runs inside the installed package directory. The
+  `[[listener.params]]` rows beside them are the config schema, the
+  medium parameters an operator sets at listener creation (a `secret`
+  row is one the console never echoes back).
 
 Enrollment is a listener tier, not a package's: `strict` (deploy-token
 redemption, the default) or `open` (anonymous, scoped by the listener's

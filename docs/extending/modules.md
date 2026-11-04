@@ -18,9 +18,9 @@ tree, both load through exactly the path an operator's module
 takes, and a kernel change must answer *why it cannot be a module*
 ([architecture.md Sec 15.1](../architecture.md)).
 
-## The five entry kinds (manifest v4, ADRs 020-023)
+## The six entry kinds (manifest v5, ADRs 020-023, ADR-025)
 
-One manifest shape, five ways to ship:
+One manifest shape, six ways to ship:
 
 - **`server`** -- descriptor rows are the whole module: the verbs register
   from the manifest alone, zero code (ADR-018's default authoring path).
@@ -50,10 +50,22 @@ One manifest shape, five ways to ship:
   registers a package, not a recompile.
 - **`assets`** -- pure content (ADR unchanged since the first asset
   modules).
+- **`listener`** -- the externalized-listener tier (ADR-025): the
+  `[listener]` table declares the medium contract the kernel enforces on
+  both ends -- the seal tier (`sealed`/`id-only`; a
+  `third-party-medium = true` carrier must ship sealed, refused
+  otherwise), the channel honesty (`native`/`degraded`/`none`), the
+  contact carriers the medium serves, and the supervisor's spawn
+  contract (`command`, `args`), with `[[listener.params]]` rows as the
+  config schema an operator sets at listener creation. The payload is
+  the server process itself, any language; the bridge and the lifecycle
+  are [listeners.md](listeners.md)'s.
 
-The canonical form is `rod-module-manifest-v4`: the targets carry
+The canonical form is `rod-module-manifest-v5`: the targets carry
 `build-unit`/`unit-floor`, plugin artifact rows ride one line per
-target, and the `[unit]` table rides the signature like every field.
+target, the `[unit]` table rides the signature like every field, and the
+`[listener]` declaration (seal posture, carriers, spawn contract, param
+rows) rides it the same way.
 
 The manifest contract set is frozen: v1.0.0 is the release ADR-019
 names, and from it the entry kinds, the ABI names, the vocabularies, and
@@ -61,7 +73,8 @@ the canonical form's field set are compatibility surface. The growth
 rules are the ones this page already states -- vocabularies and clauses
 grow additively, an unknown name is refused loudly, and a field-set
 change is a version bump -- and published packages keep verifying across
-the growth: the version line names the form a signature covers.
+the growth: verification re-derives the previous form beside the current
+one, so a package signed under v4 keeps verifying after the v5 bump.
 
 ## The two halves of a capability
 
@@ -812,7 +825,7 @@ entry kind under the ecosystem naming discipline (architecture.md
 Sec 15.4, ADR-024): `rod-plugin-<name>` for plugin packages,
 `rod-ext-<name>` for implant-native extensions, `rod-assets-<name>` for
 asset packages, `rod-unit-<name>` for build units, `rod-implant-<name>`
-for implant projects. One module, one repository: official modules live
+for implant projects, `rod-listener-<name>` for listener packages. One module, one repository: official modules live
 under the Rod organization, community modules under their authors'
 accounts, the same rules and the same publish channel for both. The
 registry indexes by the manifest's `name` -- the manifest is the
@@ -834,6 +847,7 @@ the same file shape an external module carries. What each part decides:
 | `[[compatibility.targets]]` | implant-class / platform / arch rows the module claims | surfaced at search and install |
 | `[[verbs]]` | each verb's module-scoped version, optional per-verb teamserver floor, its ATT&CK techniques, and -- with a `category` -- the whole descriptor (OPSEC flags, parameter schema, output declaration; ADR-018) | floors at install; techniques feed every coverage face; the descriptor registers the verb at startup |
 | `[conformance]` (build units) | what the candidate proved against the conformance harness -- tier, harness generation, date, clauses | surfaced at info and install; rides the signed form |
+| `[listener]` (listeners) | the medium contract: seal tier and third-party flag, channel honesty, carriers, the spawn command and args, the `[[listener.params]]` config schema | publish refuses a third-party id-only package; the kernel's catalog refuses it again at resolve; the supervisor spawns the command at listener bind |
 | `[opsec]` | `lands-on-disk` and the free-text note | shown at search and install -- an operator screens the target impact before fetching |
 | `[attack]` | the module-level technique roll-up | must be exactly the union of the verb rows' techniques (or omitted) |
 | `[package]` | which files ship (default: everything except bin/obj/dist and keys) | publish |

@@ -3621,7 +3621,21 @@ Where the program touches the existing layers:
   [operations/range.md](operations/range.md).
 - **Externalized listeners -- the kernel carries no implant-ingress
   sockets** (ADR-025; agreed -- the migration is ordered in todo.md, and
-  each leg carries its own _(shipped)_ marker as it lands). Every implant
+  each leg carries its own _(shipped)_ marker as it lands. **The bridge
+  and the supervisor are shipped**: the per-listener local-socket
+  endpoint serves both the contact carriage -- the same
+  delimited-message stream the raw-TCP family runs -- and the
+  route-forward carriage the https shape forwards by path; the
+  supervisor spawns, restarts on exit, and reads the exit code as the
+  health signal (an Unhealthy listener badge and a
+  `listener.process-exited` audit fact, the kernel untouched); the
+  `listener` entry kind declares the medium contract (seal tier,
+  carriers, channel, spawn command, config-schema rows) with the
+  third-party-medium seal rule enforced at publish and at resolve; and
+  the acceptance landed with it -- a stdlib-Python candidate listener
+  process carries the conformance rig's minimal implant end to end
+  entirely over the bridge, and a killed process marks its listener
+  unhealthy without touching the teamserver). Every implant
   ingress leaves the kernel process: each running listener gets a
   **supervised process of its own** -- written in any language -- which
   speaks the existing rod.v1 `Beacon.Contact` stream to the kernel over a
