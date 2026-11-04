@@ -1,5 +1,12 @@
 # Adding a transport
 
+> **Superseded by ADR-025** (Sec 15.3): the in-process provider seam this
+> document describes is the pre-migration shape. The target contract is the
+> listener adapter in [adapters.md](adapters.md); this page retires when
+> the kernel's implant ingress moves out (the ordered legs are in
+> [todo.md](../todo.md)). Until then it documents the seam the running
+> code serves.
+
 The transport extension contract: how a new C2 carrier joins Rod, in-tree
 or out. The design authority is [architecture.md Sec 8](../architecture.md);
 this document is the builder's manual for the seams that section names.
