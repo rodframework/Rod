@@ -174,6 +174,16 @@ public static class RodCapabilitiesHost
                     sp.GetService<Rod.Capabilities.Registry.ModuleAssetStore>(),
                     maxPackageBytes: maxPackageBytes));
             services.AddHostedService<Rod.Capabilities.Lifecycle.ModuleLifecycleSeedingService>();
+
+            // The listener package catalog over the same store (ADR-025):
+            // transport registered a null-answer default, and this swaps in
+            // the store-backed resolver -- the same replace-the-port shape
+            // the registry resolvers above keep, so the transport layer
+            // consumes the catalog without referencing the ecosystem's
+            // layers.
+            services.Replace(ServiceDescriptor.Singleton<Rod.CoreState.Listeners.IListenerPackageCatalog>(sp =>
+                new Rod.Capabilities.Lifecycle.ListenerPackageCatalog(
+                    sp.GetRequiredService<Rod.Capabilities.Lifecycle.ModuleStore>())));
         }
         if (!string.IsNullOrWhiteSpace(configuration?[Rod.Capabilities.Lifecycle.ModuleRegistryClient.RegistrySectionKey]))
         {

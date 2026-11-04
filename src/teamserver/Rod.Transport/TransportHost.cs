@@ -206,6 +206,14 @@ public static class TransportHost
         // view -- the engagement association and its durability live in the
         // store below.
         services.AddSingleton<IListenerRegistry, InMemoryListenerRegistry>();
+        // The listener package catalog (ADR-025): the default answers null
+        // for every name -- no module store, no package-backed listener.
+        // AddRodCapabilities replaces it with the store-backed resolver when
+        // Modules:Store is set, the same port-swap the registry resolvers
+        // take, so the supervisor below consumes it without referencing the
+        // ecosystem's layers.
+        services.AddSingleton<Rod.CoreState.Listeners.IListenerPackageCatalog>(
+            new NullListenerPackageCatalog());
         // The durable home for engagement-scoped listener definitions:
         // in-memory by default (the process's lifetime, like the rest of core
         // state without Postgres), Postgres-backed when the connection string
