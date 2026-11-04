@@ -106,10 +106,21 @@ they order ahead of the standing line below until they land:
 
 - **Fuzz the coff-v1 parser** (serves Sec 5.4). The parser is
   host-blind, so a cargo-fuzz campaign over malformed object files
-  runs on today's lanes while the corpus regression matrix below waits
-  on its Windows rig.
+  runs on today's lanes; the corpus regression matrix rides the
+  conformance clause below.
   _AC:_ the parser survives a sustained fuzzing run without panic, and
   the campaign rides the implant tree's CI.
+
+- **The coff-v1 conformance clause** (serves Sec 5.4). Unparked: the
+  implant e2e matrix's windows cells now bake and run the reference
+  implant live, the lane this item waited on. The clause compiles a
+  mingw fixture BOF (the toolchain already rides the CI lane) and
+  drives `plugin.load-coff-v1` against the running implant; a
+  community-corpus regression matrix -- a standing set of mainstream
+  BOFs loaded and executed each run -- rides the same leg.
+  _AC:_ the clause passes on a windows cell of the implant e2e matrix,
+  the corpus matrix with it, and the loader's host-blind tests keep
+  their tier (extending/implants.md, Tier 2).
 
 ## The standing line
 
@@ -152,17 +163,6 @@ seat as wmi, and the DLL search-order seat as hijack):
   gap list lands in this file. Parked on the engagement itself: the
   loop's only input is one. Range mode stands in for rehearsal pressure
   until then ([operations/range.md](operations/range.md)).
-
-- **A coff-v1 conformance clause.** A `plugin.load-coff-v1` clause is a
-  one-block rig addition and the mingw fixture compiler already rides
-  the CI toolchain lane; what parks it is the host: the rig drives a
-  live candidate process, the coff loader binds only inside a Windows
-  implant, and no lane runs the rig against one (Wine or a Windows
-  runner -- either is new infrastructure, not code); a
-  community-corpus regression matrix -- a standing set of mainstream
-  BOFs the lane loads and executes each run -- shares the same
-  blocker. The loader's own host-blind tests carry the tier until a
-  lane exists (extending/implants.md, Tier 2).
 
 - **iOS shell for the Rust implant** (serves architecture.md Sec 12.2).
   Parked on a real device to run the enrollment leg: the implant e2e
