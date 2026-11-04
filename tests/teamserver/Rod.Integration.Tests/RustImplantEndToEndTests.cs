@@ -1121,6 +1121,241 @@ public class RustImplantEndToEndTests
         public string? Output { get; set; }
     }
 
+    // --- chained contacts (architecture.md Sec 5.2, the pivot model's
+    // --- implant-side half) ----------------------------------------------
+
+    /// <summary>
+    /// The chain's acceptance (architecture.md Sec 5.2): an implant with no
+    /// egress of its own -- its only front is the parent's tunnel.bind
+    /// listener -- enrolls through the parent, keeps its session, and runs
+    /// its own tasking, every hop attributed. The parent holds the outward
+    /// stream session; the child is an ordinary raw-TCP poll client of the
+    /// parent's listener and nothing else.
+    /// </summary>
+    [RustFact]
+    public async Task RustImplant_KeepsItsSessionThroughAParentChain()
+    {
+        var (env, top, topStderr) = await StartChainTopAsync("stream");
+        var spawned = new List<Process> { top };
+        try
+        {
+            var bindPort = TestSupport.GetFreeTcpPort();
+            var topId = await WaitForOnlineAsync(env, TimeSpan.FromSeconds(60), topStderr);
+            await IssueBindAsync(env, topId, bindPort, topStderr);
+
+            var (child, childStderr) = await StartChainedDevShapeAsync(env, $"tcp://127.0.0.1:{bindPort}", "shell.exec");
+            spawned.Add(child);
+            var childId = await WaitForChainedOnlineAsync(env, topId, childStderr);
+
+            // The chained child runs its own tasking end to end: the task
+            // rides the chain down, the result rides it up, and the record
+            // attributes to the child.
+            var marker = "rod-chain-smoke-" + Guid.NewGuid().ToString("N")[..8];
+            var issued = await env.Http.PostAsJsonAsync(
+                $"/engagements/{env.EngagementId}/tasks",
+                new TaskEndpoints.IssueTaskRequest(childId, "shell.exec", $"echo {marker}"));
+            issued.EnsureSuccessStatusCode();
+            var task = await issued.Content.ReadFromJsonAsync<TaskBody>();
+            var done = await WaitForTaskAsync(
+                env, task!.TaskId, body => body.Status == "Completed", childStderr,
+                "the chained task's completion");
+            Assert.Equal("Succeeded", done.Outcome);
+            Assert.Contains(marker, done.Output);
+
+            // The lineage is the carriage: the child's row names the parent,
+            // and the hop's audit rides the engagement trail.
+            var implants = await env.Http.GetFromJsonAsync<ImplantEndpoints.ImplantResponse[]>(
+                $"/engagements/{env.EngagementId}/implants");
+            Assert.Equal(topId, implants!.First(i => i.ImplantId == childId).ParentImplantId);
+            var audit = env.Host.Services.GetRequiredService<Rod.Audit.IAuditStore>();
+            var trail = await audit.ListAsync(Guid.Parse(env.EngagementId!), CancellationToken.None);
+            Assert.Contains(trail, e => e.Kind == Rod.Audit.AuditEventKind.ChainHopOpened);
+            Assert.Contains(trail, e =>
+                e.Kind == Rod.Audit.AuditEventKind.TaskCompleted
+                && e.ImplantId == Guid.Parse(childId));
+        }
+        finally
+        {
+            await DisposeChainAsync(env, spawned);
+        }
+    }
+
+    /// <summary>
+    /// The chain composes (architecture.md Sec 5.2): level over level, the
+    /// grandchild's contact crosses two bind links -- a middle implant that
+    /// is itself a chained child fronts the next level, toward the one host
+    /// that reaches the edge.
+    /// </summary>
+    [RustFact]
+    public async Task RustImplant_ComposesTheChainLevelOverLevel()
+    {
+        var (env, top, topStderr) = await StartChainTopAsync("stream");
+        var spawned = new List<Process> { top };
+        try
+        {
+            var firstBind = TestSupport.GetFreeTcpPort();
+            var topId = await WaitForOnlineAsync(env, TimeSpan.FromSeconds(60), topStderr);
+            await IssueBindAsync(env, topId, firstBind, topStderr);
+
+            // The middle implant: chained through the top, and a parent
+            // itself -- its verbs carry the bind so the next level rides it.
+            var (middle, middleStderr) = await StartChainedDevShapeAsync(
+                env, $"tcp://127.0.0.1:{firstBind}", "tunnel.bind,shell.exec");
+            spawned.Add(middle);
+            var middleId = await WaitForChainedOnlineAsync(env, topId, middleStderr);
+
+            var secondBind = TestSupport.GetFreeTcpPort();
+            await IssueBindAsync(env, middleId, secondBind, middleStderr);
+
+            var (child, childStderr) = await StartChainedDevShapeAsync(
+                env, $"tcp://127.0.0.1:{secondBind}", "shell.exec");
+            spawned.Add(child);
+            var childId = await WaitForChainedOnlineAsync(env, middleId, childStderr);
+
+            var marker = "rod-chain-deep-" + Guid.NewGuid().ToString("N")[..8];
+            var issued = await env.Http.PostAsJsonAsync(
+                $"/engagements/{env.EngagementId}/tasks",
+                new TaskEndpoints.IssueTaskRequest(childId, "shell.exec", $"echo {marker}"));
+            issued.EnsureSuccessStatusCode();
+            var task = await issued.Content.ReadFromJsonAsync<TaskBody>();
+            var done = await WaitForTaskAsync(
+                env, task!.TaskId, body => body.Status == "Completed", childStderr,
+                "the grandchild task's completion");
+            Assert.Equal("Succeeded", done.Outcome);
+            Assert.Contains(marker, done.Output);
+
+            // Two lineages and two hops: the middle names the top, the child
+            // names the middle, and the trail carries a hop record per link.
+            var implants = await env.Http.GetFromJsonAsync<ImplantEndpoints.ImplantResponse[]>(
+                $"/engagements/{env.EngagementId}/implants");
+            Assert.Equal(topId, implants!.First(i => i.ImplantId == middleId).ParentImplantId);
+            Assert.Equal(middleId, implants!.First(i => i.ImplantId == childId).ParentImplantId);
+            var audit = env.Host.Services.GetRequiredService<Rod.Audit.IAuditStore>();
+            var trail = await audit.ListAsync(Guid.Parse(env.EngagementId!), CancellationToken.None);
+            Assert.True(trail.Count(e => e.Kind == Rod.Audit.AuditEventKind.ChainHopOpened) >= 2,
+                "each link's hops ride the trail");
+        }
+        finally
+        {
+            await DisposeChainAsync(env, spawned);
+        }
+    }
+
+    // The chain's top: the implant that reaches the edge, on the stream
+    // carriage so its bind channel runs live.
+    private static async Task<(TestEnv Env, Process Process, StringBuilder Stderr)> StartChainTopAsync(
+        string mode)
+    {
+        var rustDir = FindRustTree()
+            ?? throw new InvalidOperationException("the Rust implant tree was not found from the test assembly");
+        var (exitCode, buildOutput) = await RunCargoBuildAsync(rustDir);
+        Assert.True(exitCode == 0, $"cargo build failed:\n{buildOutput}");
+
+        var env = await TestEnv.StartAsync();
+        await env.CreateEngagementAsync();
+        var mint = await env.Http.PostAsync(
+            $"/engagements/{env.EngagementId}/deploy-tokens", content: null);
+        mint.EnsureSuccessStatusCode();
+        var token = await mint.Content.ReadFromJsonAsync<MintedToken>();
+
+        var binary = Path.Combine(rustDir, "target", "release", "rod-implant" + TestCell.ExeSuffix);
+        var (process, stderr) = StartDevShape(
+            binary, $"http://127.0.0.1:{env.HttpPort}/implants/enroll", token!.Secret,
+            mode, "tunnel.bind,shell.exec");
+        return (env, process, stderr);
+    }
+
+    // One chained implant: an ordinary raw-TCP poll client whose only front
+    // is the parent's bind listener, on a token of the same engagement.
+    private static async Task<(Process Process, StringBuilder Stderr)> StartChainedDevShapeAsync(
+        TestEnv env, string enrollUrl, string verbs)
+    {
+        var mint = await env.Http.PostAsync(
+            $"/engagements/{env.EngagementId}/deploy-tokens", content: null);
+        mint.EnsureSuccessStatusCode();
+        var token = await mint.Content.ReadFromJsonAsync<MintedToken>();
+
+        var rustDir = FindRustTree()!;
+        var binary = Path.Combine(rustDir, "target", "release", "rod-implant" + TestCell.ExeSuffix);
+        return StartDevShape(binary, enrollUrl, token!.Secret, "poll", verbs);
+    }
+
+    private static (Process Process, StringBuilder Stderr) StartDevShape(
+        string binary, string enrollUrl, string token, string mode, string verbs)
+    {
+        var stderr = new StringBuilder();
+        var start = new ProcessStartInfo
+        {
+            FileName = binary,
+            UseShellExecute = false,
+            RedirectStandardError = true,
+            Environment =
+            {
+                ["ROD_ENROLL_URL"] = enrollUrl,
+                ["ROD_DEPLOY_TOKEN"] = token,
+                ["ROD_VERBOSE"] = "1",
+                ["ROD_SLEEP"] = "1",
+                ["ROD_JITTER"] = "0",
+                ["ROD_ENVELOPE"] = "none",
+                ["ROD_MODE"] = mode,
+                ["ROD_VERBS"] = verbs,
+            },
+        };
+        var process = Process.Start(start);
+        Assert.NotNull(process);
+        process!.ErrorDataReceived += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
+        process.BeginErrorReadLine();
+        return (process, stderr);
+    }
+
+    // The chain link opens like any other task; the fixed port is the
+    // child's baked front, so the link owns it for the leg's life.
+    private static async Task IssueBindAsync(
+        TestEnv env, string implantId, int port, StringBuilder stderr)
+    {
+        var issued = await env.Http.PostAsJsonAsync(
+            $"/engagements/{env.EngagementId}/tasks",
+            new TaskEndpoints.IssueTaskRequest(implantId, "tunnel.bind", $"127.0.0.1 {port}"));
+        issued.EnsureSuccessStatusCode();
+        var task = await issued.Content.ReadFromJsonAsync<TaskBody>();
+        await WaitForTaskAsync(env, task!.TaskId,
+            body => body.Status is "Dispatched" or "Completed", stderr, "the bind task's dispatch");
+    }
+
+    // The chained child's arrival: online with the carrying parent recorded
+    // as its lineage -- the only fact that distinguishes it from the top on
+    // the same host.
+    private static async Task<string> WaitForChainedOnlineAsync(
+        TestEnv env, string parentImplantId, StringBuilder stderr)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(90);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var implants = await env.Http.GetFromJsonAsync<ImplantEndpoints.ImplantResponse[]>(
+                $"/engagements/{env.EngagementId}/implants");
+            var chained = implants?.FirstOrDefault(i =>
+                i.ParentImplantId == parentImplantId && i.IsOnline);
+            if (chained is not null)
+                return chained.ImplantId;
+            await Task.Delay(500);
+        }
+        throw new TimeoutException("the chained implant did not appear online. Stderr:\n" + stderr);
+    }
+
+    private static async Task DisposeChainAsync(TestEnv env, IReadOnlyList<Process> spawned)
+    {
+        foreach (var process in spawned)
+        {
+            if (!process.HasExited)
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                process.WaitForExit(5000);
+            }
+            process.Dispose();
+        }
+        await env.DisposeAsync();
+    }
+
     /// <summary>
     /// A real Kestrel teamserver with the plain-HTTP operator/enroll API and
     /// the implant endpoint, logged in; the end-to-end harness shape.

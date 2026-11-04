@@ -19,6 +19,7 @@ public class ImplantClassCapabilitiesTests
     [InlineData(ImplantClass.Implant, "file.push")]
     [InlineData(ImplantClass.Implant, "file.pull")]
     [InlineData(ImplantClass.Implant, "proc.kill")]
+    [InlineData(ImplantClass.Implant, "tunnel.bind")]
     [InlineData(ImplantClass.Implant, "tunnel.forward")]
     [InlineData(ImplantClass.Implant, "tunnel.socks")]
     [InlineData(ImplantClass.Implant, "recon.portscan")]
@@ -41,6 +42,7 @@ public class ImplantClassCapabilitiesTests
     [InlineData(ImplantClass.Implant, "module.list")]
     [InlineData(ImplantClass.WebShell, "shell.exec")]
     [InlineData(ImplantClass.Ephemeral, "shell.exec")]
+    [InlineData(ImplantClass.Pivot, "tunnel.bind")]
     [InlineData(ImplantClass.Pivot, "tunnel.forward")]
     [InlineData(ImplantClass.Pivot, "tunnel.socks")]
     [InlineData(ImplantClass.Browser, "browser.fingerprint")]
@@ -113,7 +115,7 @@ public class ImplantClassCapabilitiesTests
             {
                 "shell.exec", "shell.interact", "file.push", "file.pull", "fs.list", "proc.kill",
                 "beacon.sleep",
-                "tunnel.forward", "tunnel.socks",
+                "tunnel.bind", "tunnel.forward", "tunnel.socks",
                 "recon.portscan", "recon.hostenum", "recon.service", "recon.ps",
                 "lateral.move", "lateral.token", "lateral.exec_remote",
                 "persist.install", "persist.remove", "persist.list",
@@ -165,13 +167,14 @@ public class ImplantClassCapabilitiesTests
     public void For_EveryClassReturnsVerbs_PivotCarriesExactlyTheTunnelSet()
     {
         // Every class carries at least one verb. Pivot is the tunneling class
-        // (architecture.md Sec 5.2): exactly the tunnel set -- enough to forward
-        // traffic for hosts that cannot run their own implant, and nothing a
-        // long-haul full-class footprint justifies.
+        // (architecture.md Sec 5.2): exactly the tunnel set -- enough to
+        // forward traffic for hosts that cannot run their own implant and
+        // front the chained contacts that ride it (Sec 5.2's implant-side
+        // half), and nothing a long-haul full-class footprint justifies.
         foreach (ImplantClass @class in Enum.GetValues(typeof(ImplantClass)))
             Assert.NotEmpty(ImplantClassCapabilities.For(@class));
         Assert.Equal(
-            new[] { "tunnel.forward", "tunnel.socks" },
+            new[] { "tunnel.bind", "tunnel.forward", "tunnel.socks" },
             ImplantClassCapabilities.For(ImplantClass.Pivot));
     }
 
