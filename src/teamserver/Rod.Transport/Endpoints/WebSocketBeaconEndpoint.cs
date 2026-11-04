@@ -93,6 +93,7 @@ internal sealed class WebSocketBeaconStream
         Rod.Transport.Channels.DegradedChannelHub degraded,
         TaskRelayHub relays,
         SocksProxyHub socks,
+        ChainHub chain,
         BeaconIngest ingest,
         BeaconTasking tasking,
         IPayloadStore payloads,
@@ -107,7 +108,7 @@ internal sealed class WebSocketBeaconStream
         _contactKeys = contactKeys;
         _sessionKeys = sessionKeys;
         _runner = new BeaconSessionRunner(
-            sessions, tasks, clock, wake, channels, degraded, relays, socks, ingest, tasking);
+            sessions, tasks, clock, wake, channels, degraded, relays, socks, chain, ingest, tasking);
     }
 
     public async Task HandleAsync(HttpContext http, CancellationToken cancellationToken)

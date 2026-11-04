@@ -71,6 +71,7 @@ internal sealed class BeaconIngest
     private readonly TimeProvider _clock;
     private readonly Channels.TaskRelayHub _relays;
     private readonly Channels.SocksProxyHub _socks;
+    private readonly Channels.ChainHub _chain;
     private readonly BeaconDiagnostics _diagnostics;
     // The cross-connection exfil reassembly (ADR-010's upload arm): one
     // bounded store for the whole process, so a run spans connections and
@@ -88,6 +89,7 @@ internal sealed class BeaconIngest
         TimeProvider clock,
         Channels.TaskRelayHub relays,
         Channels.SocksProxyHub socks,
+        Channels.ChainHub chain,
         BeaconDiagnostics diagnostics)
     {
         _tasks = tasks;
@@ -99,6 +101,7 @@ internal sealed class BeaconIngest
         _clock = clock;
         _relays = relays;
         _socks = socks;
+        _chain = chain;
         _diagnostics = diagnostics;
         _exfilStreams = new ExfilStreamStore(clock);
     }
@@ -109,7 +112,7 @@ internal sealed class BeaconIngest
     /// stream store.
     /// </summary>
     public BeaconConnectionIngest OpenConnection()
-        => new(_tasks, _taskRecords, _implants, _audit, _artifacts, _bus, _clock, _relays, _socks, _diagnostics, _exfilStreams);
+        => new(_tasks, _taskRecords, _implants, _audit, _artifacts, _bus, _clock, _relays, _socks, _chain, _diagnostics, _exfilStreams);
 
     /// <summary>
     /// The contiguous-from-zero byte count a (task, name) stream holds --
@@ -163,6 +166,7 @@ internal sealed class BeaconConnectionIngest
     private readonly TimeProvider _clock;
     private readonly Channels.TaskRelayHub _relays;
     private readonly Channels.SocksProxyHub _socks;
+    private readonly Channels.ChainHub _chain;
     private readonly BeaconDiagnostics _diagnostics;
     // The process-wide exfil stream store (see BeaconIngest): placement,
     // caps, and idle eviction live there; this class contributes the
@@ -186,6 +190,7 @@ internal sealed class BeaconConnectionIngest
         TimeProvider clock,
         Channels.TaskRelayHub relays,
         Channels.SocksProxyHub socks,
+        Channels.ChainHub chain,
         BeaconDiagnostics diagnostics,
         ExfilStreamStore exfil)
     {
@@ -198,6 +203,7 @@ internal sealed class BeaconConnectionIngest
         _clock = clock;
         _relays = relays;
         _socks = socks;
+        _chain = chain;
         _diagnostics = diagnostics;
         _exfil = exfil;
     }
@@ -417,9 +423,11 @@ internal sealed class BeaconConnectionIngest
         // The final result closes the channel, and with it any relay bridged
         // onto it (architecture.md Sec 10.1 tunnel, Sec 10.3): the tunnel is
         // over, so the operator-side tool's connection ends rather than
-        // stalls on a listener nothing more will cross.
+        // stalls on a listener nothing more will cross. A chain link ends the
+        // same way -- every contact it carried is over with the bind.
         _relays.CloseTask(completed.TaskId.Value, "the tunnel task completed");
         _socks.CloseTask(completed.TaskId.Value, "the tunnel task completed");
+        _chain.CloseTask(completed.TaskId.Value, "the tunnel task completed");
 
         // The store stamps the chain hashes on append; the call site supplies only
         // the audited facts (AuditEvent.Fact leaves PreviousHash/Hash empty).
@@ -629,9 +637,11 @@ internal sealed class BeaconConnectionIngest
         // carry what the channel carried, not the lossy UTF-8 projection the
         // transcript decodes below. A task with no relay bound -- the common
         // case on every channel -- costs one dictionary lookup; a SOCKS proxy
-        // re-frames the same bytes into its connections.
+        // re-frames the same bytes into its connections; a chain link routes
+        // them into the contacts the parent's listener accepted (Sec 5.2).
         _relays.TryDeliver(taskId.Value, output.Data.Memory);
         _socks.TryDeliver(taskId.Value, output.Data.Memory);
+        _chain.TryDeliver(task, output.Data.Memory);
 
         var text = _decoders.Decode(taskId.Value, output.Data.Span);
 

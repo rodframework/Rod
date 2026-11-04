@@ -105,6 +105,7 @@ internal sealed class StreamBeaconBridge
         LiveChannelHub channels,
         TaskRelayHub relays,
         SocksProxyHub socks,
+        Rod.Transport.Channels.ChainHub chain,
         ILogger<StreamBeaconBridge> logger)
     {
         _handshake = handshake;
@@ -123,7 +124,7 @@ internal sealed class StreamBeaconBridge
         _sessionKeys = sessionKeys;
         _logger = logger;
         _runner = new BeaconSessionRunner(
-            sessions, tasks, clock, wake, channels, degraded, relays, socks, ingest, tasking);
+            sessions, tasks, clock, wake, channels, degraded, relays, socks, chain, ingest, tasking);
     }
 
     /// <summary>
@@ -137,7 +138,26 @@ internal sealed class StreamBeaconBridge
     /// contact reconnects, the cadence the poll shape keeps and the stream
     /// shape's reconnects borrow.
     /// </summary>
-    public async Task HandleContactAsync(Stream stream, Listener listener, CancellationToken stoppingToken)
+    /// <param name="carrier">
+    /// The carrier name the contact's presence stamps ride: "pipe" for a
+    /// listener's own socket, "chain" for a chained contact a parent's
+    /// tunnel.bind channel carried in (Sec 5.2) -- the roster's badges read
+    /// the difference.
+    /// </param>
+    /// <param name="chainParent">
+    /// On a chained contact, the implant whose channel carried it in: the
+    /// carrying parent is the lineage a chained enrollment records (the
+    /// child cannot name its own, and a frame that tries is overridden --
+    /// the carriage is the authority), and a null ingress listener suits a
+    /// contact that arrived over no listener of its own. Null on an
+    /// ordinary listener contact, which keeps the frame's own parent field.
+    /// </param>
+    public async Task HandleContactAsync(
+        Stream stream,
+        Listener? listener,
+        CancellationToken stoppingToken,
+        string carrier = "pipe",
+        ImplantId? chainParent = null)
     {
         using var bounded = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         bounded.CancelAfter(ContactTimeout);
@@ -164,7 +184,7 @@ internal sealed class StreamBeaconBridge
             // reads the next message as the contact.
             if (frames.Count > 0 && frames[0].Kind == FrameKind.EnrollRequest)
             {
-                if (!await ServeEnrollmentAsync(stream, listener, frames[0], opened, cancellationToken))
+                if (!await ServeEnrollmentAsync(stream, listener, frames[0], opened, chainParent, cancellationToken))
                     return;
 
                 // The handshake is the next frame the connection carries: the
@@ -283,7 +303,7 @@ internal sealed class StreamBeaconBridge
             // session this handshake holds was closed out from under it, stop
             // after the handshake response so the implant re-handshakes on its
             // next cycle.
-            await _sessions.TouchAsync(session.Implant, session.Capabilities, _clock.GetUtcNow(), "pipe", cancellationToken);
+            await _sessions.TouchAsync(session.Implant, session.Capabilities, _clock.GetUtcNow(), carrier, cancellationToken);
             var active = await _sessions.GetActiveAsync(session.Implant, cancellationToken);
             if (active is null || active.Id != session.SessionId)
             {
@@ -328,7 +348,7 @@ internal sealed class StreamBeaconBridge
                     },
                     (frame, liveToken) => WriteLiveFrameAsync(stream, frame, sealedKey, isSealed, liveSession, liveToken),
                     stoppingToken,
-                    carrier: "pipe");
+                    carrier);
                 return;
             }
 
@@ -569,12 +589,22 @@ internal sealed class StreamBeaconBridge
     // The shared ScopedEnrollment flow does the work the web route drives it
     // for, scoped by this connection's own listener (the ingress the HTTP
     // route resolves from the local port, the pipe or socket listener knows
-    // directly), with the same refusal rules and audit arc. A refusal answers
-    // the status frame and ends the connection (no identity exists to hold a
-    // session); an acceptance is followed by the ordinary handshake on the
-    // same connection.
+    // directly), with the same refusal rules and audit arc. A chained
+    // contact (Sec 5.2) carries no listener of its own -- its ingress is the
+    // parent's channel, so the null ingress keeps the enrollment
+    // token-scoped -- and names its carrying parent as the lineage, the
+    // frame's own parent field overridden (the carriage is the authority, so
+    // a child cannot misreport it). A refusal answers the status frame and
+    // ends the connection (no identity exists to hold a session); an
+    // acceptance is followed by the ordinary handshake on the same
+    // connection.
     private async Task<bool> ServeEnrollmentAsync(
-        Stream stream, Listener listener, Frame frame, DecodedMessage opened, CancellationToken cancellationToken)
+        Stream stream,
+        Listener? listener,
+        Frame frame,
+        DecodedMessage opened,
+        ImplantId? chainParent,
+        CancellationToken cancellationToken)
     {
         Rod.V1.EnrollRequest request;
         try
@@ -591,7 +621,7 @@ internal sealed class StreamBeaconBridge
         // A shared-tier socket refuses implant ingress outright (Sec 8) --
         // the same rule ScopedEnrollment enforces from the listener record,
         // kept here so the named refusal reads on the listener's own log.
-        if (listener.EngagementId is null)
+        if (listener is not null && listener.EngagementId is null)
         {
             _logger.LogInformation(
                 "Stream enroll refused on {Name}: the socket is not engagement-scoped.", listener.Name);
@@ -605,7 +635,7 @@ internal sealed class StreamBeaconBridge
                 request.DeployTokenSecret,
                 NullWhenEmpty(request.Class),
                 request.PublicKey.IsEmpty ? null : request.PublicKey.ToByteArray(),
-                NullWhenEmpty(request.ParentImplantId),
+                chainParent?.ToString() ?? NullWhenEmpty(request.ParentImplantId),
                 NullWhenEmpty(request.Hostname),
                 NullWhenEmpty(request.Os),
                 NullWhenEmpty(request.Arch),
@@ -630,10 +660,12 @@ internal sealed class StreamBeaconBridge
             // generic refusal -- the same "no signal beyond no" the web
             // route keeps -- with the cause named server-side.
             if (outcome.Problem is { } problem)
-                _logger.LogInformation("Stream enroll refused on {Name}: {Problem}.", listener.Name, problem);
+                _logger.LogInformation(
+                    "Stream enroll refused on {Name}: {Problem}.", listener?.Name ?? "a chained contact", problem);
             else
                 _logger.LogInformation(
-                    "Stream enroll refused on {Name}: status {Status}.", listener.Name, outcome.Status);
+                    "Stream enroll refused on {Name}: status {Status}.",
+                    listener?.Name ?? "a chained contact", outcome.Status);
             await WriteEnrollResponseAsync(
                 stream, new Rod.V1.EnrollResponse { Status = outcome.Status }, opened, cancellationToken);
             return false;
@@ -642,7 +674,7 @@ internal sealed class StreamBeaconBridge
         var enrolled = outcome.Enrolled!;
         _logger.LogInformation(
             "Rod stream listener {Name} enrolled implant {Implant} into {Engagement}.",
-            listener.Name, enrolled.ImplantId, enrolled.EngagementId);
+            listener?.Name ?? "a chained contact", enrolled.ImplantId, enrolled.EngagementId);
 
         var response = ScopedEnrollmentResponse.Build(outcome);
 

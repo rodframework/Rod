@@ -497,6 +497,14 @@ public static class TaskEndpoints
             return Results.Json(
                 new Problem($"'{task.Verb}' is not a channel task; it takes no live input."),
                 statusCode: StatusCodes.Status422UnprocessableEntity);
+        // A chain bind's downstream grammar is the server's own (Sec 5.2):
+        // every packet on it routes a chained contact's bytes, so operator
+        // input has no lane here -- a posted body would impersonate the
+        // machinery, not type into it.
+        if (string.Equals(task.Verb, ChannelVerbs.TunnelBind, StringComparison.OrdinalIgnoreCase))
+            return Results.Json(
+                new Problem("A chain bind carries chained contacts, not operator input."),
+                statusCode: StatusCodes.Status422UnprocessableEntity);
         if (task.Status != Rod.CoreState.Tasks.TaskStatus.Dispatched)
             return Results.Conflict(
                 new Problem("The task's channel is not live: it is queued or already completed."));
