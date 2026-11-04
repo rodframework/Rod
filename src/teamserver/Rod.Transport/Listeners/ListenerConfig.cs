@@ -35,4 +35,7 @@ public sealed record ListenerConfig(
     string BindAddress,
     string PublicEndpoint,
     EngagementId? EngagementId = null,
-    string TrustPosture = "pinned");
+    string TrustPosture = "pinned",
+    string? PackageName = null,
+    string? PackageVersion = null,
+    IReadOnlyDictionary<string, string>? Params = null);

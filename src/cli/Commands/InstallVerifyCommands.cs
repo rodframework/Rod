@@ -111,9 +111,9 @@ public static class InstallCommand
                 }
             }
 
-            var canonical = CanonicalForm.Build(manifest, CanonicalForm.DigestPayload(extractDirectory));
-            if (!Ed25519.Verify(Ed25519.DecodeKey(version.PublicKey), Convert.FromBase64String(version.Signature),
-                    System.Text.Encoding.UTF8.GetBytes(canonical)))
+            if (!CanonicalForm.TryVerify(
+                    manifest, CanonicalForm.DigestPayload(extractDirectory), version.Signature,
+                    Ed25519.DecodeKey(version.PublicKey)))
                 throw new CliError($"signature verification failed for {name}@{version.Version}.", RodCli.ExitTrustFailure);
             output.WriteLine($"signature verified (publisher {version.Fingerprint}).");
 
@@ -267,9 +267,9 @@ public static class VerifyCommand
                     failure = $"manifest {manifest.Name}@{manifest.Version} ({ModuleEntryKindNames.ToString(manifest.Entry)}) disagrees with the lock ({module.Name}@{module.Version}, {module.Entry})";
                 else
                 {
-                    var canonical = CanonicalForm.Build(manifest, CanonicalForm.DigestPayload(directory));
-                    failure = Ed25519.Verify(Ed25519.DecodeKey(module.PublicKey), Convert.FromBase64String(module.Signature),
-                        System.Text.Encoding.UTF8.GetBytes(canonical))
+                    failure = CanonicalForm.TryVerify(
+                        manifest, CanonicalForm.DigestPayload(directory), module.Signature,
+                        Ed25519.DecodeKey(module.PublicKey))
                         ? ""
                         : "signature does not verify over the installed files";
                 }

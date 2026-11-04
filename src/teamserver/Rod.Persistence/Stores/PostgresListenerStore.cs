@@ -37,6 +37,10 @@ internal sealed class PostgresListenerStore : IListenerStore
             stored.RepointedAt = definition.RepointedAt;
             stored.TrustPosture = definition.TrustPosture;
             stored.FrontsJson = ListenerFrontsJson.Of(definition.Fronts);
+            stored.PackageName = definition.PackageName;
+            stored.PackageVersion = definition.PackageVersion;
+            stored.SealTier = definition.SealTier;
+            stored.ParamsJson = definition.ParamsJson;
         }
         await db.SaveChangesAsync(cancellationToken);
     }
@@ -94,6 +98,10 @@ internal sealed class PostgresListenerStore : IListenerStore
             RepointedAt = definition.RepointedAt,
             TrustPosture = definition.TrustPosture,
             FrontsJson = ListenerFrontsJson.Of(definition.Fronts),
+            PackageName = definition.PackageName,
+            PackageVersion = definition.PackageVersion,
+            SealTier = definition.SealTier,
+            ParamsJson = definition.ParamsJson,
         };
 
     private static ListenerDefinition ToDefinition(StoredListenerDefinition stored)
@@ -108,5 +116,9 @@ internal sealed class PostgresListenerStore : IListenerStore
             stored.RepointedAt,
             // Rows predating the column read as the pinned default.
             stored.TrustPosture ?? "pinned",
-            ListenerFrontsJson.Parse(stored.FrontsJson));
+            ListenerFrontsJson.Parse(stored.FrontsJson),
+            stored.PackageName,
+            stored.PackageVersion,
+            stored.SealTier,
+            stored.ParamsJson);
 }

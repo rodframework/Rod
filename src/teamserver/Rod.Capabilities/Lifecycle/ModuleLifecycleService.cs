@@ -202,10 +202,11 @@ public sealed class ModuleLifecycleService
 
             // The canonical form re-derived from the extracted tree: a
             // tampered byte, field, or file breaks the signature here,
-            // before anything registers.
+            // before anything registers. A package published before the
+            // current form verifies under the previous one -- published
+            // packages are compatibility surface.
             var digests = CanonicalForm.DigestPayload(Path.GetDirectoryName(manifestPath)!);
-            var canonical = CanonicalForm.Build(manifest, digests);
-            if (!Ed25519.Verify(publicKey, signature, System.Text.Encoding.UTF8.GetBytes(canonical)))
+            if (!CanonicalForm.TryVerify(manifest, digests, Convert.ToBase64String(signature), publicKey))
                 throw new InvalidOperationException(
                     $"The package's signature does not verify against its publisher key ({fingerprint}); refusing.");
 

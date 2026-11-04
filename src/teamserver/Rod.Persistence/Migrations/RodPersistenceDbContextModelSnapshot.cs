@@ -1262,6 +1262,20 @@ namespace Rod.Persistence.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
+                    b.Property<string>("PackageName")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("package_name");
+
+                    b.Property<string>("PackageVersion")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("package_version");
+
+                    b.Property<string>("ParamsJson")
+                        .HasColumnType("text")
+                        .HasColumnName("params_json");
+
                     b.Property<string>("PublicEndpoint")
                         .IsRequired()
                         .HasMaxLength(500)
@@ -1272,10 +1286,15 @@ namespace Rod.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("repointed_at");
 
+                    b.Property<string>("SealTier")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("seal_tier");
+
                     b.Property<string>("Transport")
                         .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
                         .HasColumnName("transport");
 
                     b.Property<string>("TrustPosture")
@@ -1673,12 +1692,6 @@ namespace Rod.Persistence.Migrations
                         .HasColumnType("character varying(128)")
                         .HasColumnName("fingerprint");
 
-                    b.Property<string>("Language")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("language");
-
                     b.Property<long>("Size")
                         .HasColumnType("bigint")
                         .HasColumnName("size");
@@ -1691,6 +1704,12 @@ namespace Rod.Persistence.Migrations
                     b.Property<Guid?>("TokenId")
                         .HasColumnType("uuid")
                         .HasColumnName("token_id");
+
+                    b.Property<string>("UnitId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("language");
 
                     b.Property<byte[]>("WireGuardPublicKey")
                         .HasColumnType("bytea")

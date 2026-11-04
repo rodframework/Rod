@@ -1298,4 +1298,30 @@ public class CanonicalFormTests
             form);
     }
 
+    [Fact]
+    public void APackageSignedOverThePreviousForm_StillVerifies()
+    {
+        // The v1.0.0 freeze made published packages compatibility surface:
+        // a form bump never orphans them. A package signed over v4 (the
+        // listener lines do not exist there, so the forms differ only in
+        // the version line for a pre-v5 manifest) must keep verifying after
+        // the bump, and a tampered byte must refuse under both forms.
+        var manifest = Manifest();
+        var digests = new Dictionary<string, string> { ["src/sweep.cs"] = "aa" };
+        // The frozen v4 shape: v5's bytes with the version line swapped and
+        // the listener lines (v5's own, present even undeclared) dropped.
+        var v4Form = CanonicalForm.Build(manifest, digests)
+            .Replace(CanonicalForm.VersionLine + "\n", "rod-module-manifest-v4\n")
+            .Replace("listener=-\n", "")
+            .Replace("listener-command=-\n", "");
+        var keys = Rod.Packaging.Ed25519.GenerateKeyPair();
+        var signature = Convert.ToBase64String(Rod.Packaging.Ed25519.Sign(
+            keys.SecretKey, System.Text.Encoding.UTF8.GetBytes(v4Form)));
+
+        Assert.True(CanonicalForm.TryVerify(manifest, digests, signature, keys.PublicKey));
+
+        var tampered = new Dictionary<string, string> { ["src/sweep.cs"] = "bb" };
+        Assert.False(CanonicalForm.TryVerify(manifest, tampered, signature, keys.PublicKey));
+    }
+
 }

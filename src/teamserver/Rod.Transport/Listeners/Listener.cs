@@ -58,6 +58,26 @@ public sealed class Listener
     /// <summary>The engagement this listener answers for; null on the shared tier.</summary>
     public EngagementId? EngagementId { get; }
 
+    /// <summary>
+    /// The listener package this listener binds (ADR-025): on a
+    /// package-backed listener the medium is an external process from the
+    /// installed package, supervised over the bridge, and the transport
+    /// field carries the package's own name. Null on a provider-backed
+    /// listener (the in-tree families).
+    /// </summary>
+    public string? PackageName { get; }
+
+    /// <summary>The bound package's version (ADR-025); null when
+    /// provider-backed.</summary>
+    public string? PackageVersion { get; }
+
+    /// <summary>
+    /// The bound package's declared seal tier (ADR-025): "sealed" or
+    /// "id-only", the carrier posture the kernel enforced at resolve.
+    /// Null when provider-backed.
+    /// </summary>
+    public string? SealTier { get; }
+
     public DateTimeOffset CreatedAt { get; }
     public DateTimeOffset? RepointedAt { get; private set; }
     public ListenerState State { get; private set; }
@@ -81,7 +101,10 @@ public sealed class Listener
         string trustPosture,
         DateTimeOffset createdAt,
         ListenerState state,
-        IReadOnlyList<ListenerFront>? fronts = null)
+        IReadOnlyList<ListenerFront>? fronts = null,
+        string? packageName = null,
+        string? packageVersion = null,
+        string? sealTier = null)
     {
         Id = id;
         Name = name;
@@ -93,6 +116,9 @@ public sealed class Listener
         CreatedAt = createdAt;
         State = state;
         Fronts = fronts ?? [];
+        PackageName = packageName;
+        PackageVersion = packageVersion;
+        SealTier = sealTier;
     }
 
     /// <summary>
@@ -113,6 +139,30 @@ public sealed class Listener
         => new(id, name, transport, bindAddress, publicEndpoint, engagementId, trustPosture, at, ListenerState.Stopped, fronts);
 
     /// <summary>
+    /// Factory for a package-backed listener (ADR-025): the medium is an
+    /// external process from the named installed package, supervised over
+    /// the bridge. The transport field carries the package's own name -- a
+    /// listener package is its own registry entry, not a provider's.
+    /// </summary>
+    public static Listener DefinePackaged(
+        ListenerId id,
+        string name,
+        string packageName,
+        string packageVersion,
+        string sealTier,
+        string bindAddress,
+        string publicEndpoint,
+        DateTimeOffset at,
+        EngagementId engagementId)
+        => new(
+            id, name, packageName, bindAddress, publicEndpoint, engagementId, "pinned", at,
+            ListenerState.Stopped,
+            fronts: null,
+            packageName,
+            packageVersion,
+            sealTier);
+
+    /// <summary>
     /// Marks the listener as bound and accepting connections. Only legal from
     /// <see cref="ListenerState.Stopped"/>; a re-call on a running listener is a
     /// no-op. The host drives this from <c>UseRodListeners</c> after Kestrel opens
@@ -126,6 +176,27 @@ public sealed class Listener
             throw new InvalidOperationException($"Listener {Id} cannot start from {State}.");
 
         State = ListenerState.Running;
+    }
+
+    /// <summary>
+    /// The supervisor's health signal (ADR-025): the listener's process
+    /// exited, so the listener is unhealthy while the restart schedule
+    /// waits. Legal from Running; the kernel process is untouched.
+    /// </summary>
+    public void MarkUnhealthy()
+    {
+        if (State == ListenerState.Running)
+            State = ListenerState.Unhealthy;
+    }
+
+    /// <summary>
+    /// The respawn landed: the listener serves again. Legal from
+    /// <see cref="ListenerState.Unhealthy"/>.
+    /// </summary>
+    public void MarkRunning()
+    {
+        if (State == ListenerState.Unhealthy)
+            State = ListenerState.Running;
     }
 
     /// <summary>

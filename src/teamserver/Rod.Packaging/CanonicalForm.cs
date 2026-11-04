@@ -26,15 +26,55 @@ public static class CanonicalForm
     // a version bump, never a silent mismatch.
     public const string VersionLine = "rod-module-manifest-v5";
 
+    // The immediately previous form, the compatibility surface the v1.0.0
+    // freeze named: every package published before v5 carries a signature
+    // over these bytes, so verification re-derives both forms and accepts
+    // either. The renderer is one core with two envelopes -- the v5 form
+    // adds the listener lines, the v4 form omits them and names its own
+    // version line -- so the shapes cannot drift apart.
+    private const string PreviousVersionLine = "rod-module-manifest-v4";
+
     /// <summary>Builds the signed message: one line per field in fixed
     /// order, then one digest line per payload file sorted by path. Lines
     /// join with '\n' and the last line carries no trailing newline.</summary>
     public static string Build(ModuleManifest manifest, IReadOnlyDictionary<string, string> payloadDigests)
+        => BuildCore(manifest, payloadDigests, VersionLine, listenerLines: true);
+
+    /// <summary>
+    /// Verifies a package signature against the forms a signature can
+    /// cover: the current one first, then the immediately previous one.
+    /// The v1.0.0 freeze made published packages compatibility surface, so
+    /// a form bump never orphans them -- a v4-signed package keeps
+    /// verifying until no published package carries the form, and a
+    /// package signed under the current form verifies on the first try.
+    /// </summary>
+    public static bool TryVerify(
+        ModuleManifest manifest,
+        IReadOnlyDictionary<string, string> payloadDigests,
+        string signatureBase64,
+        byte[] publicKey)
+    {
+        var signature = Convert.FromBase64String(signatureBase64);
+        return Ed25519.Verify(publicKey, signature,
+                   System.Text.Encoding.UTF8.GetBytes(Build(manifest, payloadDigests)))
+            || Ed25519.Verify(publicKey, signature,
+                   System.Text.Encoding.UTF8.GetBytes(
+                       BuildCore(manifest, payloadDigests, PreviousVersionLine, listenerLines: false)));
+    }
+
+    // One renderer, two envelopes: the version line the bytes carry and
+    // whether the listener declaration's lines ride (v5 and later). Every
+    // other line is shared, so the shapes cannot drift apart.
+    private static string BuildCore(
+        ModuleManifest manifest,
+        IReadOnlyDictionary<string, string> payloadDigests,
+        string versionLine,
+        bool listenerLines)
     {
         var sb = new StringBuilder();
         void Line(string key, string value) => sb.Append(key).Append('=').Append(value).Append('\n');
 
-        sb.Append(VersionLine).Append('\n');
+        sb.Append(versionLine).Append('\n');
         Line("name", manifest.Name);
         Line("version", manifest.Version.ToString());
         Line("entry", ModuleEntryKindNames.ToString(manifest.Entry));
@@ -82,23 +122,26 @@ public static class CanonicalForm
         // a tampered any of them breaks verification like every other field.
         // The spawn args ride one line per arg (index-keyed, so order is
         // data and a comma inside an argument cannot forge the line).
-        Line("listener", manifest.Listener is { } listener
-            ? $"seal={ListenerSealTierNames.ToString(listener.SealTier)} third-party={Bool(listener.ThirdPartyMedium)} "
-            + $"channel={listener.Channel} carriers="
-            + (listener.Carriers.Count == 0
-                ? "-"
-                : string.Join(",", listener.Carriers.Distinct().OrderBy(c => c, StringComparer.Ordinal)))
-            : "-");
-        Line("listener-command", manifest.Listener is { } withCommand ? withCommand.ProcessCommand : "-");
-        for (var i = 0; i < (manifest.Listener?.ProcessArgs.Count ?? 0); i++)
-            Line($"listener-arg/{i}", manifest.Listener!.ProcessArgs[i]);
-        if (manifest.Listener is { } withParams)
+        if (listenerLines)
         {
-            foreach (var parameter in withParams.Params.OrderBy(p => p.Name, StringComparer.Ordinal))
-                Line(
-                    "listener-param/" + parameter.Name,
-                    $"kind={parameter.Kind} required={Bool(parameter.Required)} secret={Bool(parameter.Secret)} "
-                    + $"description={parameter.Description ?? "-"}");
+            Line("listener", manifest.Listener is { } listener
+                ? $"seal={ListenerSealTierNames.ToString(listener.SealTier)} third-party={Bool(listener.ThirdPartyMedium)} "
+                + $"channel={listener.Channel} carriers="
+                + (listener.Carriers.Count == 0
+                    ? "-"
+                    : string.Join(",", listener.Carriers.Distinct().OrderBy(c => c, StringComparer.Ordinal)))
+                : "-");
+            Line("listener-command", manifest.Listener is { } withCommand ? withCommand.ProcessCommand : "-");
+            for (var i = 0; i < (manifest.Listener?.ProcessArgs.Count ?? 0); i++)
+                Line($"listener-arg/{i}", manifest.Listener!.ProcessArgs[i]);
+            if (manifest.Listener is { } withParams)
+            {
+                foreach (var parameter in withParams.Params.OrderBy(p => p.Name, StringComparer.Ordinal))
+                    Line(
+                        "listener-param/" + parameter.Name,
+                        $"kind={parameter.Kind} required={Bool(parameter.Required)} secret={Bool(parameter.Secret)} "
+                        + $"description={parameter.Description ?? "-"}");
+            }
         }
 
         // The plugin artifact rows ride one line per artifact, target-sorted:

@@ -38,6 +38,24 @@ internal sealed class StoredListenerDefinition
     /// row, so a JSON column beats a child table here.
     /// </summary>
     public string? FrontsJson { get; set; }
+
+    /// <summary>
+    /// The installed listener package a package-backed listener binds
+    /// (ADR-025), by name and version; null on a provider-backed listener.
+    /// The stored transport column carries the package's own name here.
+    /// </summary>
+    public string? PackageName { get; set; }
+    public string? PackageVersion { get; set; }
+
+    /// <summary>The bound package's declared seal tier ("sealed"/"id-only",
+    /// ADR-025); null on a provider-backed listener.</summary>
+    public string? SealTier { get; set; }
+
+    /// <summary>
+    /// The medium parameters the operator set at creation, as JSON
+    /// (ADR-025) -- the values the restart respawns the process with.
+    /// </summary>
+    public string? ParamsJson { get; set; }
 }
 
 // The JSON shape of a stored front: strings all the way down, so the stored
@@ -106,13 +124,19 @@ internal sealed class StoredListenerDefinitionConfiguration : IEntityTypeConfigu
             .HasConversion(IdConverters.EngagementId)
             .HasColumnName("engagement_id");
         builder.Property(l => l.Name).HasColumnName("name").HasMaxLength(200);
-        builder.Property(l => l.Transport).HasColumnName("transport").HasMaxLength(32);
+        // A package-backed listener stores the package's own name here
+        // (ADR-025), so the column holds a package name's full length.
+        builder.Property(l => l.Transport).HasColumnName("transport").HasMaxLength(128);
         builder.Property(l => l.BindAddress).HasColumnName("bind_address").HasMaxLength(200);
         builder.Property(l => l.PublicEndpoint).HasColumnName("public_endpoint").HasMaxLength(500);
         builder.Property(l => l.TrustPosture).HasColumnName("trust_posture").HasMaxLength(16);
         builder.Property(l => l.CreatedAt).HasColumnName("created_at");
         builder.Property(l => l.RepointedAt).HasColumnName("repointed_at");
         builder.Property(l => l.FrontsJson).HasColumnName("fronts_json");
+        builder.Property(l => l.PackageName).HasColumnName("package_name").HasMaxLength(128);
+        builder.Property(l => l.PackageVersion).HasColumnName("package_version").HasMaxLength(32);
+        builder.Property(l => l.SealTier).HasColumnName("seal_tier").HasMaxLength(16);
+        builder.Property(l => l.ParamsJson).HasColumnName("params_json");
 
         // The engagement's listener listing reads by engagement; the port-
         // uniqueness pre-check reads them all.

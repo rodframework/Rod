@@ -296,117 +296,40 @@ public static class EnrollmentEndpoints
             cancellationToken);
     }
 
-    private static async Task<IResult> EnrollAsync(
-        HttpRequest http,
-        EnrollmentService service,
+    private static async Task EnrollAsync(
+        HttpContext http,
         Rod.Transport.Listeners.IListenerRegistry listeners,
-        IDeployTokenService tokens,
-        TimeProvider clock,
-        IAuditStore audit,
-        IPayloadStore payloads,
-        Rod.CoreState.Campaigns.ICampaignStore campaigns,
-        EnvelopeContactKeys contactKeys,
+        EnrollmentExchange exchange,
         CancellationToken cancellationToken)
     {
         // A browser-hooked page enrolls cross-origin (architecture.md Sec 8):
         // the browser-only CORS answer, served only when a browser asked.
-        CrossOriginHttp.Allow(http.HttpContext);
+        CrossOriginHttp.Allow(http);
 
-        var body = await ReadEnrollRequestAsync(http, payloads, cancellationToken);
-        if (body is null)
+        byte[] requestBody;
+        using (var buffer = new MemoryStream())
         {
-            return Results.BadRequest(new Problem(
-                "Request body is not an enroll request (raw JSON, a base64-wrapped JSON string, or an AES-GCM-wrapped one)."));
-        }
-
-        // The implant's own public key (DER SubjectPublicKeyInfo, base64 over
-        // JSON): a Tier 0 obligation the server accepts and validates -- an
-        // ECDSA key an implant generates and keeps the private half of. No
-        // in-tree consumer mints over it (the transport certificate posture
-        // retired with the mTLS family); validation is the contract's own
-        // gate, so a recognizable SPKI is enforced here, malformed shapes
-        // are a bad request, and the token stays intact either way.
-        byte[]? clientPublicKey = null;
-        if (!string.IsNullOrWhiteSpace(body.PublicKey))
-        {
-            try
-            {
-                clientPublicKey = Convert.FromBase64String(body.PublicKey);
-                using var validated = System.Security.Cryptography.ECDsa.Create();
-                validated.ImportSubjectPublicKeyInfo(clientPublicKey, out _);
-            }
-            catch (FormatException)
-            {
-                return Results.BadRequest(new Problem("Public key is not valid base64."));
-            }
-            catch (System.Security.Cryptography.CryptographicException)
-            {
-                return Results.BadRequest(new Problem("Public key is not a recognizable SubjectPublicKeyInfo."));
-            }
+            await http.Request.Body.CopyToAsync(buffer, cancellationToken);
+            requestBody = buffer.ToArray();
         }
 
         // The ingress this socket carries (architecture.md Sec 8): the
         // listener the local port resolves names the engagement a token must
-        // belong to -- refused whole and unspent otherwise -- and the
-        // listener id stamped onto the implant record. The shared refusal
-        // rules, the enrollment, the audit arc, and the contact key
-        // binding live in the shared flow (ScopedEnrollment), the same one
-        // the stream carriage's opening exchange drives with its own
-        // listener's scope. A
-        // socket the registry does not know (the in-memory test harness,
-        // which binds no real ports) stays token-scoped only, the shape the
-        // harness has always used.
+        // belong to. The shared refusal rules, the enrollment, the audit
+        // arc, and the contact key binding live in the shared exchange --
+        // the same half the listener bridge's route-forward carriage drives
+        // with its own listener's scope, no port to resolve. A socket the
+        // registry does not know (the in-memory test harness, which binds
+        // no real ports) stays token-scoped only, the shape the harness has
+        // always used.
         var ingress = await listeners.FindByLocalPortAsync(
-            http.HttpContext.Connection.LocalPort, cancellationToken);
+            http.Connection.LocalPort, cancellationToken);
 
-        var outcome = await ScopedEnrollment.EnrollAsync(
-            new EnrollWireFields(
-                body.DeployTokenSecret,
-                body.Class,
-                clientPublicKey,
-                body.ParentImplantId,
-                body.Hostname,
-                body.Os,
-                body.Arch,
-                body.Username,
-                body.KillDate,
-                body.SleepSeconds,
-                body.JitterSeconds),
-            ingress,
-            service,
-            tokens,
-            payloads,
-            campaigns,
-            contactKeys,
-            audit,
-            clock,
-            cancellationToken);
-
-        if (!outcome.Accepted)
-            return MarshalRefusal(outcome);
-
-        var enrolled = outcome.Enrolled!;
-        return Results.Ok(new EnrollmentResponse(
-            EnrollStatus.Ok,
-            enrolled.ImplantId.ToString(),
-            enrolled.EngagementId.ToString(),
-            "",
-            enrolled.CaChain.Select(Convert.ToBase64String).ToArray(),
-            enrolled.ParentImplantId?.ToString()));
+        var answer = await exchange.HandleAsync(requestBody, ingress, cancellationToken);
+        http.Response.StatusCode = answer.Status;
+        http.Response.ContentType = answer.ContentType;
+        await http.Response.Body.WriteAsync(answer.Body, cancellationToken);
     }
-
-    // Shapes a refusal for the HTTP wire: the token states answer the
-    // EnrollmentResponse body the implant reads (401, no distinction between
-    // unknown, foreign, and spent); the problem causes answer the Problem
-    // body an operator reads (400 malformed, 409 a closed engagement) -- the
-    // same split the route has always kept, now derived from the shared
-    // outcome.
-    private static IResult MarshalRefusal(ScopedEnrollmentOutcome outcome)
-        => outcome.Problem is { } problem
-            ? Results.Json(new Problem(problem), statusCode: outcome.ProblemStatus)
-            : Results.Json(
-                new EnrollmentResponse(outcome.Status, null, null, null, null, null),
-                statusCode: StatusCodes.Status401Unauthorized);
 
     // The engagement-scope check shared by enroll and the payload fetch: the
     // socket this request arrived on must be the token's own engagement's
@@ -423,81 +346,6 @@ public static class EnrollmentEndpoints
     {
         var listener = await listeners.FindByLocalPortAsync(http.HttpContext.Connection.LocalPort, cancellationToken);
         return listener is null || listener.EngagementId == token.EngagementId;
-    }
-
-    // Reads the enroll body in any of the shapes the malleable transport
-    // profile allows (architecture.md Sec 7): the raw JSON document, a single
-    // base64 string wrapping it (the base64 envelope -- the body stops looking
-    // like a structured C2 message), or a single base64 string wrapping
-    // AES-256-GCM ciphertext under the artifact's per-build envelope key (the
-    // AesGcm envelope -- the body stays opaque even where TLS terminates
-    // early). The teamserver understands all of them, so an envelope-profiled
-    // implant enrolls against a stock deployment with no unwrapping edge in
-    // front of it. Anything that matches no shape returns null for a 400.
-    private static async Task<EnrollRequest?> ReadEnrollRequestAsync(
-        HttpRequest http, IPayloadStore payloads, CancellationToken cancellationToken)
-    {
-        string raw;
-        using (var reader = new StreamReader(http.Body))
-            raw = await reader.ReadToEndAsync(cancellationToken);
-        raw = raw.Trim();
-        if (raw.Length == 0)
-            return null;
-
-        // A leading quote means the body is a JSON string -- an envelope.
-        // Which one depends on the decoded bytes: the R1 magic names the
-        // AES-Gcm shape (resolve the key by the id it prefixes, decrypt);
-        // anything else is the base64 envelope's inner JSON.
-        if (raw[0] == '"')
-        {
-            string? wrapped;
-            try
-            {
-                wrapped = System.Text.Json.JsonSerializer.Deserialize<string>(raw);
-            }
-            catch (System.Text.Json.JsonException)
-            {
-                return null;
-            }
-            if (string.IsNullOrEmpty(wrapped))
-                return null;
-
-            if (AesGcmEnvelope.TryReadKeyId(wrapped) is { } keyId)
-            {
-                // The key lives beside the stored payload it was minted with;
-                // a deleted payload takes its key along, and that artifact's
-                // envelopes stop being decodable.
-                var carrier = await payloads.FindByEnvelopeKeyAsync(keyId, cancellationToken);
-                if (carrier?.EnvelopeKey is not { } key)
-                    return null;
-                var plaintext = AesGcmEnvelope.TryUnwrap(
-                    wrapped, carrier.EnvelopeKeyId!.Value, key, AesGcmEnvelope.Aad);
-                if (plaintext is null)
-                    return null;
-                raw = System.Text.Encoding.UTF8.GetString(plaintext);
-            }
-            else
-            {
-                try
-                {
-                    raw = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(wrapped));
-                }
-                catch (FormatException)
-                {
-                    return null;
-                }
-            }
-        }
-
-        try
-        {
-            return System.Text.Json.JsonSerializer.Deserialize<EnrollRequest>(raw,
-                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-        }
-        catch (System.Text.Json.JsonException)
-        {
-            return null;
-        }
     }
 
     // --- DTOs. camelCase JSON is the framework default; records stay clean. ---

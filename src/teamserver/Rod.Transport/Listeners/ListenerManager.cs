@@ -56,7 +56,11 @@ public sealed class ListenerManager
     private readonly DynamicEndpointsConfiguration _endpoints = new();
     private readonly ConcurrentDictionary<ListenerId, RuntimeEntry> _runtime = new();
 
-    private sealed record RuntimeEntry(Listener Listener, IHostedService? Service);
+    private sealed record RuntimeEntry(
+        Listener Listener,
+        IHostedService? Service,
+        Bridge.SupervisedListener? Supervised = null,
+        IReadOnlyDictionary<string, string>? PackageParams = null);
 
     public ListenerManager(
         IServiceProvider services,
@@ -176,7 +180,44 @@ public sealed class ListenerManager
         // nearest surviving transport, https -- the bind and the TLS
         // termination it always shared -- so a definition saved before the
         // retirement rebinds under its migrated shape instead of dying as
-        // unknown.
+        // unknown. A package-backed definition (ADR-025) names no provider:
+        // its transport field carries the package's own name and the bind
+        // resolves the package through the catalog instead.
+        if (definition.PackageName is not null)
+        {
+            var catalog = _services.GetRequiredService<Rod.CoreState.Listeners.IListenerPackageCatalog>();
+            if (catalog.Resolve(definition.PackageName, definition.PackageVersion, cancellationToken) is null)
+            {
+                _logger.LogWarning(
+                    "Stored listener {ListenerId} ({Name}) binds package '{Package}@{Version}' that is no longer installed; skipped. "
+                    + "Reinstall the package or delete the listener.",
+                    definition.Id, definition.Name, definition.PackageName, definition.PackageVersion);
+                return null;
+            }
+
+            try
+            {
+                var parameters = definition.ParamsJson is null
+                    ? null
+                    : System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(
+                        definition.ParamsJson, System.Text.Json.JsonSerializerOptions.Web);
+                var config = new ListenerConfig(
+                    definition.Name, definition.Transport, definition.BindAddress, definition.PublicEndpoint,
+                    definition.EngagementId, definition.TrustPosture,
+                    definition.PackageName, definition.PackageVersion, parameters);
+                var listener = await BindAsync(config, new ListenerId(definition.Id), cancellationToken);
+                listener.RestoreFronts(definition.FrontList);
+                return listener;
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or IOException)
+            {
+                _logger.LogWarning(ex,
+                    "Stored listener {ListenerId} ({Name}) could not rebind its package '{Package}'; skipped.",
+                    definition.Id, definition.Name, definition.PackageName);
+                return null;
+            }
+        }
+
         var transport = definition.Transport.Trim();
         if (transport.Replace("-", "").Equals("httpsenvelope", StringComparison.OrdinalIgnoreCase))
         {
@@ -225,6 +266,12 @@ public sealed class ListenerManager
         if (string.IsNullOrWhiteSpace(config.BindAddress))
             throw new ArgumentException("Listener bind address is required.", nameof(config));
 
+        // A package-backed listener (ADR-025) binds no transport of its own:
+        // the medium is the installed package's process, supervised over
+        // the bridge. The provider path below stays the in-tree families'.
+        if (config.PackageName is not null)
+            return await BindPackagedAsync(config, id, cancellationToken).ConfigureAwait(false);
+
         // A malformed bind address is an operator mistake (400, not 409): the
         // parse shapes are shared with the startup path, rethrown as
         // ArgumentException to say so. The port reservation that follows
@@ -270,6 +317,76 @@ public sealed class ListenerManager
             cancellationToken).ConfigureAwait(false);
         _runtime[bound.Listener.Id] = new RuntimeEntry(bound.Listener, bound.Service);
         return bound.Listener;
+    }
+
+    // The package-backed bind path (ADR-025): resolve the installed package
+    // through the catalog, validate the medium parameters against its
+    // declared schema, then let the supervisor own the runtime -- the
+    // bridge socket and the spawned process. The kernel opens no medium
+    // socket of its own; the listener's bind address is the record of what
+    // the medium front binds, and its public endpoint is what builds bake.
+    private async Task<Listener> BindPackagedAsync(
+        ListenerConfig config, ListenerId? id, CancellationToken cancellationToken)
+    {
+        var catalog = _services.GetRequiredService<Rod.CoreState.Listeners.IListenerPackageCatalog>();
+        var package = catalog.Resolve(config.PackageName!, config.PackageVersion, cancellationToken)
+            ?? throw new ArgumentException(
+                $"No installed listener package '{config.PackageName}'"
+                + (config.PackageVersion is null ? "" : $" at version '{config.PackageVersion}'")
+                + "; install it into the module store first.", nameof(config));
+
+        if (config.Params is not null)
+        {
+            var schema = package.Params.ToDictionary(p => p.Name, StringComparer.Ordinal);
+            foreach (var name in config.Params.Keys)
+            {
+                if (!schema.ContainsKey(name))
+                    throw new ArgumentException(
+                        $"Parameter '{name}' is not one package '{package.Name}' declares; its schema is: "
+                        + (schema.Count == 0 ? "(none)" : string.Join(", ", schema.Keys.OrderBy(k => k, StringComparer.Ordinal))) + ".",
+                        nameof(config));
+            }
+        }
+
+        foreach (var required in package.Params.Where(p => p.Required))
+        {
+            if (config.Params is null || !config.Params.TryGetValue(required.Name, out var value) || string.IsNullOrWhiteSpace(value))
+                throw new ArgumentException(
+                    $"Parameter '{required.Name}' is required by package '{package.Name}'.", nameof(config));
+        }
+
+        if (!Uri.TryCreate(config.PublicEndpoint, UriKind.Absolute, out var publicEndpoint)
+            || (publicEndpoint.Scheme != "http" && publicEndpoint.Scheme != "https"))
+        {
+            throw new ArgumentException(
+                $"The listener's public endpoint '{config.PublicEndpoint}' must be an absolute http(s) URL -- "
+                + "it is the address builds bake and the bridge's cleartext posture keys off its scheme.",
+                nameof(config));
+        }
+
+        var listenerId = id ?? new ListenerId(Guid.NewGuid());
+        var parameters = (IReadOnlyDictionary<string, string>?)config.Params
+            ?? new Dictionary<string, string>(StringComparer.Ordinal);
+        var listener = Listener.DefinePackaged(
+            listenerId,
+            config.Name,
+            package.Name,
+            package.Version,
+            package.SealTier,
+            config.BindAddress,
+            config.PublicEndpoint,
+            _clock.GetUtcNow(),
+            config.EngagementId!.Value);
+
+        var supervisor = _services.GetRequiredService<Bridge.ListenerSupervisor>();
+        var options = _services.GetRequiredService<Microsoft.Extensions.Options.IOptions<Bridge.ListenerBridgeOptions>>().Value;
+        var supervised = await supervisor.StartAsync(listener, package, parameters, options).ConfigureAwait(false);
+        _runtime[listener.Id] = new RuntimeEntry(listener, Service: null, supervised, parameters);
+        await _listeners.RegisterAsync(listener, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation(
+            "Package-backed listener {ListenerId} ({Name}) bound: package {Package}@{Version}, seal {SealTier}.",
+            listener.Id, listener.Name, package.Name, package.Version, package.SealTier);
+        return listener;
     }
 
     /// <summary>
@@ -318,10 +435,16 @@ public sealed class ListenerManager
     // The bind teardown shared by removal and retirement: stop the stream
     // service (or withdraw the Kestrel endpoint -- Kestrel drains and unbinds
     // on its own schedule, so the registry entry goes now to stop the roster
-    // reporting it), then drop it from the registry.
+    // reporting it), stop the supervised process on a package-backed
+    // listener (the child dies with the kernel that spawned it), then drop
+    // it from the registry.
     private async Task TearDownAsync(ListenerId id, RuntimeEntry entry, CancellationToken cancellationToken)
     {
-        if (entry.Service is not null)
+        if (entry.Supervised is not null)
+        {
+            await entry.Supervised.DisposeAsync().ConfigureAwait(false);
+        }
+        else if (entry.Service is not null)
         {
             await entry.Service.StopAsync(cancellationToken).ConfigureAwait(false);
             if (entry.Service is IAsyncDisposable asyncDisposable)
@@ -344,9 +467,16 @@ public sealed class ListenerManager
         await _listeners.RemoveAsync(id, cancellationToken).ConfigureAwait(false);
     }
 
-    // The persisted shape of a bound, engagement-scoped listener.
-    private static ListenerDefinition DefinitionOf(Listener listener)
-        => new(
+    // The persisted shape of a bound, engagement-scoped listener. A
+    // package-backed listener carries its package facts and the medium
+    // parameters the restart respawns with; a provider-backed one carries
+    // none of them.
+    private ListenerDefinition DefinitionOf(Listener listener)
+    {
+        IReadOnlyDictionary<string, string>? parameters = null;
+        if (_runtime.TryGetValue(listener.Id, out var entry))
+            parameters = entry.PackageParams;
+        return new ListenerDefinition(
             listener.Id.Value,
             listener.EngagementId!.Value,
             listener.Name,
@@ -356,5 +486,12 @@ public sealed class ListenerManager
             listener.CreatedAt,
             listener.RepointedAt,
             listener.TrustPosture,
-            listener.Fronts);
+            listener.Fronts,
+            listener.PackageName,
+            listener.PackageVersion,
+            listener.SealTier,
+            parameters is null
+                ? null
+                : System.Text.Json.JsonSerializer.Serialize(parameters, System.Text.Json.JsonSerializerOptions.Web));
+    }
 }

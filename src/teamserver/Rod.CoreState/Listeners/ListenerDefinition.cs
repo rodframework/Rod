@@ -10,7 +10,11 @@ namespace Rod.CoreState.Listeners;
 /// certificate the front presents, the fact builds inherit as their TLS
 /// roots (architecture.md Sec 9): "pinned" (the engagement CA) or "public"
 /// (a real-domain chain an operator-run edge terminates); https fronts alone
-/// may name public.
+/// may name public. A package-backed listener (ADR-025) names the installed
+/// package it binds -- name, version, declared seal tier -- and the medium
+/// parameters the operator set at creation, so the restart resolves the
+/// package and respawns its process; those fields are null on a
+/// provider-backed listener (the in-tree families).
 /// </summary>
 public sealed record ListenerDefinition(
     Guid Id,
@@ -22,7 +26,11 @@ public sealed record ListenerDefinition(
     DateTimeOffset CreatedAt,
     DateTimeOffset? RepointedAt = null,
     string TrustPosture = "pinned",
-    IReadOnlyList<ListenerFront>? Fronts = null)
+    IReadOnlyList<ListenerFront>? Fronts = null,
+    string? PackageName = null,
+    string? PackageVersion = null,
+    string? SealTier = null,
+    string? ParamsJson = null)
 {
     /// <summary>
     /// The ordered front list, empty when the listener is fronted by nothing

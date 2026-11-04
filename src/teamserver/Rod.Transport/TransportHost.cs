@@ -304,6 +304,22 @@ public static class TransportHost
         // serves. The Kestrel half activates only on a host that binds real
         // listeners (UseRodListeners); the stream half works on any host.
         services.AddSingleton<ListenerManager>();
+        // The listener bridge (ADR-025): the enroll exchange split from its
+        // HTTP route, the route-forward carriage over it, and the process
+        // supervisor -- the package-backed bind path's runtime. The bridge's
+        // socket directory binds from the Listeners:Bridge section.
+        services.AddSingleton<Endpoints.EnrollmentExchange>();
+        services.AddSingleton<Listeners.Bridge.BridgeRouteForwarder>();
+        services.AddSingleton<Listeners.Bridge.ListenerSupervisor>();
+        if (configuration is not null)
+        {
+            services.AddOptions<Listeners.Bridge.ListenerBridgeOptions>()
+                .Bind(configuration.GetSection(Listeners.Bridge.ListenerBridgeOptions.SectionName));
+        }
+        else
+        {
+            services.AddOptions<Listeners.Bridge.ListenerBridgeOptions>();
+        }
         // The startup restore pass: rebind what the store holds so a restart
         // gives the engagements back their ingress.
         services.AddHostedService<ListenerRestoreService>();

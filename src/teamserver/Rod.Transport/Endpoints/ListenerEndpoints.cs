@@ -344,6 +344,81 @@ public static class ListenerEndpoints
     {
         if (string.IsNullOrWhiteSpace(body.Name))
             return Results.BadRequest(new Problem("Listener name is required."));
+
+        // A package-backed listener (ADR-025) names an installed listener
+        // package, not a transport: the medium is the package's process,
+        // supervised over the bridge, and nothing here derives from a
+        // provider. The bind address is the record of what the medium front
+        // binds; the public endpoint is what builds bake, and it must be
+        // spelled out -- an absolute http(s) URL, nothing the kernel could
+        // half-guess about a medium it cannot see.
+        if (!string.IsNullOrWhiteSpace(body.Package))
+        {
+            if (!Guid.TryParse(engagementId, out var packagedEngagement))
+                return Results.BadRequest(new Problem("Engagement id is not a valid identifier."));
+            if (await engagements.FindAsync(new EngagementId(packagedEngagement), cancellationToken) is null)
+                return Results.NotFound(new Problem("Engagement does not exist."));
+            if (string.IsNullOrWhiteSpace(body.BindAddress))
+                return Results.BadRequest(new Problem("Bind address is required (what the medium front binds)."));
+            if (!PublicEndpointShapes.IsAbsoluteHttpUrl(body.PublicEndpoint?.Trim() ?? ""))
+                return Results.BadRequest(new Problem(
+                    "The public endpoint is required as an absolute http(s) URL -- it is the address builds bake."));
+
+            try
+            {
+                var packaged = await manager.CreateAsync(
+                    new ListenerConfig(
+                        body.Name.Trim(), body.Package.Trim(), body.BindAddress.Trim(), body.PublicEndpoint!.Trim(),
+                        new EngagementId(packagedEngagement),
+                        Params: body.Params is null
+                            ? null
+                            : new Dictionary<string, string>(body.Params, StringComparer.Ordinal),
+                        PackageName: body.Package.Trim(),
+                        PackageVersion: body.PackageVersion?.Trim() is { Length: > 0 } version ? version : null),
+                    cancellationToken);
+
+                var packagedOperator = user.TryGetOperatorId();
+                if (packagedOperator is not null)
+                {
+                    await audit.AppendAsync(
+                        Audit.AuditEvent.Fact(
+                            eventId: Guid.NewGuid(),
+                            engagementId: packagedEngagement,
+                            operatorId: packagedOperator.Value.Value,
+                            implantId: Guid.Empty,
+                            taskId: Guid.Empty,
+                            verb: "listener.created",
+                            kind: Audit.AuditEventKind.ListenerChanged,
+                            payload: $"'{packaged.Name}' package={packaged.PackageName}@{packaged.PackageVersion} "
+                                + $"seal={packaged.SealTier} bind={packaged.BindAddress} public={packaged.PublicEndpoint}",
+                            output: null,
+                            outcome: packaged.Id.ToString(),
+                            packaged.CreatedAt),
+                        cancellationToken);
+                }
+
+                return Results.Created(
+                    $"/engagements/{engagementId}/listeners/{packaged.Id}", Response.Of(packaged));
+            }
+            catch (ArgumentException ex)
+            {
+                // An unknown package, a parameter the schema does not carry:
+                // an operator mistake.
+                return Results.BadRequest(new Problem(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                // The package violates the seal rule, or its process refused
+                // to start: a conflict-shaped refusal.
+                return Results.Conflict(new Problem(ex.Message));
+            }
+            catch (IOException ex)
+            {
+                // The bridge socket could not bind.
+                return Results.Conflict(new Problem(ex.Message));
+            }
+        }
+
         var provider = TransportProviders.Find(body.Transport?.Trim());
         if (provider is null)
             return Results.BadRequest(new Problem(
@@ -790,7 +865,10 @@ public static class ListenerEndpoints
         string Transport,
         string BindAddress,
         string PublicEndpoint,
-        string? Trust = null);
+        string? Trust = null,
+        string? Package = null,
+        string? PackageVersion = null,
+        IReadOnlyDictionary<string, string>? Params = null);
 
     /// <summary>
     /// Request to repoint a listener's public endpoint. The new endpoint is the
@@ -808,7 +886,10 @@ public static class ListenerEndpoints
         string State,
         DateTimeOffset CreatedAt,
         DateTimeOffset? RepointedAt,
-        IReadOnlyList<ListenerFrontResponse> Fronts);
+        IReadOnlyList<ListenerFrontResponse> Fronts,
+        string? Package = null,
+        string? PackageVersion = null,
+        string? SealTier = null);
 
     /// <summary>
     /// Request to attach a front to an enrolled redirector node. The node
@@ -870,7 +951,10 @@ public static class ListenerEndpoints
                 l.Fronts.Select(f => ListenerFrontResponse.Of(
                     f,
                     isPrimary: f.FrontId == l.Fronts.FirstOrDefault()?.FrontId,
-                    nodeNames.GetValueOrDefault(f.NodeId, ""))).ToList());
+                    nodeNames.GetValueOrDefault(f.NodeId, ""))).ToList(),
+                l.PackageName,
+                l.PackageVersion,
+                l.SealTier);
         }
     }
 

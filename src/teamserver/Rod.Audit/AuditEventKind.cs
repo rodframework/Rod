@@ -681,6 +681,20 @@ public enum AuditEventKind
     ListenerChanged,
 
     /// <summary>
+    /// A supervised listener process exited (architecture.md Sec 8,
+    /// ADR-025): the externalized listener's child died or failed to spawn,
+    /// and the supervisor marked the listener unhealthy and queued its
+    /// restart. A platform action -- no operator in the loop -- so it is
+    /// attributed to the null operator like every other platform fact,
+    /// scoped to the listener's engagement. The payload names the listener,
+    /// its package, and the exit code (the health signal); the outcome is
+    /// the listener id. The restart needs no fact of its own: the state
+    /// returns to running when the respawn lands, and this fact's arc is
+    /// the outage, not the recovery.
+    /// </summary>
+    ListenerProcessExited,
+
+    /// <summary>
     /// The platform expired a dispatched task whose response never came
     /// back (architecture.md Sec 10.3): the TXT answer or contact response
     /// carrying it was lost, and no poll carrier re-delivers a dispatched
