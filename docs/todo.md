@@ -37,35 +37,35 @@ naming one promotes it ahead of the standing order.
 Sequential platform work, precedence-ordered; an item leaves the
 moment its acceptance criterion lands.
 
-- **The adapter bridge and the listener supervisor** (serves Sec 8,
-  ADR-025). The kernel-side skeleton of the adapter model: a
+- **The listener bridge and the supervisor** (serves Sec 8, ADR-025).
+  The kernel-side skeleton of the externalized-listener model: a
   per-listener Unix-domain-socket / named-pipe endpoint serving the
   rod.v1 `Beacon.Contact` stream; spawn/restart/exit-code lifecycle for
-  local adapter processes; carrier and seal-tier registration read from
+  local listener processes; carrier and seal-tier registration read from
   the package manifest, with the third-party-medium seal rule enforced;
-  and the asset-route forwarding shape the https adapter needs. Subsumes
-  the exec-v1 provider seam this queue once carried.
-  _AC:_ a candidate adapter process in a non-C# language carries the
+  and the asset-route forwarding shape the https listener needs.
+  Subsumes the exec-v1 provider seam this queue once carried.
+  _AC:_ a candidate listener process in a non-C# language carries the
   conformance rig's minimal implant end to end -- enroll, contact, task
-  round trip -- entirely over the bridge, and a killed adapter marks its
+  round trip -- entirely over the bridge, and a killed process marks its
   listener unhealthy without touching the teamserver.
 
-- **The official https and doh adapters** (serves Sec 8, ADR-025). The
-  two organization packages, any language, pinned by version like the
-  implant trees and installed from the registry: `rod-adapter-https`
-  (the envelope POST, the WebSocket beacon, the plain-http variant,
-  hook/lure/artifact forwarding) and `rod-adapter-doh` (the DNS grammar
-  over RFC 8484, the UDP variant).
+- **The official https and doh listener packages** (serves Sec 8,
+  ADR-025). The two organization packages, any language, pinned by
+  version like the implant trees and installed from the registry:
+  `rod-listener-https` (the envelope POST, the WebSocket beacon, the
+  plain-http variant, hook/lure/artifact forwarding) and
+  `rod-listener-doh` (the DNS grammar over RFC 8484, the UDP variant).
   _AC:_ both reference implants' full e2e legs pass against the official
-  adapters over the bridge -- the same legs the in-tree families serve
+  packages over the bridge -- the same legs the in-tree families serve
   today.
 
 - **Delete the in-tree transports** (serves Sec 8, ADR-025). Remove
   `Rod.Transport`'s listener families (Dns, Streams, WireGuard,
-  ShellCatch) and `ITransportProvider` once the official adapters serve
+  ShellCatch) and `ITransportProvider` once the official packages serve
   the e2e legs; the web-specific profile fields (enroll path,
-  User-Agent, headers, TLS posture) move into the https adapter's
-  config schema; shellcatch returns as an adapter package; WireGuard
+  User-Agent, headers, TLS posture) move into the https package's
+  config schema; shellcatch returns as a listener package; WireGuard
   moves to the community slot or retires.
   _AC:_ the teamserver process opens no implant-ingress socket, an
   architecture test holds that line, and the raw-TCP family's reach is
@@ -103,17 +103,20 @@ moment its acceptance criterion lands.
   of medium glue passes the Tier 0 rig.
 
 - **The edge host** (serves Sec 8, ADR-025). The redirector's
-  replacement: an enrolled remote node that pulls adapter packages and
+  replacement: an enrolled remote node that pulls listener packages and
   runs listeners under kernel control, the bridge over TLS, inheriting
-  the fleet's enrollment and credential model.
+  the fleet's enrollment and credential model. The bridge dials in
+  either direction: edge dials home by default; kernel dials out for a
+  teamserver sited with no inbound reach, the edge then listening on
+  both its faces.
   _AC:_ a reference implant serves a full e2e leg through a remote
-  edge-hosted listener.
+  edge-hosted listener, in both dial directions.
 
-- **Close the docs on the adapter shape** (serves ADR-015, ADR-025).
-  Rewrite Sec 8 (and the Sec 4/5/6/9/10/12/13 passages the migration
-  touches) for the adapter model; retire extending/transports.md;
-  rewrite operations/redirectors.md as the edge runbook; drop
-  adapters.md's transition note.
+- **Close the docs on the externalized-listener shape** (serves
+  ADR-015, ADR-025). Rewrite Sec 8 (and the Sec 4/5/6/9/10/12/13
+  passages the migration touches) for the listener model; retire
+  extending/transports.md; rewrite operations/redirectors.md as the
+  edge runbook; drop listeners.md's transition note.
   _AC:_ no document describes the in-process provider seam or the
   redirector as a current shape.
 

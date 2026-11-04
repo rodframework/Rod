@@ -1,4 +1,4 @@
-# Adding a listener adapter
+# Adding a listener
 
 The listener extension contract: how a new C2 carrier joins Rod, in any
 language, without touching the kernel. The design authority is
@@ -12,58 +12,73 @@ document is the builder's manual for the shape they name.
 
 ## The model
 
-Two nouns, two audiences. The **adapter** is the registry package -- the
-protocol implementation, authored in any language, published like any other
-ecosystem package (`rod-adapter-<name>`, ADR-024). The **listener** is the
-operator's word: a running binding of one adapter, its medium parameters,
-its engagement scope, and its audit trail -- the image-to-container
-relationship. The console, the API, and the audit events speak "listener"
-only; "adapter" lives in documents like this one.
+One noun, two stages. The **listener package** is the published, static
+artifact -- the protocol implementation, authored in any language, released
+like any other ecosystem package (`rod-listener-<name>`, ADR-024). The
+**listener** is the running instance an operator starts against an
+engagement: the package plus its medium parameters, its engagement scope,
+and its audit trail. The console, the API, and the audit events speak
+"listener" only; "package" names what the registry distributes.
 
-An adapter is a **per-peer byte pipe**. It turns its medium into byte
-streams and nothing more:
+A listener process is a **per-peer byte pipe**. It turns its medium into
+byte streams and nothing more:
 
 - one distinguishable medium peer -- a chat user, a mail sender, an ICMP
   id, a held socket -- is one bridge stream, opened when the peer first
   appears and closed when it goes;
-- bytes cross both ways opaquely; the adapter parses no rod.v1 grammar,
-  holds no engagement key, learns no implant identity, and carries no
-  engagement data;
-- the medium's own credentials (a bot token, an account) are the adapter's
-  configuration and its alone.
+- bytes cross both ways opaquely; the listener process parses no rod.v1
+  grammar, holds no engagement key, learns no implant identity, and
+  carries no engagement data;
+- the medium's own credentials (a bot token, an account) are the
+  listener's configuration and its alone.
 
 The application-layer seal crosses the pipe intact. That is the design's
 security position, the same wall the L4 redirector data plane kept: the
-kernel decrypts, the adapter carries. An adapter's compromise exposes its
+kernel decrypts, the listener carries. A listener's compromise exposes its
 medium credentials and nothing else -- no keys, no sessions, no engagement
 data to leak.
 
 ## The bridge
 
-The adapter speaks gRPC to the kernel: the `rod.v1 Beacon.Contact` stream
-already defined in `src/teamserver/Rod.Protocol/protos/rod.proto` (compile
-it with your own toolchain). Enrollment rides the same stream as an
-`EnrollRequest` frame -- there is no second interface and no second
-protocol to learn.
+The listener process speaks gRPC to the kernel: the `rod.v1
+Beacon.Contact` stream already defined in
+`src/teamserver/Rod.Protocol/protos/rod.proto` (compile it with your own
+toolchain). Enrollment rides the same stream as an `EnrollRequest` frame --
+there is no second interface and no second protocol to learn.
 
-- **Local child (the default):** the kernel spawns the adapter with the
-  bridge socket path in its environment; the socket is a Unix domain socket
-  (a named pipe on Windows), permission-restricted to the kernel's user.
-- **Remote host (the edge):** the same stream over TLS, carried by the edge
-  node's control connection (ADR-025).
+- **Local child (the default):** the kernel spawns the listener process
+  with the bridge socket path in its environment; the socket is a Unix
+  domain socket (a named pipe on Windows), permission-restricted to the
+  kernel's user -- no port, no network stack, nothing for another process
+  or host to reach.
+- **Remote host (the edge):** the same stream over TLS, and the connection
+  direction is a deployment choice, not an assumption. **Edge dials
+  home** (the default, the redirector fleet's model): the edge node
+  initiates outbound to the teamserver's shared tier. **Kernel dials
+  out**: the teamserver initiates outbound to the edge, which then listens
+  on two faces -- the kernel's bridge and the implants' contacts -- so a
+  teamserver sited on an internal network with no inbound reach still
+  serves a public edge; the target network only ever sees the edge, and a
+  burned edge is replaced without touching the internal server. Both
+  directions authenticate mutually, on the fleet's enrollment and
+  credential model.
 
-Lifecycle is process management, not protocol: the kernel spawns, restarts
-on exit, and reads the exit code as the health signal. A crashed adapter
-marks its listener unhealthy and nothing else -- no session state lived in
-it, so a restart loses nothing the next contact does not re-establish.
+Lifecycle is process management, not protocol: the kernel spawns,
+restarts on exit, and reads the exit code as the health signal. A crashed
+listener process marks its listener unhealthy and nothing else -- no
+session state lived in it, so a restart loses nothing the next contact
+does not re-establish. Connection parameters (edge address, direction,
+credentials) live on the deployment's node record; an engagement's
+listener only attaches to the node, inheriting the redirector fleet's
+separation -- deployment capacity, attachment grants scope.
 
 The web families' asset routes (hooks, lures, artifact fetch) are the one
-addition: the `https` adapter forwards them to the kernel's operator tier
-by path. An adapter carrying no asset surface ignores this entirely.
+addition: the `https` listener forwards them to the kernel's operator tier
+by path. A carrier with no asset surface ignores this entirely.
 
 ## The four-piece package
 
-An adapter package is four artifacts, and none of them is implant-side
+A listener package is four artifacts, and none of them is implant-side
 code:
 
 1. **The server process** -- the byte pipe over your medium, in any
@@ -85,10 +100,11 @@ code:
 
 Implant-side dial code is deliberately absent. The per-language half that
 is worth maintaining is the **language kit** (below) -- one per language,
-shared by every adapter; the per-adapter half is an implant author's few
-dozen lines of medium glue written from the medium contract. An author may
-publish reference glue for a favorite language as a convenience; it is not
-part of the contract, and conformance never requires it.
+shared by every listener package; the per-package half is an implant
+author's few dozen lines of medium glue written from the medium contract.
+An author may publish reference glue for a favorite language as a
+convenience; it is not part of the contract, and conformance never
+requires it.
 
 ## Declarations the kernel enforces
 
@@ -112,12 +128,12 @@ engagement -- the shellcatch exposure model, marked in the console).
 
 ## Language kits
 
-The implant-side half of every adapter is one kit per language:
+The implant-side half of every listener package is one kit per language:
 rod.v1 protobuf code generation, the seal (AES-256-GCM, the counter floor,
 the session-key arm), frame assembly, and the shared task grammar -- the
 parts identical for every carrier. Official kits: Rust and Go, extracted
 from the reference implants. Community kits claim `rod-kit-<lang>` and
-serve every adapter equally. A from-scratch implant is a kit plus medium
+serve every package equally. A from-scratch implant is a kit plus medium
 glue plus tradecraft; that is the whole wire obligation
 ([implants.md](implants.md) carries the tier detail).
 
@@ -130,6 +146,6 @@ glue plus tradecraft; that is the whole wire obligation
 3. Write the medium contract -- an implant author builds from this
    document alone.
 4. Declare the config schema and register the package
-   (`rod-adapter-<name>`, `rod mod publish`).
+   (`rod-listener-<name>`, `rod mod publish`).
 5. Ship the conformance test; the provider lane must pass before the
    package names itself a carrier.
