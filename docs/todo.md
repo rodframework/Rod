@@ -37,26 +37,85 @@ naming one promotes it ahead of the standing order.
 Sequential platform work, precedence-ordered; an item leaves the
 moment its acceptance criterion lands.
 
-- **Implant-carried transports -- the exec-v1 provider seam** (serves
-  Sec 8, Sec 15.1). Open the carrier seam to authors who will never
-  write C#: a `transport-provider/exec-v1` contract (length-delimited
-  protobuf over stdio, the exec-v1 module idiom mirrored server-side)
-  lets a community package carry its carrier's listener half as a
-  supervised process in any language -- two author functions (fetch a
-  sealed body, deliver one) on an SDK skeleton, the generic adapter
-  registering the declared carriers on its behalf so the operator API,
-  carrier table, and audit treat the transport as native. Alongside it
-  the implant-side half: the extension tier reaches the dial dispatch
-  (an extension contributes a contact client), and the build pairs a
-  listener's transport name with the package carrying it, refusing a
-  build it cannot resolve. The frame paths never change -- the provider
-  sees sealed bytes, not frames (extending/transports.md) -- and a
-  carrier passes rod-conform's provider lane before it may name itself.
-  _AC:_ a community carrier (a Discord or Telegram dead-drop is the
-  shape) ships end to end -- install, listener create, build,
-  enrollment -- with zero C# and zero forks; the conformance lane runs
-  its provider leg, and a crashed provider marks its listener
-  unhealthy without touching the teamserver.
+- **The adapter bridge and the listener supervisor** (serves Sec 8,
+  ADR-025). The kernel-side skeleton of the adapter model: a
+  per-listener Unix-domain-socket / named-pipe endpoint serving the
+  rod.v1 `Beacon.Contact` stream; spawn/restart/exit-code lifecycle for
+  local adapter processes; carrier and seal-tier registration read from
+  the package manifest, with the third-party-medium seal rule enforced;
+  and the asset-route forwarding shape the https adapter needs. Subsumes
+  the exec-v1 provider seam this queue once carried.
+  _AC:_ a candidate adapter process in a non-C# language carries the
+  conformance rig's minimal implant end to end -- enroll, contact, task
+  round trip -- entirely over the bridge, and a killed adapter marks its
+  listener unhealthy without touching the teamserver.
+
+- **The official https and doh adapters** (serves Sec 8, ADR-025). The
+  two organization packages, any language, pinned by version like the
+  implant trees and installed from the registry: `rod-adapter-https`
+  (the envelope POST, the WebSocket beacon, the plain-http variant,
+  hook/lure/artifact forwarding) and `rod-adapter-doh` (the DNS grammar
+  over RFC 8484, the UDP variant).
+  _AC:_ both reference implants' full e2e legs pass against the official
+  adapters over the bridge -- the same legs the in-tree families serve
+  today.
+
+- **Delete the in-tree transports** (serves Sec 8, ADR-025). Remove
+  `Rod.Transport`'s listener families (Dns, Streams, WireGuard,
+  ShellCatch) and `ITransportProvider` once the official adapters serve
+  the e2e legs; the web-specific profile fields (enroll path,
+  User-Agent, headers, TLS posture) move into the https adapter's
+  config schema; shellcatch returns as an adapter package; WireGuard
+  moves to the community slot or retires.
+  _AC:_ the teamserver process opens no implant-ingress socket, an
+  architecture test holds that line, and the raw-TCP family's reach is
+  documented as the pivot chain's.
+
+- **Implant manifests and the metadata-driven UI** (serves Sec 6/10,
+  ADR-027). The manifest schema riding the registry; build-record
+  binding (source ref + manifest); field-vocabulary rendering for the
+  build and tasking forms; the strict/open enrollment tiers;
+  server-side descriptors demoted to optional enrichment.
+  _AC:_ a build form renders entirely from a manifest, and a minimal
+  manifest -- one target, poll, one carrier, id-only -- builds and runs
+  as a first-class citizen.
+
+- **The capability digest on the wire** (serves Sec 9/10, ADR-027).
+  rod.proto grows the version/identity fields and the fixed 32-byte
+  capability digest; the handshake's full verb advertisement deprecates
+  along the evolution rules.
+  _AC:_ conformance and both reference implants carry the digest, and a
+  manifest/implant drift surfaces as a roster flag.
+
+- **The baked config block and the patch build unit** (serves
+  Sec 5.1/6, ADR-026). The `RODCFG01` block format over the profile's
+  deterministic bytes; placeholder embedding in both implant trees; the
+  template build unit type and patcher, with registry provenance.
+  _AC:_ one source version produces a compiled artifact and a patched
+  template artifact whose runtime behavior is indistinguishable, and
+  every build states its path.
+
+- **The language kits and the dial tier** (serves Sec 5.3/6, ADR-025).
+  Extract the Rust and Go kits (proto codegen, seal, framing) from the
+  reference implants; put each family's dial behind the kit's dial
+  interface; open the `rod-kit-<lang>` community slot.
+  _AC:_ a from-scratch implant built from a kit plus a few dozen lines
+  of medium glue passes the Tier 0 rig.
+
+- **The edge host** (serves Sec 8, ADR-025). The redirector's
+  replacement: an enrolled remote node that pulls adapter packages and
+  runs listeners under kernel control, the bridge over TLS, inheriting
+  the fleet's enrollment and credential model.
+  _AC:_ a reference implant serves a full e2e leg through a remote
+  edge-hosted listener.
+
+- **Close the docs on the adapter shape** (serves ADR-015, ADR-025).
+  Rewrite Sec 8 (and the Sec 4/5/6/9/10/12/13 passages the migration
+  touches) for the adapter model; retire extending/transports.md;
+  rewrite operations/redirectors.md as the edge runbook; drop
+  adapters.md's transition note.
+  _AC:_ no document describes the in-process provider seam or the
+  redirector as a current shape.
 
 - **The CLR assembly host -- execute-assembly** (serves Sec 5.4's
   loader seam, Sec 13). Windows engagements arrive with a C# toolchain
