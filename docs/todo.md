@@ -212,7 +212,9 @@ engagement names the need:
   "likely rotated" marks that prevent lockouts (assets domain).
 
 - **LLM copilot** -- next-step suggestions from entity state and the
-  coverage matrix; suggests only, never executes (MCP/LLM layer).
+  coverage matrix, built on the shipped triage seam (Sec 11.3's
+  summarize route and the MCP read tools are the foundation, not the
+  feature); suggests only, never executes (MCP/LLM layer).
 
 - **Approval-gated MCP writes** -- the shipped write tools gain their
   policy engine: engagement scope burned into the teamserver (a target
