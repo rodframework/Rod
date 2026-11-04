@@ -3672,18 +3672,22 @@ Where the program touches the existing layers:
   moves to the community slot or retires (it shipped default-off), and
   shellcatch returns as a listener package. The redirector is replaced
   by the **edge** host: an enrolled remote node that pulls listener
-  packages and runs listeners under kernel control, the same bridge
-  over TLS, the enrollment and credential model the redirector fleet
-  already carries. The bridge's connection direction is a deployment
-  choice, not an assumption: **edge dials home** (the default, the
-  redirector fleet's shape) or **kernel dials out** -- the teamserver
-  initiates outbound to an edge that listens on two faces, its bridge
-  and its implants' contacts, so a teamserver sited on an internal
-  network with no inbound reach still serves a public edge and the
-  target network only ever sees the edge. Connection parameters live on
-  the deployment's node record; an engagement's listener attaches, the
-  redirector fleet's separation -- deployment capacity, attachment
-  grants scope. ADR-004's in-tree families are superseded as the legs
+  packages and runs listeners under kernel control -- a .NET Native AOT
+  single file, the redirector's slot and discipline, compiling the same
+  rod.v1 contract the kernel serves. The topology keeps the listener
+  contract at one shape: a listener process faces only a local socket,
+  and on an edge that socket belongs to the edge's own supervisor --
+  the process cannot tell an edge from the kernel. The one
+  cross-network hop is the edge's single multiplexed TLS link to the
+  kernel, and its direction is a deployment choice, not an assumption:
+  **edge dials home** (the default, the redirector fleet's shape) or
+  **kernel dials out** -- the teamserver initiates outbound to an edge
+  that listens on two faces, its bridge and its implants' contacts, so
+  a teamserver sited on an internal network with no inbound reach
+  still serves a public edge and the target network only ever sees the
+  edge. Connection parameters live on the deployment's node record; an
+  engagement's listener attaches, the redirector fleet's separation --
+  deployment capacity, attachment grants scope. ADR-004's in-tree families are superseded as the legs
   land: `ITransportProvider` and the in-process registration retire
   once the official listener packages serve the reference implants' e2e
   legs, and [extending/transports.md](extending/transports.md) retires

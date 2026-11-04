@@ -51,17 +51,22 @@ there is no second interface and no second protocol to learn.
   domain socket (a named pipe on Windows), permission-restricted to the
   kernel's user -- no port, no network stack, nothing for another process
   or host to reach.
-- **Remote host (the edge):** the same stream over TLS, and the connection
-  direction is a deployment choice, not an assumption. **Edge dials
-  home** (the default, the redirector fleet's model): the edge node
-  initiates outbound to the teamserver's shared tier. **Kernel dials
-  out**: the teamserver initiates outbound to the edge, which then listens
-  on two faces -- the kernel's bridge and the implants' contacts -- so a
-  teamserver sited on an internal network with no inbound reach still
-  serves a public edge; the target network only ever sees the edge, and a
-  burned edge is replaced without touching the internal server. Both
-  directions authenticate mutually, on the fleet's enrollment and
-  credential model.
+- **Remote host (the edge):** the listener process faces the same local
+  socket it always faces -- on an edge, the socket belongs to the edge
+  host's own supervisor, and the process cannot tell an edge from the
+  kernel. The one cross-network connection is the edge's single
+  multiplexed TLS link to the kernel, carrying every listener's every
+  peer stream, and its direction is a deployment choice, not an
+  assumption: **edge dials home** (the default, the redirector fleet's
+  model) or **kernel dials out** -- the teamserver initiates outbound to
+  an edge that listens on two faces, its bridge and its implants'
+  contacts, so a teamserver sited on an internal network with no inbound
+  reach still serves a public edge; the target network only ever sees the
+  edge, and a burned edge is replaced without touching the internal
+  server. Both directions authenticate mutually, on the fleet's
+  enrollment and credential model. A dropped link closes the bridge
+  streams and nothing else -- the listener processes keep running, the
+  kernel loses no session state, and the reconnect re-establishes both.
 
 Lifecycle is process management, not protocol: the kernel spawns,
 restarts on exit, and reads the exit code as the health signal. A crashed
