@@ -2,11 +2,12 @@
 """The bridge acceptance candidate: a per-peer byte pipe (ADR-025).
 
 Python standard library only -- the point is that a listener package ships
-in any language. The medium is HTTP: every request's body crosses to the
-kernel over the bridge's route-forward carriage, and the answer carries
-back as the response. The process parses no rod.v1 grammar, holds no
-engagement key, and learns no implant identity; the kernel routes by
-path, the bytes are opaque here.
+in any language. The medium is HTTP: every request crosses to the kernel
+over the bridge's route-forward carriage as a field map (method, path, the
+medium's observed peer facts, body), and the answer's status,
+content-type, and body carry back as the response. The process parses no
+rod.v1 grammar, holds no engagement key, and learns no implant identity;
+the kernel routes by path, the bytes are opaque here.
 """
 
 import json
@@ -18,10 +19,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 BRIDGE_SOCKET = os.environ["ROD_BRIDGE_SOCKET"]
 PARAMS = json.loads(os.environ.get("ROD_LISTENER_PARAMS") or "{}")
 
-# The carriage byte and method codes of the route-forward contract.
 ROUTE_CARRIAGE = 0x52  # 'R'
-METHOD_GET = 0
-METHOD_POST = 1
+MAX_FIELDS = 64
 
 
 def write_varint(value):
@@ -58,11 +57,6 @@ def read_exact(stream, count):
     return bytes(buffer)
 
 
-def encode_string(value):
-    encoded = value.encode("utf-8")
-    return write_varint(len(encoded)) + encoded
-
-
 def decode_varint_from(buffer, offset):
     value = 0
     shift = 0
@@ -79,43 +73,65 @@ def decode_varint_from(buffer, offset):
             raise EOFError("malformed varint")
 
 
-def decode_string(buffer, offset):
-    length, offset = decode_varint_from(buffer, offset)
-    if offset + length > len(buffer):
-        raise EOFError("truncated string")
-    return buffer[offset : offset + length].decode("utf-8"), offset + length
+def encode_unit(fields):
+    """One route-forward unit: a counted run of string-keyed fields, every
+    value opaque bytes. Unknown keys ride through unheard-of -- the
+    kernel's growth rule, and this process's whole protocol surface."""
+    out = write_varint(len(fields))
+    for key, value in fields:
+        if isinstance(value, str):
+            value = value.encode("utf-8")
+        key_bytes = key.encode("utf-8")
+        out += write_varint(len(key_bytes)) + key_bytes
+        out += write_varint(len(value)) + value
+    return out
+
+
+def decode_unit(buffer):
+    count, offset = decode_varint_from(buffer, 0)
+    if count > MAX_FIELDS:
+        raise EOFError("field count beyond any honest unit")
+    fields = {}
+    for _ in range(count):
+        key_length, offset = decode_varint_from(buffer, offset)
+        key = buffer[offset : offset + key_length].decode("utf-8")
+        offset += key_length
+        value_length, offset = decode_varint_from(buffer, offset)
+        fields[key] = buffer[offset : offset + value_length]
+        offset += value_length
+    return fields
 
 
 def forward(method, path, peer, user_agent, body):
     """One route-forward exchange: dial the bridge, say 'R', send the
     request unit, read the answer unit, close. One request, one
     connection -- the byte pipe reconnects per medium peer."""
-    unit = (
-        bytes([method])
-        + encode_string(path)
-        + encode_string(peer)
-        + encode_string(user_agent)
-        + body
-    )
+    unit = encode_unit([
+        ("method", method),
+        ("path", path),
+        ("peer", peer),
+        ("ua", user_agent),
+        ("body", body),
+    ])
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as bridge:
         bridge.connect(BRIDGE_SOCKET)
         bridge.sendall(bytes([ROUTE_CARRIAGE]))
         bridge.sendall(write_varint(len(unit)) + unit)
-        answer = read_exact(bridge, read_varint(bridge))
-    status = int.from_bytes(answer[0:2], "big")
-    content_type, offset = decode_string(answer, 2)
-    return status, content_type, answer[offset:]
+        answer = decode_unit(read_exact(bridge, read_varint(bridge)))
+    status = int(answer["status"])
+    content_type = answer["content-type"].decode("utf-8")
+    return status, content_type, answer["body"]
 
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    def _serve(self, method_code):
+    def _serve(self, method):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
         try:
             status, content_type, answer = forward(
-                method_code,
+                method,
                 self.path,
                 f"{self.client_address[0]}:{self.client_address[1]}",
                 self.headers.get("User-Agent") or "",
@@ -134,10 +150,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(answer)
 
     def do_GET(self):
-        self._serve(METHOD_GET)
+        self._serve("GET")
 
     def do_POST(self):
-        self._serve(METHOD_POST)
+        self._serve("POST")
 
     def log_message(self, format, *args):
         pass
@@ -147,10 +163,8 @@ def main():
     if PARAMS.get("pidfile"):
         with open(PARAMS["pidfile"], "w") as pid:
             pid.write(str(os.getpid()))
-    server = ThreadingHTTPServer(
-        (PARAMS["bind"].rsplit(":", 1)[0], int(PARAMS["bind"].rsplit(":", 1)[1])),
-        Handler,
-    )
+    host, port = PARAMS["bind"].rsplit(":", 1)
+    server = ThreadingHTTPServer((host, int(port)), Handler)
     server.serve_forever()
 
 

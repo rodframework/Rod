@@ -55,14 +55,17 @@ connection per medium peer. The peer's first byte selects the carriage:
   them; a listener whose medium natively carries them (a held socket)
   splices.
 - **`R` -- the route-forward carriage.** The https shape: one
-  request/answer unit per message. The request unit carries the method,
-  the path, the observed peer address and User-Agent, and the body; the
-  kernel routes by path onto the same cores its own routes drive (the
-  JSON enroll exchange, the envelope contact, and the web families'
-  asset routes -- hooks, lures, artifact fetch) and answers with the
-  status, the content type, and the body. The listener terminates the
-  medium's HTTP face and carries bytes; the kernel never sees the medium
-  socket.
+  request/answer unit per message, and a unit is a **field map** -- a
+  counted run of length-prefixed, string-keyed fields with opaque byte
+  values, nothing positional. The request carries `method`, `path`, and
+  `body` beside the medium's observed peer facts (`peer`, `ua`, whatever
+  the medium honestly observes -- an unknown key rides through ignored,
+  so a new medium names a new fact without a format change); the kernel
+  routes by path onto the same cores its own routes drive (the JSON
+  enroll exchange, the envelope contact, and the web families' asset
+  routes -- hooks, lures, artifact fetch) and answers `status`,
+  `content-type`, and `body`. The listener terminates the medium's HTTP
+  face and carries bytes; the kernel never sees the medium socket.
 
 Why not gRPC: the repository dropped the HTTP/2 requirement when the
 envelope endpoint retired the gRPC service, and the bridge keeps that

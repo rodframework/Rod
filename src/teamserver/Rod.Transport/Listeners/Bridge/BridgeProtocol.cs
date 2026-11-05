@@ -1,6 +1,3 @@
-using System.Buffers.Binary;
-using Rod.Transport.Listeners.Streams;
-
 namespace Rod.Transport.Listeners.Bridge;
 
 // The bridge wire contract (ADR-025, extending/listeners.md): the carriage
@@ -17,8 +14,11 @@ namespace Rod.Transport.Listeners.Bridge;
 /// sends after connecting. <c>C</c> is the rod.v1 contact stream (the
 /// Beacon.Contact carriage: one message per contact body, sealed or
 /// plaintext, enrollment riding the opening message as an EnrollRequest
-/// frame); <c>R</c> is the route-forward carriage (request/response units
-/// dispatched by path, the https shape).
+/// frame); <c>R</c> is the route-forward carriage (request/answer units
+/// routed by path, the https shape). The values are frozen identifiers,
+/// never renamed: a later carriage is a new value, and an unknown value
+/// is the dropped connection -- the same additive discipline rod.v1's
+/// FrameKind keeps.
 /// </summary>
 internal static class BridgeCarriage
 {
@@ -27,117 +27,89 @@ internal static class BridgeCarriage
 }
 
 /// <summary>
-/// The route-forward carriage's message codec (the https shape,
-/// ADR-025): one request unit in -- the method, the path, the observed
-/// peer address and User-Agent (the facts the kernel's audit wants and
-/// the medium's own face is the only place to read them from), and the
-/// body -- and one answer unit out: the status, the content type, and
-/// the body. The kernel routes by path onto the same cores the HTTP
-// routes drive; the listener terminates the medium and carries bytes.
+/// The route-forward carriage's unit codec (the https shape, ADR-025):
+/// one request unit in, one answer unit out, and a unit is a **field
+/// map** -- a counted run of length-prefixed, string-keyed fields with
+/// opaque byte values. Nothing is positional, so nothing can move: the
+/// request carries <c>method</c>, <c>path</c>, and <c>body</c> beside the
+/// medium's observed peer facts (<c>peer</c>, <c>ua</c>, whatever the
+/// medium honestly observes), and the answer carries <c>status</c>,
+/// <c>content-type</c>, and <c>body</c>. An unknown key is carried and
+/// ignored -- a new medium names a new fact with a new key and no format
+/// ever changes. This is the HTTP-header / gRPC-metadata model, the same
+/// unknown-field discipline rod.v1's own evolution rules keep. The
+/// kernel routes by path onto the same cores its own routes drive; the
+/// listener terminates the medium and carries bytes.
 /// </summary>
 internal static class BridgeRouteProtocol
 {
-    public const byte MethodGet = 0;
-    public const byte MethodPost = 1;
+    // The request's keys.
+    public const string MethodKey = "method";
+    public const string PathKey = "path";
+    public const string BodyKey = "body";
 
-    /// <summary>Encodes one forwarded request. The varint framing around
-    /// the unit is <see cref="StreamContactFraming"/>'s own.</summary>
-    public static byte[] EncodeRequest(byte method, string path, string peer, string userAgent, byte[] body)
+    // The observed peer facts the kernel's audit facts read today. A
+    // medium that observes more names more keys; the kernel ignores what
+    // it does not know.
+    public const string PeerKey = "peer";
+    public const string UserAgentKey = "ua";
+
+    // The answer's keys.
+    public const string StatusKey = "status";
+    public const string ContentTypeKey = "content-type";
+
+    // The method spellings -- ASCII text, the vocabulary the kernel's
+    // route table matches; a method the table does not carry answers 404.
+    public const string MethodGet = "GET";
+    public const string MethodPost = "POST";
+
+    /// <summary>
+    /// A unit is a handful of facts; a count beyond any honest one is a
+    /// malformed unit, dropped like every other malformed shape.
+    /// </summary>
+    public const int MaxFields = 64;
+
+    /// <summary>Encodes one unit from its fields, in the order given.
+    /// The varint framing around the unit is
+    /// <see cref="StreamContactFraming"/>'s own.</summary>
+    public static byte[] EncodeUnit(IEnumerable<KeyValuePair<string, byte[]>> fields)
     {
+        var ordered = fields.ToArray();
         var buffer = new MemoryStream();
-        buffer.WriteByte(method);
-        WriteString(buffer, path);
-        WriteString(buffer, peer);
-        WriteString(buffer, userAgent);
-        buffer.Write(body);
+        WriteVarint(buffer, (ulong)ordered.Length);
+        foreach (var (key, value) in ordered)
+        {
+            var keyBytes = System.Text.Encoding.UTF8.GetBytes(key);
+            WriteVarint(buffer, (ulong)keyBytes.Length);
+            buffer.Write(keyBytes);
+            WriteVarint(buffer, (ulong)value.Length);
+            buffer.Write(value);
+        }
         return buffer.ToArray();
     }
 
     /// <summary>
-    /// Decodes one forwarded request. False answers a malformed unit -- the
-    /// connection is dropped, the same refusal every bridge shape keeps.
+    /// Decodes one unit into its field map. False answers a malformed
+    /// unit -- the connection is dropped, the same refusal every bridge
+    /// shape keeps. A duplicate key takes the last value; an unknown key
+    /// rides through, none of the kernel's business until it is.
     /// </summary>
-    public static bool TryDecodeRequest(
-        byte[] message, out byte method, out string path, out string peer, out string userAgent, out byte[] body)
+    public static bool TryDecodeUnit(byte[] message, out IReadOnlyDictionary<string, byte[]> fields)
     {
-        method = 0;
-        path = "";
-        peer = "";
-        userAgent = "";
-        body = [];
+        fields = new Dictionary<string, byte[]>();
         var offset = 0;
-        if (message.Length < 1)
+        if (!TryReadVarint(message, ref offset, out var count) || count > (ulong)MaxFields)
             return false;
-        method = message[offset++];
-        if (!TryReadString(message, ref offset, out path))
-            return false;
-        if (!TryReadString(message, ref offset, out peer))
-            return false;
-        if (!TryReadString(message, ref offset, out userAgent))
-            return false;
-        body = message[offset..];
-        return true;
-    }
 
-    /// <summary>Encodes one forwarded answer: status, content type,
-    /// body.</summary>
-    public static byte[] EncodeResponse(int status, string contentType, byte[] body)
-    {
-        var buffer = new MemoryStream(2 + 5 + contentType.Length + body.Length);
-        Span<byte> statusBytes = stackalloc byte[2];
-        BinaryPrimitives.WriteUInt16BigEndian(statusBytes, (ushort)status);
-        buffer.Write(statusBytes);
-        WriteString(buffer, contentType);
-        buffer.Write(body);
-        return buffer.ToArray();
-    }
-
-    /// <summary>Decodes one forwarded answer (the fixture candidate's other
-    /// half; the kernel side only encodes).</summary>
-    public static bool TryDecodeResponse(
-        byte[] message, out int status, out string contentType, out byte[] body)
-    {
-        status = 0;
-        contentType = "";
-        body = [];
-        var offset = 0;
-        if (message.Length < 2)
-            return false;
-        status = BinaryPrimitives.ReadUInt16BigEndian(message);
-        offset = 2;
-        if (!TryReadString(message, ref offset, out contentType))
-            return false;
-        body = message[offset..];
-        return true;
-    }
-
-    private static void WriteString(MemoryStream buffer, string value)
-    {
-        var bytes = System.Text.Encoding.UTF8.GetBytes(value);
-        WriteVarint(buffer, (ulong)bytes.Length);
-        buffer.Write(bytes);
-    }
-
-    private static bool TryReadString(byte[] message, ref int offset, out string value)
-    {
-        value = "";
-        ulong length = 0;
-        var shift = 0;
-        while (true)
+        var decoded = (Dictionary<string, byte[]>)fields;
+        for (var i = 0; i < (int)count; i++)
         {
-            if (offset >= message.Length || shift > 28)
+            if (!TryReadBytes(message, ref offset, out var keyBytes)
+                || !TryReadBytes(message, ref offset, out var value))
                 return false;
-            var read = message[offset++];
-            length |= (ulong)(read & 0x7f) << shift;
-            if ((read & 0x80) == 0)
-                break;
-            shift += 7;
+            decoded[System.Text.Encoding.UTF8.GetString(keyBytes)] = value;
         }
-        if (length > (ulong)(message.Length - offset))
-            return false;
-        value = System.Text.Encoding.UTF8.GetString(message, offset, (int)length);
-        offset += (int)length;
-        return true;
+        return offset <= message.Length;
     }
 
     private static void WriteVarint(MemoryStream buffer, ulong value)
@@ -148,5 +120,31 @@ internal static class BridgeRouteProtocol
             value >>= 7;
         }
         buffer.WriteByte((byte)value);
+    }
+
+    private static bool TryReadVarint(byte[] message, ref int offset, out ulong value)
+    {
+        value = 0;
+        var shift = 0;
+        while (true)
+        {
+            if (offset >= message.Length || shift > 28)
+                return false;
+            var read = message[offset++];
+            value |= (ulong)(read & 0x7f) << shift;
+            if ((read & 0x80) == 0)
+                return true;
+            shift += 7;
+        }
+    }
+
+    private static bool TryReadBytes(byte[] message, ref int offset, out byte[] value)
+    {
+        value = [];
+        if (!TryReadVarint(message, ref offset, out var length) || length > (ulong)(message.Length - offset))
+            return false;
+        value = message[offset..(offset + (int)length)];
+        offset += (int)length;
+        return true;
     }
 }
