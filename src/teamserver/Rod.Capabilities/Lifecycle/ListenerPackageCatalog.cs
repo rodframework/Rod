@@ -54,7 +54,9 @@ public sealed class ListenerPackageCatalog : IListenerPackageCatalog
             declaration.Params
                 .Select(p => new ListenerPackageParam(p.Name, p.Kind, p.Required, p.Description, p.Secret))
                 .ToList(),
-            held.Directory);
+            held.Directory,
+            ListenerEndpointShapeNames.ToString(declaration.EndpointShape),
+            ListenerTlsNames.ToString(declaration.Tls));
         if (!info.SealRuleSatisfied)
             throw new InvalidOperationException(
                 $"Listener package '{held.Manifest.Name}@{held.Manifest.Version}' declares an id-only seal on a "

@@ -1290,12 +1290,59 @@ public class CanonicalFormTests
         Assert.NotNull(manifest);
 
         var form = CanonicalForm.Build(manifest!, new Dictionary<string, string>());
-        Assert.Contains("listener=seal=id-only third-party=false channel=degraded carriers=envelope\n", form);
+        Assert.Contains(
+            "listener=seal=id-only third-party=false channel=degraded carriers=envelope "
+            + "endpoint-shape=web-dial tls=by-endpoint\n",
+            form);
         Assert.Contains("listener-command=python3\n", form);
         Assert.Contains("listener-arg/0=server.py\n", form);
         Assert.Contains(
             "listener-param/bind=kind=string required=true secret=false description=The address the medium front binds.\n",
             form);
+    }
+
+    [Fact]
+    public void AListenerDeclaration_DeclaresItsFrontShapeAndTlsPosture()
+    {
+        // The endpoint shape and the TLS posture are the medium's front
+        // facts: undeclared they keep the web dial and its by-endpoint
+        // posture, declared they ride the model and the signed form.
+        ManifestToml.Load(ListenerPackage, out var defaults);
+        Assert.NotNull(defaults);
+        Assert.Equal(ListenerEndpointShape.WebDial, defaults!.Listener!.EndpointShape);
+        Assert.Equal(ListenerTlsPosture.ByEndpoint, defaults.Listener.Tls);
+
+        var toml = ListenerPackage.Replace(
+            "args = [\"server.py\"]",
+            """
+            args = ["server.py"]
+            public-endpoint-shape = "dns-zone"
+            tls = "always"
+            """);
+        var errors = ManifestToml.Load(toml, out var manifest);
+        Assert.Empty(errors);
+        Assert.NotNull(manifest);
+        Assert.Equal(ListenerEndpointShape.DnsZone, manifest!.Listener!.EndpointShape);
+        Assert.Equal(ListenerTlsPosture.Always, manifest.Listener.Tls);
+
+        var form = CanonicalForm.Build(manifest, new Dictionary<string, string>());
+        Assert.Contains("endpoint-shape=dns-zone tls=always\n", form);
+    }
+
+    [Fact]
+    public void AnUnknownFrontShapeOrTlsPosture_IsRefused()
+    {
+        var toml = ListenerPackage.Replace(
+            "args = [\"server.py\"]",
+            """
+            args = ["server.py"]
+            public-endpoint-shape = "carrier-pigeon"
+            tls = "sometimes"
+            """);
+        var errors = ManifestToml.Load(toml, out _);
+
+        Assert.Contains(errors, e => e.Contains("listener.public-endpoint-shape"));
+        Assert.Contains(errors, e => e.Contains("listener.tls"));
     }
 
     [Fact]

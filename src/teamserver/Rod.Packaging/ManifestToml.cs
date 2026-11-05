@@ -87,6 +87,8 @@ public static class ManifestToml
         [TomlPropertyName("command")] public string? Command { get; set; }
         [TomlPropertyName("args")] public List<string>? Args { get; set; }
         [TomlPropertyName("params")] public List<ListenerParamRow>? Params { get; set; }
+        [TomlPropertyName("public-endpoint-shape")] public string? PublicEndpointShape { get; set; }
+        [TomlPropertyName("tls")] public string? Tls { get; set; }
     }
 
     private sealed class ListenerParamRow
@@ -454,7 +456,8 @@ public static class ManifestToml
             && (declaredListener.SealTier is not null || declaredListener.ThirdPartyMedium is not null
                 || declaredListener.Channel is not null || declaredListener.Carriers is not null
                 || declaredListener.Command is not null || declaredListener.Args is not null
-                || declaredListener.Params is not null))
+                || declaredListener.Params is not null
+                || declaredListener.PublicEndpointShape is not null || declaredListener.Tls is not null))
         {
             var sealTier = ListenerSealTier.Sealed;
             var sealTierOk = true;
@@ -470,6 +473,26 @@ public static class ManifestToml
             var command = TrimOrNull(declaredListener.Command);
             if (command is null)
                 errors.Add("listener.command is missing (the process the supervisor spawns).");
+            var endpointShape = ListenerEndpointShape.WebDial;
+            var endpointShapeOk = true;
+            if (TrimOrNull(declaredListener.PublicEndpointShape) is not { } shapeText)
+                endpointShape = ListenerEndpointShape.WebDial; // Undeclared is the web shape, the default.
+            else if (!ListenerEndpointShapeNames.TryParse(shapeText, out endpointShape))
+            {
+                errors.Add(
+                    $"listener.public-endpoint-shape '{declaredListener.PublicEndpointShape}' is not one of: "
+                    + "web-dial, dns-zone.");
+                endpointShapeOk = false;
+            }
+            var tls = ListenerTlsPosture.ByEndpoint;
+            var tlsOk = true;
+            if (TrimOrNull(declaredListener.Tls) is not { } tlsText)
+                tls = ListenerTlsPosture.ByEndpoint; // Undeclared defers to the dial's scheme.
+            else if (!ListenerTlsNames.TryParse(tlsText, out tls))
+            {
+                errors.Add($"listener.tls '{declaredListener.Tls}' is not one of: by-endpoint, always, never.");
+                tlsOk = false;
+            }
 
             var listenerParams = new List<ListenerParamDeclaration>();
             for (var i = 0; i < (declaredListener.Params?.Count ?? 0); i++)
@@ -490,7 +513,7 @@ public static class ManifestToml
                     row.Secret ?? false));
             }
 
-            if (sealTierOk && channel is not null && command is not null)
+            if (sealTierOk && endpointShapeOk && tlsOk && channel is not null && command is not null)
                 listener = new ListenerDeclaration(
                     sealTier,
                     declaredListener.ThirdPartyMedium ?? false,
@@ -503,7 +526,9 @@ public static class ManifestToml
                     (declaredListener.Args ?? [])
                         .Select(a => a.Trim())
                         .ToList(),
-                    listenerParams);
+                    listenerParams,
+                    endpointShape,
+                    tls);
         }
 
         if (errors.Count > 0)

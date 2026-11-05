@@ -16,6 +16,33 @@ public static class ListenerSealTiers
 }
 
 /// <summary>
+/// The endpoint shapes a listener package may declare (ADR-025): the
+/// spellings the manifest carries and the catalog forwards. <c>web-dial</c>
+/// is the absolute http(s) URL implants dial; <c>dns-zone</c> is the zone a
+/// DNS medium's queries answer under -- the kernel validates the listener's
+/// public endpoint by the shape instead of assuming a web dial.
+/// </summary>
+public static class ListenerEndpointShapes
+{
+    public const string WebDial = "web-dial";
+    public const string DnsZone = "dns-zone";
+}
+
+/// <summary>
+/// The TLS postures a listener package's front may declare (ADR-025):
+/// <c>by-endpoint</c> defers to the web dial's scheme, <c>always</c>
+/// terminates TLS whatever the dial shape, <c>never</c> serves the medium
+/// in the clear. The kernel reads the posture to decide whether to hand the
+/// process a CA-issued leaf.
+/// </summary>
+public static class ListenerTlsPostures
+{
+    public const string ByEndpoint = "by-endpoint";
+    public const string Always = "always";
+    public const string Never = "never";
+}
+
+/// <summary>
 /// One config-schema row a listener package declares: a medium parameter an
 /// operator sets at listener creation (the manifest's
 /// <c>[[listener.params]]</c> row). A secret row is one the console never
@@ -31,11 +58,12 @@ public sealed record ListenerPackageParam(
 /// <summary>
 /// The resolved facts of one installed listener package (ADR-025): what the
 /// supervisor and the listener manager need to bind a listener against it --
-/// the medium contract (seal tier, channel honesty, carriers) and the spawn
-/// contract (the process command and its static arguments, run inside the
-/// installed package directory). Plain data on purpose: core state owns the
-/// shape so the transport layer can consume it without reaching the module
-/// ecosystem's layers, the same seam every cross-layer port keeps.
+/// the medium contract (seal tier, channel honesty, carriers, endpoint
+/// shape, TLS posture) and the spawn contract (the process command and its
+/// static arguments, run inside the installed package directory). Plain
+/// data on purpose: core state owns the shape so the transport layer can
+/// consume it without reaching the module ecosystem's layers, the same seam
+/// every cross-layer port keeps.
 /// </summary>
 public sealed record ListenerPackageInfo(
     string Name,
@@ -47,7 +75,9 @@ public sealed record ListenerPackageInfo(
     string ProcessCommand,
     IReadOnlyList<string> ProcessArgs,
     IReadOnlyList<ListenerPackageParam> Params,
-    string RootDirectory)
+    string RootDirectory,
+    string EndpointShape = ListenerEndpointShapes.WebDial,
+    string Tls = ListenerTlsPostures.ByEndpoint)
 {
     /// <summary>
     /// The third-party-medium seal rule, stated where both spellings live:

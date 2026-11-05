@@ -355,12 +355,36 @@ public sealed class ListenerManager
                     $"Parameter '{required.Name}' is required by package '{package.Name}'.", nameof(config));
         }
 
-        if (!Uri.TryCreate(config.PublicEndpoint, UriKind.Absolute, out var publicEndpoint)
+        // The public endpoint's shape is the package's to declare, not the
+        // kernel's to assume: a web-dial package bakes the absolute http(s)
+        // URL implants dial (and its scheme is the by-endpoint TLS
+        // posture's own answer), a dns-zone package answers for the zone
+        // its queries carry -- the same rule the in-tree providers keep,
+        // read off the declaration instead of the transport table.
+        if (string.Equals(package.EndpointShape, ListenerEndpointShapes.DnsZone, StringComparison.Ordinal))
+        {
+            if (!PublicEndpointShapes.IsDnsZone(config.PublicEndpoint.Trim().TrimEnd('.')))
+            {
+                throw new ArgumentException(
+                    $"The listener's public endpoint '{config.PublicEndpoint}' must be the DNS zone this package "
+                    + "answers for (e.g. c2.example.test); the package declares a dns-zone dial.",
+                    nameof(config));
+            }
+        }
+        else if (!Uri.TryCreate(config.PublicEndpoint, UriKind.Absolute, out var publicEndpoint)
             || (publicEndpoint.Scheme != "http" && publicEndpoint.Scheme != "https"))
         {
             throw new ArgumentException(
                 $"The listener's public endpoint '{config.PublicEndpoint}' must be an absolute http(s) URL -- "
                 + "it is the address builds bake and the bridge's cleartext posture keys off its scheme.",
+                nameof(config));
+        }
+        else if (string.Equals(package.Tls, ListenerTlsPostures.Always, StringComparison.Ordinal)
+            && publicEndpoint.Scheme != "https")
+        {
+            throw new ArgumentException(
+                $"The listener's public endpoint '{config.PublicEndpoint}' must be https://: the package declares "
+                + "an always-TLS front, so a cleartext dial contradicts the medium.",
                 nameof(config));
         }
 

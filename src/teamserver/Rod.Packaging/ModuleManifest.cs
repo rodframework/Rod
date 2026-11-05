@@ -358,6 +358,86 @@ public static class ListenerChannelNames
 }
 
 /// <summary>
+/// The dial shape a listener package's public endpoint takes (ADR-025): a
+/// web front's endpoint is the absolute http(s) URL implants dial; a DNS
+/// medium's endpoint is the zone its queries answer under -- the same two
+/// shapes the in-tree providers carry, now declared by the package so the
+/// kernel validates what the medium actually dials instead of assuming a
+/// web shape for everything.
+/// </summary>
+public enum ListenerEndpointShape
+{
+    WebDial,
+    DnsZone,
+}
+
+public static class ListenerEndpointShapeNames
+{
+    public const string WebDial = "web-dial";
+    public const string DnsZone = "dns-zone";
+
+    public static bool TryParse(string text, out ListenerEndpointShape shape)
+    {
+        switch (text)
+        {
+            case WebDial: shape = ListenerEndpointShape.WebDial; return true;
+            case DnsZone: shape = ListenerEndpointShape.DnsZone; return true;
+            default: shape = default; return false;
+        }
+    }
+
+    public static string ToString(ListenerEndpointShape shape) => shape switch
+    {
+        ListenerEndpointShape.WebDial => WebDial,
+        ListenerEndpointShape.DnsZone => DnsZone,
+        _ => throw new ArgumentOutOfRangeException(nameof(shape)),
+    };
+}
+
+/// <summary>
+/// The TLS posture a listener package's front keeps (ADR-025):
+/// <see cref="ByEndpoint"/> defers to the web dial's scheme (an
+/// <c>https://</c> public endpoint terminates TLS in the package, an
+/// <c>http://</c> one runs the plain lab posture), <see cref="Always"/>
+/// terminates TLS whatever the dial shape (the DoH medium's own), and
+/// <see cref="Never"/> serves the medium in the clear. The kernel reads the
+/// posture to decide whether to hand the process a CA-issued leaf; the
+/// medium itself never negotiates the choice.
+/// </summary>
+public enum ListenerTlsPosture
+{
+    ByEndpoint,
+    Always,
+    Never,
+}
+
+public static class ListenerTlsNames
+{
+    public const string ByEndpoint = "by-endpoint";
+    public const string Always = "always";
+    public const string Never = "never";
+
+    public static bool TryParse(string text, out ListenerTlsPosture posture)
+    {
+        switch (text)
+        {
+            case ByEndpoint: posture = ListenerTlsPosture.ByEndpoint; return true;
+            case Always: posture = ListenerTlsPosture.Always; return true;
+            case Never: posture = ListenerTlsPosture.Never; return true;
+            default: posture = default; return false;
+        }
+    }
+
+    public static string ToString(ListenerTlsPosture posture) => posture switch
+    {
+        ListenerTlsPosture.ByEndpoint => ByEndpoint,
+        ListenerTlsPosture.Always => Always,
+        ListenerTlsPosture.Never => Never,
+        _ => throw new ArgumentOutOfRangeException(nameof(posture)),
+    };
+}
+
+/// <summary>
 /// One row of a listener package's config schema (the medium parameters a
 /// listener carries): the field the operator sets at listener creation, in
 /// declaration order. A <c>secret</c> row is one the operator console never
@@ -382,7 +462,10 @@ public sealed record ListenerParamDeclaration(
 /// the carrier-table honesty, and the process rows are the supervisor's
 /// spawn contract: the command the kernel runs inside the installed
 /// package, with its static arguments, when a listener binds this package.
-/// Everything here rides the signed canonical form like every other field.
+/// The endpoint shape and the TLS posture say what the medium's front is --
+/// the kernel validates the public endpoint by the one and hands the
+/// process a CA-issued leaf by the other. Everything here rides the signed
+/// canonical form like every other field.
 /// </summary>
 public sealed record ListenerDeclaration(
     ListenerSealTier SealTier,
@@ -391,7 +474,9 @@ public sealed record ListenerDeclaration(
     IReadOnlyList<string> Carriers,
     string ProcessCommand,
     IReadOnlyList<string> ProcessArgs,
-    IReadOnlyList<ListenerParamDeclaration> Params);
+    IReadOnlyList<ListenerParamDeclaration> Params,
+    ListenerEndpointShape EndpointShape = ListenerEndpointShape.WebDial,
+    ListenerTlsPosture Tls = ListenerTlsPosture.ByEndpoint);
 
 /// <summary>
 /// The manifest's conformance report (ADR-017): what a build unit's

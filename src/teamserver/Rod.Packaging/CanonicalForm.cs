@@ -121,7 +121,9 @@ public static class CanonicalForm
         // carriers and channel are the claim semantics the roster reads --
         // a tampered any of them breaks verification like every other field.
         // The spawn args ride one line per arg (index-keyed, so order is
-        // data and a comma inside an argument cannot forge the line).
+        // data and a comma inside an argument cannot forge the line), and
+        // the endpoint shape and TLS posture ride the posture line: they are
+        // what the kernel's own bind validation and leaf issuance read.
         if (listenerLines)
         {
             Line("listener", manifest.Listener is { } listener
@@ -130,6 +132,8 @@ public static class CanonicalForm
                 + (listener.Carriers.Count == 0
                     ? "-"
                     : string.Join(",", listener.Carriers.Distinct().OrderBy(c => c, StringComparer.Ordinal)))
+                + $" endpoint-shape={ListenerEndpointShapeNames.ToString(listener.EndpointShape)}"
+                + $" tls={ListenerTlsNames.ToString(listener.Tls)}"
                 : "-");
             Line("listener-command", manifest.Listener is { } withCommand ? withCommand.ProcessCommand : "-");
             for (var i = 0; i < (manifest.Listener?.ProcessArgs.Count ?? 0); i++)

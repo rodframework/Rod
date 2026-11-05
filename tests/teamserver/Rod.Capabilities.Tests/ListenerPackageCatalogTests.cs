@@ -38,12 +38,21 @@ public class ListenerPackageCatalogTests : IDisposable
     private async Task<ListenerPackageCatalog> PublishAndInstallAsync(
         string name = "rod-listener-demo",
         string? sealTier = null,
-        bool? thirdParty = null)
+        bool? thirdParty = null,
+        string? endpointShape = null,
+        string? tls = null)
     {
         var version = $"1.0.{_sequence++}";
         sealTier ??= "id-only";
         var source = Path.Combine(_root, "src", name + "-" + version);
         Directory.CreateDirectory(source);
+        var frontRows = (endpointShape, tls) switch
+        {
+            (null, null) => "",
+            _ => "\n"
+                + (endpointShape is null ? "" : $"public-endpoint-shape = \"{endpointShape}\"\n")
+                + (tls is null ? "" : $"tls = \"{tls}\""),
+        };
         await File.WriteAllTextAsync(Path.Combine(source, ManifestToml.FileName), $"""
             [module]
             name = "{name}"
@@ -64,7 +73,7 @@ public class ListenerPackageCatalogTests : IDisposable
             channel = "degraded"
             carriers = ["envelope"]
             command = "python3"
-            args = ["server.py"]
+            args = ["server.py"]{frontRows}
 
             [[listener.params]]
             name = "bind"
@@ -152,6 +161,24 @@ public class ListenerPackageCatalogTests : IDisposable
         var catalog = await PublishAndInstallAsync();
 
         Assert.Null(catalog.Resolve("rod-listener-absent"));
+    }
+
+    [Fact]
+    public async Task ADeclaredFront_ShapeAndTlsPosture_RideTheResolve()
+    {
+        // The endpoint shape and the TLS posture are what the manager
+        // validates the public endpoint by and the supervisor issues a leaf
+        // by: undeclared they keep the web dial and its by-endpoint posture,
+        // declared they reach the resolve whole.
+        var web = await PublishAndInstallAsync();
+        var webResolved = web.Resolve("rod-listener-demo");
+        Assert.Equal(Rod.CoreState.Listeners.ListenerEndpointShapes.WebDial, webResolved!.EndpointShape);
+        Assert.Equal(Rod.CoreState.Listeners.ListenerTlsPostures.ByEndpoint, webResolved.Tls);
+
+        var doh = await PublishAndInstallAsync(endpointShape: "dns-zone", tls: "always");
+        var dohResolved = doh.Resolve("rod-listener-demo");
+        Assert.Equal(Rod.CoreState.Listeners.ListenerEndpointShapes.DnsZone, dohResolved!.EndpointShape);
+        Assert.Equal(Rod.CoreState.Listeners.ListenerTlsPostures.Always, dohResolved.Tls);
     }
 
     [Fact]
