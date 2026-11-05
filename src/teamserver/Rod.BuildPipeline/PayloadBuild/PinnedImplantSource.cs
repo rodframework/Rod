@@ -14,13 +14,17 @@ internal sealed record ImplantSourcePin(string Repository, string Version, strin
 
 /// <summary>
 /// The parsed shape of rod-implants.lock.json, camelCase like the module
-/// lock's conventions.
+/// lock's conventions. The listeners section carries the official listener
+/// packages' pins the same way (ADR-025: pinned by version like the implant
+/// trees), keyed by package name.
 /// </summary>
 internal sealed class ImplantSourceLock
 {
     public ImplantSourcePin? Rust { get; init; }
 
     public ImplantSourcePin? Go { get; init; }
+
+    public Dictionary<string, ImplantSourcePin>? Listeners { get; init; }
 }
 
 /// <summary>
@@ -348,17 +352,7 @@ public static class PinnedImplantSource
         {
             if (!ParsedLocks.TryGetValue(path, out var parsed))
             {
-                try
-                {
-                    using var stream = File.OpenRead(path);
-                    parsed = JsonSerializer.Deserialize<ImplantSourceLock>(stream, LockJson);
-                }
-                catch (JsonException ex)
-                {
-                    throw new InvalidOperationException(
-                        $"{LockFileName} at '{path}' is not valid JSON: {ex.Message}", ex);
-                }
-                ParsedLocks[path] = parsed;
+                ParsedLocks[path] = parsed = ReadLock(path);
             }
             return language switch
             {
@@ -383,6 +377,42 @@ public static class PinnedImplantSource
             dir = dir.Parent!;
         }
         return null;
+    }
+
+    // The listener packages' pins ride the same lock (ADR-025: pinned by
+    // version like the implant trees), read through the same parsed-lock
+    // cache so a redirected lock serves one truth. PinnedListenerSource is
+    // the listener half's face; this is the shared read.
+    internal static ImplantSourcePin? PinForListener(string name)
+    {
+        var path = LockPath();
+        if (path is null)
+            return null;
+        lock (ParsedLocks)
+        {
+            if (!ParsedLocks.TryGetValue(path, out var parsed))
+            {
+                ParsedLocks[path] = parsed = ReadLock(path);
+            }
+            return parsed?.Listeners is { } listeners
+                && listeners.TryGetValue(name, out var pin)
+                ? pin
+                : null;
+        }
+    }
+
+    private static ImplantSourceLock? ReadLock(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            return JsonSerializer.Deserialize<ImplantSourceLock>(stream, LockJson);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                $"{LockFileName} at '{path}' is not valid JSON: {ex.Message}", ex);
+        }
     }
 
     private static string CacheRoot()

@@ -8,5 +8,17 @@
     "repository": "https://github.com/rodframework/rod-implant-go",
     "version": "v1.2.0",
     "sha256": "1814e08dbb815ed3525a2e585fd941e142832a61dc13c4782c0fa4e172ffef84"
+  },
+  "listeners": {
+    "https": {
+      "repository": "https://github.com/rodframework/rod-listener-https",
+      "version": "v1.0.0",
+      "sha256": "72ba082fdbd82f86797cf9ea20e16545e2b8b73944a14d86e9799be56592c8b7"
+    },
+    "doh": {
+      "repository": "https://github.com/rodframework/rod-listener-doh",
+      "version": "v1.0.0",
+      "sha256": "45ddad175ce216e61c045e02e980884dff5efff9dbc8f1a0c94db0ad1601c165"
+    }
   }
 }
