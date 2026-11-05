@@ -157,6 +157,7 @@ public static class PayloadEndpoints
         IEngagementRepository engagements,
         IPayloadStore payloads,
         Rod.Transport.Listeners.IListenerRegistry listeners,
+        Rod.CoreState.Listeners.IListenerPackageCatalog listenerPackages,
         Rod.CoreState.Pki.IImplantCertificateAuthority ca,
         Rod.CoreState.Deployment.IDeployTokenService tokens,
         TimeProvider clock,
@@ -186,7 +187,8 @@ public static class PayloadEndpoints
         // the same refusals, same listener-name endpoint resolution.
         var (parsed, parseError) = await PayloadBuildRequestParser.ParseAsync(
             body, new EngagementId(engagementValue), requestedBy.Value, listeners,
-            ca, payloads, cancellationToken, wireGuard, wireGuardTunnels);
+            ca, payloads, cancellationToken, wireGuard, wireGuardTunnels,
+            listenerPackages: listenerPackages);
         if (parseError is not null)
             return Results.BadRequest(new Problem(parseError));
 

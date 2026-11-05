@@ -53,7 +53,8 @@ internal static class PayloadBuildRequestParser
         CancellationToken cancellationToken,
         Listeners.WireGuard.WireGuardOptions? wireGuard = null,
         Listeners.WireGuard.WireGuardTunnelRegistry? wireGuardTunnels = null,
-        bool mintWireGuard = true)
+        bool mintWireGuard = true,
+        Rod.CoreState.Listeners.IListenerPackageCatalog? listenerPackages = null)
     {
         // Unit and class come in as strings; the unit id is an open kebab-case
         // vocabulary (ADR-021) and anything this build cannot route is a 400.
@@ -121,7 +122,8 @@ internal static class PayloadBuildRequestParser
         // an operator discovers on target. A named listener supplies the
         // endpoint from its own record, so an operator stops typing URLs.
         var endpoint = await ResolveEndpointAsync(
-            body, engagementId, listeners, cancellationToken, wireGuard, wireGuardTunnels, mintWireGuard);
+            body, engagementId, listeners, cancellationToken, wireGuard, wireGuardTunnels, mintWireGuard,
+            listenerPackages: listenerPackages);
         if (endpoint.Error is { } refusal)
             return (null, refusal);
         if (endpoint.Value is { } dialable && !IsDialableEndpoint(dialable))
@@ -371,7 +373,8 @@ internal static class PayloadBuildRequestParser
         CancellationToken cancellationToken,
         Listeners.WireGuard.WireGuardOptions? wireGuard = null,
         Listeners.WireGuard.WireGuardTunnelRegistry? wireGuardTunnels = null,
-        bool mintWireGuard = true)
+        bool mintWireGuard = true,
+        Rod.CoreState.Listeners.IListenerPackageCatalog? listenerPackages = null)
     {
         if (body.ListenerId is not { } listenerIdText)
         {
@@ -437,6 +440,33 @@ internal static class PayloadBuildRequestParser
             if (dial.Error is { } dnsError)
                 return (null, null, null, null, dnsError);
             return (dial.Dial, listener.Transport, listener.TrustPosture, null, null);
+        }
+
+        // A package-backed listener's dial is its package's declared medium
+        // (ADR-025): a dns-zone package enrolls over the DNS grammar (the
+        // doh family's own arm -- the chunked TXT exchange), a web-dial
+        // package serves the HTTP enroll exchange and its scheme is the
+        // public endpoint's own.
+        if (listener.PackageName is { } packageName)
+        {
+            var package = listenerPackages?.Resolve(packageName, listener.PackageVersion, cancellationToken);
+            if (package is null)
+                return (null, null, null, null,
+                    $"The listener's package '{packageName}' is not installed; reinstall it before building against it.");
+            if (package.EndpointShape == Rod.CoreState.Listeners.ListenerEndpointShapes.DnsZone)
+            {
+                var dnsDial = DnsDial(listener);
+                if (dnsDial.Error is { } dnsError)
+                    return (null, null, null, null, dnsError);
+                return (dnsDial.Dial, "doh", listener.TrustPosture, null, null);
+            }
+            var packagedEndpoint = listener.PublicEndpoint.Trim();
+            if (Uri.TryCreate(packagedEndpoint, UriKind.Absolute, out var packagedUri)
+                && (packagedUri.Scheme == Uri.UriSchemeHttp || packagedUri.Scheme == Uri.UriSchemeHttps))
+                return (packagedEndpoint, packagedUri.Scheme, listener.TrustPosture, null, null);
+            return (null, null, null, null,
+                $"The listener's public endpoint '{listener.PublicEndpoint}' must be an absolute http(s) URL -- "
+                + "the package declares a web dial.");
         }
 
         if (TransportProviders.Find(listener.Transport) is not KestrelEndpointProvider)

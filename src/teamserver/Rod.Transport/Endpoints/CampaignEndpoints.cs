@@ -52,6 +52,7 @@ public static class CampaignEndpoints
         IEngagementRepository engagements,
         ICampaignStore campaigns,
         IListenerRegistry listeners,
+        Rod.CoreState.Listeners.IListenerPackageCatalog listenerPackages,
         Rod.CoreState.Pki.IImplantCertificateAuthority ca,
         IPayloadStore payloads,
         Rod.CoreState.Recon.IReconAssetStore reconAssets,
@@ -238,7 +239,7 @@ public static class CampaignEndpoints
             // Validation only: the stored profile re-parses -- and mints its
             // per-recipient pair -- when the send engine drives each build,
             // so the creation pass registers no dead peer.
-            wireGuard, wireGuardTunnels, mintWireGuard: false);
+            wireGuard, wireGuardTunnels, mintWireGuard: false, listenerPackages: listenerPackages);
         if (parseError is not null)
             return Results.BadRequest(new Problem($"Build profile: {parseError}"));
 

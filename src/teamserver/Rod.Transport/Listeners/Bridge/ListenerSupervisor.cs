@@ -303,6 +303,23 @@ internal sealed class ListenerSupervisor
             ? Path.Combine(package.RootDirectory, commandRaw)
             : commandRaw;
 
+        // A package's payload arrives as a zip tree, and zip entries carry
+        // no execute bit: the spawn contract says this command runs, so the
+        // supervisor makes it runnable on the platforms that need the bit.
+        if (!OperatingSystem.IsWindows() && File.Exists(command))
+        {
+            try
+            {
+                File.SetUnixFileMode(command,
+                    File.GetUnixFileMode(command) | System.IO.UnixFileMode.UserExecute);
+            }
+            catch (IOException)
+            {
+                // The spawn itself will name the refusal; chmod is the
+                // courtesy, not the gate.
+            }
+        }
+
         var start = new ProcessStartInfo
         {
             FileName = command,

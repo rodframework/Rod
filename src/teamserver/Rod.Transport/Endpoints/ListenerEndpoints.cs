@@ -349,9 +349,11 @@ public static class ListenerEndpoints
         // package, not a transport: the medium is the package's process,
         // supervised over the bridge, and nothing here derives from a
         // provider. The bind address is the record of what the medium front
-        // binds; the public endpoint is what builds bake, and it must be
-        // spelled out -- an absolute http(s) URL, nothing the kernel could
-        // half-guess about a medium it cannot see.
+        // binds; the public endpoint is what builds bake, spelled in the
+        // shape the package declares -- a web dial's absolute http(s) URL or
+        // a DNS medium's zone -- a fact only the resolved package can state,
+        // so the manager's bind path is the authority (its refusals map to
+        // the operator's 400s below).
         if (!string.IsNullOrWhiteSpace(body.Package))
         {
             if (!Guid.TryParse(engagementId, out var packagedEngagement))
@@ -360,9 +362,9 @@ public static class ListenerEndpoints
                 return Results.NotFound(new Problem("Engagement does not exist."));
             if (string.IsNullOrWhiteSpace(body.BindAddress))
                 return Results.BadRequest(new Problem("Bind address is required (what the medium front binds)."));
-            if (!PublicEndpointShapes.IsAbsoluteHttpUrl(body.PublicEndpoint?.Trim() ?? ""))
+            if (string.IsNullOrWhiteSpace(body.PublicEndpoint))
                 return Results.BadRequest(new Problem(
-                    "The public endpoint is required as an absolute http(s) URL -- it is the address builds bake."));
+                    "The public endpoint is required -- it is the address builds bake, in the shape the package declares."));
 
             try
             {

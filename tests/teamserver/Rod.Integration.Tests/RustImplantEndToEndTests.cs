@@ -74,7 +74,7 @@ public class RustImplantEndToEndTests
     /// blame-hang collected it twenty minutes later); a build that does
     /// outlive the budget is killed with its toolchain tree and failed
     /// carrying the output it produced.
-    private static async Task<(int ExitCode, string Output)> RunCargoBuildAsync(string rustDir)
+    internal static async Task<(int ExitCode, string Output)> RunCargoBuildAsync(string rustDir)
     {
         var build = Process.Start(new ProcessStartInfo
         {
@@ -283,12 +283,14 @@ public class RustImplantEndToEndTests
     /// bodies under the per-artifact key, counter over the frames) rides
     /// whichever carriage the mode names: the POST cycle on poll, the
     /// WebSocket stream on stream.
-    private static async Task BuildRunAndRoundtripAsync(string mode, string markerPrefix)
+    internal static async Task BuildRunAndRoundtripAsync(
+        string mode, string markerPrefix, Func<TestEnv, Task<string>>? bindFront = null,
+        TestEnv? host = null)
     {
-        await using var env = await TestEnv.StartAsync();
+        await using var env = host ?? await TestEnv.StartAsync();
         await env.CreateEngagementAsync();
 
-        var front = await HttpFrontAsync(env);
+        var front = bindFront is null ? await HttpFrontAsync(env) : await bindFront(env);
         var built = await env.Http.PostAsJsonAsync(
             $"/engagements/{env.EngagementId}/payloads",
             new PayloadEndpoints.BuildPayloadRequest(
@@ -699,7 +701,7 @@ public class RustImplantEndToEndTests
     /// and returns its id for the build to name -- the parser resolves the
     /// typed dns dial (the bind as the resolver, the record's zone) from the
     /// listener itself.
-    private static async Task<string> DnsFrontAsync(TestEnv env, string zone)
+    internal static async Task<string> DnsFrontAsync(TestEnv env, string zone)
     {
         var port = TestSupport.GetFreeUdpPort();
         var created = await env.Http.PostAsJsonAsync(
@@ -756,17 +758,17 @@ public class RustImplantEndToEndTests
     /// Creates the engagement's runtime http listener on a free loopback
     /// port and returns its id for the build to name: every web front is a
     /// listener record, and the baked dial resolves from the record.
-    private static async Task<string> HttpFrontAsync(TestEnv env)
+    internal static async Task<string> HttpFrontAsync(TestEnv env)
         => await WebFrontAsync(env, "http");
 
     /// The TLS twin: the front whose leaf must carry a SAN naming the dialed
     /// host, or the implant's rustls client (full webpki validation, the
     /// baked CA as the only root) aborts the handshake on name matching --
     /// the field failure this leg exists to guard against.
-    private static async Task<string> HttpsFrontAsync(TestEnv env)
+    internal static async Task<string> HttpsFrontAsync(TestEnv env)
         => await WebFrontAsync(env, "https");
 
-    private static async Task<string> WebFrontAsync(TestEnv env, string transport)
+    internal static async Task<string> WebFrontAsync(TestEnv env, string transport)
     {
         var port = TestSupport.GetFreeTcpPort();
         var created = await env.Http.PostAsJsonAsync(
@@ -794,9 +796,10 @@ public class RustImplantEndToEndTests
     /// Poll mode exercises the degraded discipline end to end -- the
     /// channels.poll advertisement, server-side parking, and per-cycle
     /// drain -- while stream mode rides the live sink and the tick flush.
-    private static async Task InteractRoundtripAsync(string mode)
+    internal static async Task InteractRoundtripAsync(
+        string mode, Func<TestEnv, Task<string>>? bindFront = null, TestEnv? host = null)
     {
-        await using var implant = await BuildRunAndAwaitOnlineAsync(mode);
+        await using var implant = await BuildRunAndAwaitOnlineAsync(mode, bindFront, host: host);
         var env = implant.Env;
         var marker = "rod-interact-open-" + Guid.NewGuid().ToString("N")[..8];
         var typed = "rod-interact-typed-" + Guid.NewGuid().ToString("N")[..8];
@@ -830,7 +833,7 @@ public class RustImplantEndToEndTests
 
     /// A built-and-running baked artifact plus its live teamserver: the
     /// shared harness of the channel legs.
-    private sealed class RunningRust : IAsyncDisposable
+    internal sealed class RunningRust : IAsyncDisposable
     {
         public required TestEnv Env { get; init; }
         public required string ImplantId { get; init; }
@@ -859,10 +862,11 @@ public class RustImplantEndToEndTests
     /// resolves each family's dial from the record. The wireguard flag
     /// provisions the optional transport's deployment facts on the env (the
     /// enable switch and the test listener's server key).
-    private static async Task<RunningRust> BuildRunAndAwaitOnlineAsync(
-        string mode, Func<TestEnv, Task<string>>? bindFront = null, bool wireGuard = false)
+    internal static async Task<RunningRust> BuildRunAndAwaitOnlineAsync(
+        string mode, Func<TestEnv, Task<string>>? bindFront = null, bool wireGuard = false,
+        TestEnv? host = null)
     {
-        var env = await TestEnv.StartAsync(wireGuard);
+        var env = host ?? await TestEnv.StartAsync(wireGuard);
         try
         {
             await env.CreateEngagementAsync();
@@ -930,7 +934,7 @@ public class RustImplantEndToEndTests
         }
     }
 
-    private static async Task<TaskBody> WaitForTaskAsync(
+    internal static async Task<TaskBody> WaitForTaskAsync(
         TestEnv env, string taskId, Func<TaskBody, bool> done, StringBuilder stderr, string awaiting)
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(90);
@@ -1077,13 +1081,13 @@ public class RustImplantEndToEndTests
         }
     }
 
-    private sealed record ArtifactBody
+    internal sealed record ArtifactBody
     {
         public string ArtifactId { get; set; } = "";
         public string EngagementId { get; set; } = "";
     }
 
-    private static async Task<string> WaitForOnlineAsync(
+    internal static async Task<string> WaitForOnlineAsync(
         TestEnv env, TimeSpan deadline, StringBuilder stderr)
     {
         var end = DateTimeOffset.UtcNow + deadline;
@@ -1106,14 +1110,14 @@ public class RustImplantEndToEndTests
         throw new TimeoutException("the Rust implant did not appear online. Stderr:\n" + stderr);
     }
 
-    private static string? FindRustTree()
+    internal static string? FindRustTree()
         // The build pipeline's pinned-source resolution, the same chain the
         // module-load suite's shared helper holds.
         => Rod.BuildPipeline.PayloadBuild.PinnedImplantSource.LocateRustTree();
 
-    private sealed record MintedToken(string Secret);
+    internal sealed record MintedToken(string Secret);
 
-    private sealed record TaskBody
+    internal sealed record TaskBody
     {
         public string TaskId { get; set; } = "";
         public string Status { get; set; } = "";
@@ -1360,19 +1364,21 @@ public class RustImplantEndToEndTests
     /// A real Kestrel teamserver with the plain-HTTP operator/enroll API and
     /// the implant endpoint, logged in; the end-to-end harness shape.
     /// </summary>
-    private sealed class TestEnv : IAsyncDisposable
+    internal sealed class TestEnv : IAsyncDisposable
     {
         public IHost Host { get; private set; } = null!;
         public HttpClient Http { get; private set; } = null!;
         public int HttpPort { get; private set; }
 
-        public static async Task<TestEnv> StartAsync(bool wireGuard = false)
+        public static async Task<TestEnv> StartAsync(bool wireGuard = false, string? modulesStore = null)
         {
             var env = new TestEnv();
             env.HttpPort = TestSupport.GetFreeTcpPort();
 
             var config = AuthenticatedHost.BuildConfig(settings =>
             {
+                if (modulesStore is not null)
+                    settings["Modules:Store"] = modulesStore;
                 if (!wireGuard)
                     return;
                 // The optional transport's deployment facts: the enable
@@ -1383,7 +1389,9 @@ public class RustImplantEndToEndTests
                     Convert.ToBase64String(WireGuardTestClient.SeededKey(41));
             });
             env.Host = TransportHost.CreateHostBuilder(
-                    configureServices: services => AuthenticatedHost.ComposeServices(services, config),
+                    configureServices: services => AuthenticatedHost.ComposeServices(
+                        services, config, modulesStore is null ? null
+                            : extra => Rod.Capabilities.RodCapabilitiesHost.AddRodCapabilities(extra, config)),
                     mapEndpoints: endpoints => AuthenticatedHost.ComposeEndpoints(endpoints),
                     configuration: config)
                 .ConfigureWebHost(webBuilder => webBuilder

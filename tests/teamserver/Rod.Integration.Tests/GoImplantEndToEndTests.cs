@@ -249,7 +249,7 @@ public class GoImplantEndToEndTests
 
     // --- The shared harness, mirroring the Rust e2e's shape ---
 
-    private static (Process Process, StringBuilder Stderr) Start(
+    internal static (Process Process, StringBuilder Stderr) Start(
         string binary, IReadOnlyDictionary<string, string> environment)
     {
         var stderr = new StringBuilder();
@@ -267,7 +267,7 @@ public class GoImplantEndToEndTests
         return (process, stderr);
     }
 
-    private static void Kill(Process? process)
+    internal static void Kill(Process? process)
     {
         if (process is { HasExited: false })
         {
@@ -276,7 +276,7 @@ public class GoImplantEndToEndTests
         }
     }
 
-    private static async Task<TaskBody> IssueAsync(
+    internal static async Task<TaskBody> IssueAsync(
         TestEnv env, string implantId, string verb, string arguments)
     {
         var issued = await env.Http.PostAsJsonAsync(
@@ -288,7 +288,7 @@ public class GoImplantEndToEndTests
         return task!;
     }
 
-    private static async Task<TaskBody> WaitForTaskAsync(
+    internal static async Task<TaskBody> WaitForTaskAsync(
         TestEnv env, string taskId, TimeSpan deadline, StringBuilder stderr)
     {
         var end = DateTimeOffset.UtcNow + deadline;
@@ -303,7 +303,7 @@ public class GoImplantEndToEndTests
         throw new TimeoutException($"the dispatched task did not complete. Implant stderr:\n{stderr}");
     }
 
-    private static async Task<string> WaitForOnlineAsync(
+    internal static async Task<string> WaitForOnlineAsync(
         TestEnv env, TimeSpan deadline, StringBuilder stderr)
     {
         var end = DateTimeOffset.UtcNow + deadline;
@@ -326,14 +326,14 @@ public class GoImplantEndToEndTests
         throw new TimeoutException("the Go implant did not appear online. Stderr:\n" + stderr);
     }
 
-    private static string? FindGoTree()
+    internal static string? FindGoTree()
         // The build pipeline's pinned-source resolution, the Go twin of the
         // Rust suite's locator.
         => Rod.BuildPipeline.PayloadBuild.PinnedImplantSource.LocateGoTree();
 
-    private sealed record MintedToken(string? Secret);
+    internal sealed record MintedToken(string? Secret);
 
-    private sealed class TaskBody
+    internal sealed class TaskBody
     {
         public string TaskId { get; set; } = "";
         public string Status { get; set; } = "";
@@ -341,7 +341,7 @@ public class GoImplantEndToEndTests
         public string? Output { get; set; }
     }
 
-    private sealed class BuildBody
+    internal sealed class BuildBody
     {
         public string ArtifactId { get; set; } = "";
         public string EngagementId { get; set; } = "";
@@ -352,20 +352,26 @@ public class GoImplantEndToEndTests
     /// A real Kestrel teamserver with the implant-facing endpoints and the
     /// operator API on one port, mirroring the Rust e2e harness.
     /// </summary>
-    private sealed class TestEnv : IAsyncDisposable
+    internal sealed class TestEnv : IAsyncDisposable
     {
         public IHost Host { get; private set; } = null!;
         public HttpClient Http { get; private set; } = null!;
         public int HttpPort { get; private set; }
 
-        public static async Task<TestEnv> StartAsync()
+        public static async Task<TestEnv> StartAsync(string? modulesStore = null)
         {
             var env = new TestEnv();
             env.HttpPort = TestSupport.GetFreeTcpPort();
 
-            var config = AuthenticatedHost.BuildConfig();
+            var config = AuthenticatedHost.BuildConfig(settings =>
+            {
+                if (modulesStore is not null)
+                    settings["Modules:Store"] = modulesStore;
+            });
             env.Host = TransportHost.CreateHostBuilder(
-                    configureServices: services => AuthenticatedHost.ComposeServices(services, config),
+                    configureServices: services => AuthenticatedHost.ComposeServices(
+                        services, config, modulesStore is null ? null
+                            : extra => Rod.Capabilities.RodCapabilitiesHost.AddRodCapabilities(extra, config)),
                     mapEndpoints: endpoints => AuthenticatedHost.ComposeEndpoints(endpoints),
                     configuration: config)
                 .ConfigureWebHost(webBuilder => webBuilder

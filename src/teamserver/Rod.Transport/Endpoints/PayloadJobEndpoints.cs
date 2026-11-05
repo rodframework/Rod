@@ -44,6 +44,7 @@ public static class PayloadJobEndpoints
         IEngagementRepository engagements,
         IPayloadStore payloads,
         Rod.Transport.Listeners.IListenerRegistry listeners,
+        Rod.CoreState.Listeners.IListenerPackageCatalog listenerPackages,
         Rod.CoreState.Pki.IImplantCertificateAuthority ca,
         Rod.CoreState.Deployment.IDeployTokenService tokens,
         TimeProvider clock,
@@ -67,7 +68,7 @@ public static class PayloadJobEndpoints
 
         var (parsed, error) = await PayloadBuildRequestParser.ParseAsync(
             body, new EngagementId(engagementValue), requestedBy.Value, listeners, ca, payloads, cancellationToken,
-            wireGuard, wireGuardTunnels);
+            wireGuard, wireGuardTunnels, listenerPackages: listenerPackages);
         if (error is not null)
             return Results.BadRequest(new Problem(error));
 

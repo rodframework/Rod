@@ -40,6 +40,7 @@ public sealed class CampaignSendEngine : BackgroundService
     private readonly IEngagementRepository _engagements;
     private readonly IDeployTokenService _tokens;
     private readonly IListenerRegistry _listeners;
+    private readonly Rod.CoreState.Listeners.IListenerPackageCatalog _listenerPackages;
     private readonly Rod.CoreState.Pki.IImplantCertificateAuthority _ca;
     private readonly IPayloadStore _payloads;
     private readonly PayloadBuildJobService _jobs;
@@ -62,6 +63,7 @@ public sealed class CampaignSendEngine : BackgroundService
         IEngagementRepository engagements,
         IDeployTokenService tokens,
         IListenerRegistry listeners,
+        Rod.CoreState.Listeners.IListenerPackageCatalog listenerPackages,
         Rod.CoreState.Pki.IImplantCertificateAuthority ca,
         IPayloadStore payloads,
         PayloadBuildJobService jobs,
@@ -78,6 +80,7 @@ public sealed class CampaignSendEngine : BackgroundService
         _engagements = engagements;
         _tokens = tokens;
         _listeners = listeners;
+        _listenerPackages = listenerPackages;
         _ca = ca;
         _payloads = payloads;
         _jobs = jobs;
@@ -381,7 +384,7 @@ public sealed class CampaignSendEngine : BackgroundService
 
         return await PayloadBuildRequestParser.ParseAsync(
             body, campaign.EngagementId, owner, _listeners, _ca, _payloads, cancellationToken,
-            _wireGuard, _wireGuardTunnels);
+            _wireGuard, _wireGuardTunnels, listenerPackages: _listenerPackages);
     }
 
     internal static readonly System.Text.Json.JsonSerializerOptions JsonOptions =
