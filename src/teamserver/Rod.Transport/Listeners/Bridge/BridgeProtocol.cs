@@ -54,6 +54,14 @@ internal static class BridgeRouteProtocol
     public const string PeerKey = "peer";
     public const string UserAgentKey = "ua";
 
+    // The header convention both directions keep: a request carries the
+    // medium front's observed request headers as <c>header-<lowercase-name></c>
+    // fields (the deploy token, the browser-only Origin), and an answer
+    // carries the route's response headers the same way (the CORS answer,
+    // cache control, a download's disposition). The HTTP-header model this
+    // carriage already keeps, spelled once.
+    public const string HeaderPrefix = "header-";
+
     // The answer's keys.
     public const string StatusKey = "status";
     public const string ContentTypeKey = "content-type";

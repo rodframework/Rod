@@ -21,6 +21,9 @@ namespace Rod.Transport.Endpoints;
 // header, but only when the request itself carries an Origin header -- a
 // non-browser client never sends one, so implant traffic and its fingerprint
 // are unchanged.
+//
+// The serve itself lives in HookServingCore: the transport-neutral half the
+// listener bridge's route-forward carriage drives beside this route.
 
 /// <summary>
 /// Maps the hook serving routes onto the implant family.
@@ -70,90 +73,53 @@ public static class HookServingEndpoints
         if (!Guid.TryParse(hookId, out var hookValue))
             return Results.BadRequest(new Problem("Hook id is not a valid identifier."));
 
-        // The hook is engagement-scoped, but the route carries no credential
-        // to scope by: the record is found by its unguessable id alone, and
-        // the scope check below is the ingress listener's engagement against
-        // the record's. A deleted (revoked) hook is indistinguishable from a
-        // nonexistent one.
-        var record = await payloads.FindByIdAsync(hookValue, cancellationToken);
-        if (record is null || !string.Equals(record.Class, "Browser", StringComparison.OrdinalIgnoreCase))
-            return Results.NotFound();
-
-        // The same scope refusal the enroll route runs: a socket the
-        // registry does not know (the in-memory test harness) stays
-        // permissive, everything else must answer for this engagement.
-        var listener = await listeners.FindByLocalPortAsync(
+        var facts = HttpRouteFacts.Of(http);
+        var ingress = await listeners.FindByLocalPortAsync(
             http.HttpContext.Connection.LocalPort, cancellationToken);
-        if (listener is not null && listener.EngagementId?.Value != record.EngagementId)
-            return Results.NotFound();
+        var served = await HookServingCore.ServeAsync(
+            hookValue, page, ingress, facts, payloads, audit, clock, cancellationToken);
 
-        // What the wire showed, captured before the serve: the first-touch
-        // attribution a hooked browser's enrollment then binds to an implant
-        // row (architecture.md Sec 8).
-        var remote = http.HttpContext.Connection.RemoteIpAddress is { } remoteIp
-            ? $"{remoteIp}:{http.HttpContext.Connection.RemotePort}"
-            : "unknown";
-        var userAgent = http.Headers.UserAgent.ToString();
-        await audit.AppendAsync(
-            AuditEvent.Fact(
-                eventId: Guid.NewGuid(),
-                engagementId: record.EngagementId,
-                operatorId: Guid.Empty,
-                implantId: Guid.Empty,
-                taskId: Guid.Empty,
-                verb: "hook.fetched",
-                kind: AuditEventKind.HookFetched,
-                payload: $"remote={remote} listenerPort={http.HttpContext.Connection.LocalPort} "
-                    + $"page={(page ? "test-page" : "script")} "
-                    + $"ua={(string.IsNullOrWhiteSpace(userAgent) ? "none" : userAgent)}",
-                output: null,
-                outcome: hookValue.ToString("N"),
-                at: clock.GetUtcNow()),
-            cancellationToken);
-
-        CrossOriginHttp.Allow(http.HttpContext);
-
-        // no-store: a cached hook serves a stale bake (a revoked credential,
-        // an old cadence) for as long as the browser keeps it.
-        http.HttpContext.Response.Headers.CacheControl = "no-store";
-        if (page)
-        {
-            // The minimal test page the acceptance walk loads (architecture.md
-            // Sec 8): a document that does nothing but pull the hook in, the
-            // shape a script-injection foothold produces.
-            var url = $"{record.Endpoint?.TrimEnd('/')}/implants/hooks/{hookValue:N}";
-            var html = $"<!doctype html>\n<html>\n<head><meta charset=\"utf-8\"><title>Page</title></head>\n"
-                + $"<body><p>It works.</p>\n<script src=\"{url}\"></script>\n</body>\n</html>\n";
-            return Results.Text(html, "text/html", System.Text.Encoding.UTF8);
-        }
-        return Results.Bytes(record.Content, "application/javascript");
+        return served.Write(http.HttpContext);
     }
 }
 
 /// <summary>
-/// The browser-only CORS posture the hook family needs (architecture.md
-/// Sec 8): a cross-origin <c>fetch</c> from the hooked page cannot read its
-/// answer without <c>Access-Control-Allow-Origin</c> on the response. The
-/// header is answered only when the request carries an <c>Origin</c> header
-/// -- only browsers send one, so non-browser implant traffic and its wire
-/// fingerprint are unchanged -- and the hook stays a simple-request client
-/// (plain bodies, no custom headers), so no preflight is ever needed.
+/// The HTTP route's wire facts and the response writer: the adapter between
+/// the serving cores' transport-neutral answers and an ASP.NET request --
+/// the same two halves the bridge's route-forward carriage carries as
+/// request fields and answer fields.
 /// </summary>
-internal static class CrossOriginHttp
+internal static class HttpRouteFacts
 {
-    /// <summary>
-    /// Marks this response readable cross-origin when the request came from
-    /// a browser. Registers on the response's starting event so every
-    /// result shape (bytes, text, JSON, problem) carries the header.
-    /// </summary>
-    public static void Allow(HttpContext http)
+    // What the wire showed an HTTP request: the peer, the user agent, the
+    // browser-only Origin, and the listener fact the audit payloads name the
+    // ingress by -- the local port.
+    public static RouteWireFacts Of(HttpRequest http)
     {
-        if (http.Request.Headers.Origin.Count == 0)
-            return;
-        http.Response.OnStarting(() =>
-        {
-            http.Response.Headers.AccessControlAllowOrigin = "*";
-            return Task.CompletedTask;
-        });
+        var remote = http.HttpContext.Connection.RemoteIpAddress is { } remoteIp
+            ? $"{remoteIp}:{http.HttpContext.Connection.RemotePort}"
+            : "unknown";
+        return new RouteWireFacts(
+            remote,
+            http.Headers.UserAgent.ToString(),
+            http.Headers.Origin.Count > 0 ? http.Headers.Origin.ToString() : null,
+            $"listenerPort={http.HttpContext.Connection.LocalPort}");
+    }
+
+    /// <summary>Writes one serving core's answer onto the response: status,
+    /// content type, the posture's headers, the body, and the download name
+    /// an attachment carries.</summary>
+    public static IResult Write(this ServedRoute served, HttpContext http)
+    {
+        http.Response.StatusCode = served.Status;
+        foreach (var (name, value) in served.Headers)
+            http.Response.Headers[name] = value;
+        if (served.Status == StatusCodes.Status404NotFound && served.ContentType is null)
+            return Results.NotFound();
+        if (served.FileName is { } fileName)
+            return Results.File(served.Body, served.ContentType, fileName);
+        if (served.ContentType is null)
+            return Results.StatusCode(served.Status);
+        return Results.Bytes(served.Body, served.ContentType);
     }
 }
