@@ -66,6 +66,14 @@ internal static class BridgeRouteProtocol
     public const string StatusKey = "status";
     public const string ContentTypeKey = "content-type";
 
+    // The live session's message key (the stream route's upgraded
+    // connection): one field beside <c>body</c> naming the message's shape
+    // on the medium -- text for a base64 seal, binary for plaintext frames
+    // -- because the medium front writes the message and the shape is its
+    // to carry. A session request may name what it observed; the kernel's
+    // answer names what it wrote.
+    public const string WsTypeKey = "ws-type";
+
     // The method spellings -- ASCII text, the vocabulary the kernel's
     // route table matches; a method the table does not carry answers 404.
     public const string MethodGet = "GET";

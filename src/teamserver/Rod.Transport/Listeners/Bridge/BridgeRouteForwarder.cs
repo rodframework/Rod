@@ -36,6 +36,7 @@ internal sealed class BridgeRouteForwarder
 {
     private readonly EnrollmentExchange _enrollment;
     private readonly EnvelopeContactCore _contact;
+    private readonly Endpoints.BeaconStreamSession _beaconStream;
     private readonly IPayloadStore _payloads;
     private readonly IAuditStore _audit;
     private readonly ICampaignStore _campaigns;
@@ -49,6 +50,7 @@ internal sealed class BridgeRouteForwarder
     public BridgeRouteForwarder(
         EnrollmentExchange enrollment,
         EnvelopeContactCore contact,
+        Endpoints.BeaconStreamSession beaconStream,
         IPayloadStore payloads,
         IAuditStore audit,
         ICampaignStore campaigns,
@@ -61,6 +63,7 @@ internal sealed class BridgeRouteForwarder
     {
         _enrollment = enrollment;
         _contact = contact;
+        _beaconStream = beaconStream;
         _payloads = payloads;
         _audit = audit;
         _campaigns = campaigns;
@@ -83,6 +86,73 @@ internal sealed class BridgeRouteForwarder
         // the listener's public endpoint, so its scheme decides.
         var cleartextFallback = !listener.PublicEndpoint.StartsWith(
             "https://", StringComparison.OrdinalIgnoreCase);
+
+        // The live session's carriage (ADR-025): a request unit on the
+        // stream route upgrades this connection into a duplex message
+        // stream -- each later unit one message (body, ws-type), the
+        // kernel writing units unprompted for the server-push tasking
+        // the live session is. The medium front performed its own
+        // upgrade; the kernel never sees the medium's framing, only
+        // the messages.
+        {
+            byte[] wire;
+            try
+            {
+                wire = await StreamContactFraming.ReadMessageAsync(stream, stoppingToken);
+            }
+            catch (Exception ex) when (
+                ex is IOException or OperationCanceledException or ObjectDisposedException
+                or System.Net.Sockets.SocketException)
+            {
+                return;
+            }
+            if (!BridgeRouteProtocol.TryDecodeUnit(wire, out var opening)
+                || !opening.TryGetValue(BridgeRouteProtocol.MethodKey, out var openingMethodBytes)
+                || !opening.TryGetValue(BridgeRouteProtocol.PathKey, out var openingPathBytes))
+                return;
+            var openingMethod = System.Text.Encoding.UTF8.GetString(openingMethodBytes);
+            var openingPath = System.Text.Encoding.UTF8.GetString(openingPathBytes);
+            var openingBody = opening.TryGetValue(BridgeRouteProtocol.BodyKey, out var openingBodyBytes)
+                ? openingBodyBytes
+                : [];
+
+            if (string.Equals(openingMethod, BridgeRouteProtocol.MethodGet, StringComparison.Ordinal)
+                && string.Equals(openingPath, Endpoints.WebSocketBeaconEndpoints.Route, StringComparison.Ordinal))
+            {
+                await ServeBeaconSessionAsync(stream, openingBody, listener, cleartextFallback, stoppingToken);
+                return;
+            }
+
+            try
+            {
+                var answered = await DispatchAsync(
+                    openingMethod, openingPath, openingBody, opening, listener, cleartextFallback, stoppingToken);
+                await StreamContactFraming.WriteMessageAsync(stream, EncodeAnswer(answered), stoppingToken);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or IOException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation(
+                    ex, "Bridge route dispatch failed on listener {Name} for {Path}.", listener.Name, openingPath);
+                try
+                {
+                    await StreamContactFraming.WriteMessageAsync(
+                        stream,
+                        EncodeAnswer(new RouteAnswer(
+                            502, "application/json; charset=utf-8",
+                            ProblemBytes("The forwarded request could not be served."), null)),
+                        stoppingToken);
+                }
+                catch (Exception writeEx) when (
+                    writeEx is IOException or OperationCanceledException or ObjectDisposedException
+                    or System.Net.Sockets.SocketException)
+                {
+                }
+            }
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -144,6 +214,62 @@ internal sealed class BridgeRouteForwarder
             }
         }
     }
+
+    // The upgraded connection's duplex message loop: each unit in is one
+    // medium message (its body), each unit out is one session message (its
+    // body and the ws-type the medium writes it as -- text for a base64
+    // seal, binary for plaintext frames). The session core owns everything
+    // between; when it returns the connection ends, the same lifecycle every
+    // live carriage keeps.
+    private async Task ServeBeaconSessionAsync(
+        Stream stream,
+        byte[] firstMessage,
+        Listener listener,
+        bool cleartextFallback,
+        CancellationToken stoppingToken)
+    {
+        await _beaconStream.RunAsync(
+            firstMessage,
+            ReadSessionMessageAsync(stream, stoppingToken),
+            async (payload, text, token) =>
+            {
+                var unit = BridgeRouteProtocol.EncodeUnit(
+                [
+                    KeyValuePair.Create(BridgeRouteProtocol.BodyKey, payload),
+                    KeyValuePair.Create(
+                        BridgeRouteProtocol.WsTypeKey,
+                        System.Text.Encoding.ASCII.GetBytes(text ? "text" : "binary")),
+                ]);
+                await StreamContactFraming.WriteMessageAsync(stream, unit, token);
+            },
+            cleartextFallback,
+            stoppingToken,
+            carrier: "bridge");
+    }
+
+    // One session message in: a unit whose body is the message; the peer's
+    // close is the null the session core reads as end-of-stream.
+    private static Func<CancellationToken, Task<byte[]?>> ReadSessionMessageAsync(
+        Stream stream, CancellationToken stoppingToken)
+        => async token =>
+        {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, token);
+            byte[] wire;
+            try
+            {
+                wire = await StreamContactFraming.ReadMessageAsync(stream, linked.Token);
+            }
+            catch (Exception ex) when (
+                ex is IOException or OperationCanceledException or ObjectDisposedException
+                or System.Net.Sockets.SocketException)
+            {
+                return null;
+            }
+            if (!BridgeRouteProtocol.TryDecodeUnit(wire, out var unit)
+                || !unit.TryGetValue(BridgeRouteProtocol.BodyKey, out var body))
+                return null;
+            return body;
+        };
 
     private async Task<RouteAnswer> DispatchAsync(
         string method,

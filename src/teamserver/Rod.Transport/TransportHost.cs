@@ -457,7 +457,10 @@ public static class TransportHost
         // The WebSocket beacon stream (architecture.md Sec 8, the web
         // posture's interactive tier): the web family's live session,
         // over a WebSocket on the plain-HTTP listener family, authenticated
-        // and sealed the way the envelope contact is.
+        // and sealed the way the envelope contact is. The session itself is
+        // the transport-neutral core the listener bridge's live carriage
+        // shares (ADR-025).
+        services.AddSingleton<Endpoints.BeaconStreamSession>();
         services.AddSingleton<Endpoints.WebSocketBeaconStream>();
 
         // The optional WireGuard transport's services (Sec 15.3 ADR-004 as
