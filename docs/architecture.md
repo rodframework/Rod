@@ -3630,12 +3630,21 @@ Where the program touches the existing layers:
   health signal (an Unhealthy listener badge and a
   `listener.process-exited` audit fact, the kernel untouched); the
   `listener` entry kind declares the medium contract (seal tier,
-  carriers, channel, spawn command, config-schema rows) with the
-  third-party-medium seal rule enforced at publish and at resolve; and
-  the acceptance landed with it -- a stdlib-Python candidate listener
-  process carries the conformance rig's minimal implant end to end
-  entirely over the bridge, and a killed process marks its listener
-  unhealthy without touching the teamserver). Every implant
+  carriers, channel, spawn command, config-schema rows, the endpoint
+  shape and TLS posture) with the third-party-medium seal rule enforced
+  at publish and at resolve; and the acceptance landed with it -- a
+  stdlib-Python candidate listener process carries the conformance
+  rig's minimal implant end to end entirely over the bridge, and a
+  killed process marks its listener unhealthy without touching the
+  teamserver. **The official packages are shipped**: `https` (Go, one
+  binary per cell) and `doh` (.NET, one framework-dependent tree)
+  carry the web posture's whole ingress -- the envelope POST, the
+  WebSocket beacon over the route-forward carriage's session shape,
+  the asset routes, and the DNS grammar's RFC 8484 and UDP faces over
+  the `dns-query` arm -- pinned in rod-implants.lock.json like the
+  implant trees, and both reference implants' e2e legs pass against
+  them over the bridge, the same legs the in-tree families serve).
+  Every implant
   ingress leaves the kernel process: each running listener gets a
   **supervised process of its own** -- written in any language -- which
   speaks the existing rod.v1 `Beacon.Contact` stream to the kernel over a

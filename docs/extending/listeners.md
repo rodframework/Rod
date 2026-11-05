@@ -61,11 +61,31 @@ connection per medium peer. The peer's first byte selects the carriage:
   `body` beside the medium's observed peer facts (`peer`, `ua`, whatever
   the medium honestly observes -- an unknown key rides through ignored,
   so a new medium names a new fact without a format change); the kernel
-  routes by path onto the same cores its own routes drive (the JSON
-  enroll exchange, the envelope contact, and the web families' asset
-  routes -- hooks, lures, artifact fetch) and answers `status`,
-  `content-type`, and `body`. The listener terminates the medium's HTTP
-  face and carries bytes; the kernel never sees the medium socket.
+  routes by path onto the same cores its own routes drive and answers
+  `status`, `content-type`, and `body`. The routed families today: the
+  JSON enroll exchange and the envelope contact (`/implants/enroll`,
+  `/implants/beacon`), the web families' asset routes (hooks, lures,
+  the payload and loader fetches), and the DNS grammar's RFC 8484 arm
+  (`POST /dns-query`, the body a DNS wire message, the answer the same
+  DnsContactAnswerer bytes the in-tree UDP listener and DoH route
+  serve -- the doh package decodes the GET form's base64 itself and
+  forwards the wire bytes). The listener terminates its medium's faces
+  and carries bytes; the kernel never sees a medium socket.
+
+  Two conventions ride the same field map. Headers cross both ways as
+  `header-<lowercase-name>` fields -- a request carries the headers the
+  kernel's routes read (the deploy token, the browser-only `Origin`),
+  an answer carries the route's response headers (the CORS answer,
+  cache control, a download's disposition) -- so the web postures cross
+  the bridge exactly as they cross Kestrel. And a request on
+  `/implants/beacon/stream` **upgrades the connection into the live
+  session's duplex message stream**: the opening unit carries the first
+  message's body, each later unit in either direction is one message
+  (`body` plus `ws-type`, `text` or `binary` -- a base64 seal rides
+  text, plaintext frames ride binary), and the kernel writes units
+  unprompted for the server-push tasking the live session is. The
+  medium front performs its own upgrade (the WebSocket handshake); the
+  kernel never sees the medium's framing, only the messages.
 
 Why not gRPC: the repository dropped the HTTP/2 requirement when the
 envelope endpoint retired the gRPC service, and the bridge keeps that
@@ -81,10 +101,20 @@ in-tree stream family runs.
   with the bridge socket in its environment; the socket is a Unix domain
   socket (a named pipe on Windows), permission-restricted to the kernel's
   user -- no port, no network stack, nothing for another process or host
-  to reach. The environment carries three variables:
+  to reach. The environment carries:
   `ROD_BRIDGE_SOCKET` (the socket to dial), `ROD_LISTENER_ID` (the
-  listener's id), and `ROD_LISTENER_PARAMS` (the medium parameters the
-  operator set at creation, as a JSON object).
+  listener's id), `ROD_LISTENER_PARAMS` (the medium parameters the
+  operator set at creation, as a JSON object), and -- when the package's
+  TLS posture fronts TLS -- `ROD_LISTENER_TLS_PEM` (the engagement CA's
+  server leaf, certificate and PKCS#8 key in one user-only file beside
+  the bridge socket; the same SAN-named leaf the in-process termination
+  presents). The spawn command and its args expand `{os}` and `{arch}`
+  to the running kernel's cell, spelled in the cross-compile ecosystem's
+  vocabulary (linux/windows/darwin, amd64/arm64/386/arm), so a package
+  shipping one static binary per cell names them
+  `server/{os}-{arch}/server` and every deployment resolves its own; a
+  command without a placeholder is untouched, and the supervisor marks
+  the spawn target executable on the platforms that need the bit.
 - **Remote host (the edge):** the listener process faces the same local
   socket it always faces -- on an edge, the socket belongs to the edge
   host's own supervisor, and the process cannot tell an edge from the
@@ -121,7 +151,9 @@ A listener package is four artifacts, and none of them is implant-side
 code:
 
 1. **The server process** -- the byte pipe over your medium, in any
-   language that can speak gRPC.
+   language that can speak the bridge carriage from its standard
+   library (both official packages do: Go and .NET, neither with a
+   third-party dependency).
 2. **The medium contract** -- the document an implant author reads to
    write their own dial glue: how bytes are packaged into the medium
    (packing rule, encoding), how peers are distinguished, what the contact
@@ -147,7 +179,7 @@ requires it.
 
 ## Declarations the kernel enforces
 
-Three declarations ride the package manifest (`[listener]` in
+The declarations ride the package manifest (`[listener]` in
 `rod-module.toml`, entry kind `listener`), and the kernel checks them
 rather than trusting them:
 
@@ -167,6 +199,18 @@ rather than trusting them:
   `[[listener.params]]` rows beside them are the config schema, the
   medium parameters an operator sets at listener creation (a `secret`
   row is one the console never echoes back).
+- **The endpoint shape** -- `public-endpoint-shape`: `web-dial` (the
+  default; the public endpoint is the absolute http(s) URL implants
+  dial) or `dns-zone` (the zone a DNS medium answers under). The kernel
+  validates the listener's public endpoint by the declaration and the
+  build parser resolves the baked dial from it -- a dns-zone package
+  enrolls over the DNS grammar, a web-dial package over the HTTP
+  exchange.
+- **The TLS posture** -- `tls`: `by-endpoint` (the default; an
+  `https://` public endpoint terminates TLS in the process with the
+  kernel-issued leaf), `always` (TLS whatever the dial shape, the DoH
+  medium's own), or `never` (the medium serves clear). The posture
+  decides whether the environment carries `ROD_LISTENER_TLS_PEM`.
 
 Enrollment is a listener tier, not a package's: `strict` (deploy-token
 redemption, the default) or `open` (anonymous, scoped by the listener's
@@ -182,6 +226,30 @@ from the reference implants. Community kits claim `rod-kit-<lang>` and
 serve every package equally. A from-scratch implant is a kit plus medium
 glue plus tradecraft; that is the whole wire obligation
 ([implants.md](implants.md) carries the tier detail).
+
+## The official packages
+
+Exactly two are official (ADR-025), organization repositories pinned by
+version like the implant trees and installed from the registry, never
+preinstalled:
+
+- **`rod-listener-https`** (Go, one static binary per cell under
+  `server/`): the envelope POST, the WebSocket beacon, the plain-http
+  variant, and the web families' asset forwarding -- the web posture's
+  whole implant ingress.
+- **`rod-listener-doh`** (.NET, one framework-dependent assembly tree,
+  `dotnet server/server.dll` -- one payload for every cell, the kernel
+  host always carrying the runtime): the DNS grammar over RFC 8484 and
+  the classic UDP face, both carried to the kernel's `dns-query` arm.
+
+`rod-implants.lock.json` pins both (repository, version, sha256), and
+`PinnedListenerSource` resolves them the way the implant trees resolve:
+an explicit checkout (`ROD_LISTENER_HTTPS_DIR` / `ROD_LISTENER_DOH_DIR`),
+the co-located layouts, or the pinned tarball (`ROD_LISTENER_ASSET_BASE`
+redirects at a mirror or `file://`). The packages' e2e legs -- both
+reference implants through both packages -- live in the platform
+repository's integration suite and are each package's conformance
+evidence; a release passes them before it names itself a carrier.
 
 ## Checklist
 

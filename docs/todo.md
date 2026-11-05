@@ -37,16 +37,6 @@ naming one promotes it ahead of the standing order.
 Sequential platform work, precedence-ordered; an item leaves the
 moment its acceptance criterion lands.
 
-- **The official https and doh listener packages** (serves Sec 8,
-  ADR-025). The two organization packages, any language, pinned by
-  version like the implant trees and installed from the registry:
-  `rod-listener-https` (the envelope POST, the WebSocket beacon, the
-  plain-http variant, hook/lure/artifact forwarding) and
-  `rod-listener-doh` (the DNS grammar over RFC 8484, the UDP variant).
-  _AC:_ both reference implants' full e2e legs pass against the official
-  packages over the bridge -- the same legs the in-tree families serve
-  today.
-
 - **Delete the in-tree transports** (serves Sec 8, ADR-025). Remove
   `Rod.Transport`'s listener families (Dns, Streams, WireGuard,
   ShellCatch) and `ITransportProvider` once the official packages serve
