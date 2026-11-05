@@ -1,7 +1,11 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Logging;
 using Rod.Audit;
 using Rod.CoreState.Listeners;
+using Rod.CoreState.Pki;
 using Rod.Transport.Listeners.Streams;
 
 namespace Rod.Transport.Listeners.Bridge;
@@ -21,23 +25,27 @@ namespace Rod.Transport.Listeners.Bridge;
 // the listener process never outlives the kernel that spawned it.
 
 /// <summary>
-/// One supervised listener: the monitor task, the stop that ends it, and
-/// the socket it served. Dispose stops the process (the whole tree),
-/// waits the monitor out, and closes the endpoint.
+/// One supervised listener: the monitor task, the stop that ends it, the
+/// socket it served, and the leaf it may have handed the process. Dispose
+/// stops the process (the whole tree), waits the monitor out, closes the
+/// endpoint, and clears the leaf.
 /// </summary>
 internal sealed class SupervisedListener : IAsyncDisposable
 {
     private readonly CancellationTokenSource _stop;
     private readonly ListenerBridgeEndpoint _endpoint;
+    private readonly string? _tlsPem;
 
     public SupervisedListener(
         Task monitor,
         CancellationTokenSource stop,
-        ListenerBridgeEndpoint endpoint)
+        ListenerBridgeEndpoint endpoint,
+        string? tlsPem = null)
     {
         Monitor = monitor;
         _stop = stop;
         _endpoint = endpoint;
+        _tlsPem = tlsPem;
     }
 
     /// <summary>The supervision loop; completes when stopped.</summary>
@@ -58,6 +66,17 @@ internal sealed class SupervisedListener : IAsyncDisposable
         {
         }
         await _endpoint.DisposeAsync();
+        if (_tlsPem is not null)
+        {
+            try
+            {
+                File.Delete(_tlsPem);
+            }
+            catch (IOException)
+            {
+                // Already gone or unwritable: nothing to clear.
+            }
+        }
         _stop.Dispose();
     }
 }
@@ -89,6 +108,7 @@ internal sealed class ListenerSupervisor
 
     private readonly StreamBeaconBridge _contact;
     private readonly BridgeRouteForwarder _routes;
+    private readonly IImplantCertificateAuthority _authority;
     private readonly IAuditStore _audit;
     private readonly TimeProvider _clock;
     private readonly ILogger<ListenerSupervisor> _logger;
@@ -96,12 +116,14 @@ internal sealed class ListenerSupervisor
     public ListenerSupervisor(
         StreamBeaconBridge contact,
         BridgeRouteForwarder routes,
+        IImplantCertificateAuthority authority,
         IAuditStore audit,
         TimeProvider clock,
         ILogger<ListenerSupervisor> logger)
     {
         _contact = contact;
         _routes = routes;
+        _authority = authority;
         _audit = audit;
         _clock = clock;
         _logger = logger;
@@ -131,18 +153,27 @@ internal sealed class ListenerSupervisor
                 () => endpoint.AcceptAsync((stream, token) => ServePeerAsync(stream, listener, token), stop.Token),
                 stop.Token);
 
+            // The medium's TLS posture decides whether the process fronts
+            // TLS with a CA-issued leaf: written beside the bridge socket
+            // (the kernel's user alone can read it) and named in the spawn
+            // environment, so the leaf never rides the medium parameters
+            // where an operator echo could log it.
+            var tlsPem = ExportTlsPem(listener, package, options);
+
             // The spawn contract: a command with a separator runs inside the
             // package directory (./server, bin/server); a bare name is the
             // deployment's own interpreter (python3, node) resolved from
             // PATH. The child inherits the kernel's environment plus the
-            // bridge contract: the socket to dial, the listener's id, and
-            // the medium parameters the operator set at creation.
-            var process = Spawn(listener, package, parameters, endpoint.LocalName);
+            // bridge contract: the socket to dial, the listener's id, the
+            // medium parameters the operator set at creation, and -- when
+            // the posture says so -- the leaf the front presents.
+            var process = Spawn(listener, package, parameters, endpoint.LocalName, tlsPem);
 
             supervised = new SupervisedListener(
-                MonitorAsync(listener, package, parameters, endpoint, process, stop.Token),
+                MonitorAsync(listener, package, parameters, endpoint, process, stop.Token, tlsPem, options),
                 stop,
-                endpoint);
+                endpoint,
+                tlsPem);
             return supervised;
         }
         catch
@@ -168,7 +199,9 @@ internal sealed class ListenerSupervisor
         IReadOnlyDictionary<string, string> parameters,
         ListenerBridgeEndpoint endpoint,
         Process process,
-        CancellationToken stop)
+        CancellationToken stop,
+        string? tlsPem,
+        ListenerBridgeOptions options)
     {
         var backoff = 0;
         while (true)
@@ -222,7 +255,13 @@ internal sealed class ListenerSupervisor
             {
                 try
                 {
-                    process = Spawn(listener, package, parameters, endpoint.LocalName);
+                    // A respawn re-exports the leaf: the rotation window may
+                    // have passed while the process was down, and the file
+                    // may have been swept -- the authority's cache keeps the
+                    // common case a rewrite of the same bytes.
+                    if (tlsPem is not null)
+                        ExportTlsPem(listener, package, options, tlsPem);
+                    process = Spawn(listener, package, parameters, endpoint.LocalName, tlsPem);
                     listener.MarkRunning();
                     break;
                 }
@@ -250,11 +289,19 @@ internal sealed class ListenerSupervisor
         Listener listener,
         ListenerPackageInfo package,
         IReadOnlyDictionary<string, string> parameters,
-        string localName)
+        string localName,
+        string? tlsPem)
     {
-        var command = package.ProcessCommand.Contains('/') || package.ProcessCommand.Contains(Path.DirectorySeparatorChar)
-            ? Path.Combine(package.RootDirectory, package.ProcessCommand)
-            : package.ProcessCommand;
+        // The spawn contract's platform placeholders: a package that ships
+        // one binary per (os, arch) cell -- the cross-compiled shapes -- names
+        // them bin/{os}-{arch}/server and the supervisor resolves the cell it
+        // runs on. The vocabulary is the cross-compile ecosystem's own
+        // (linux/windows/darwin, amd64/arm64/386/arm); a command without a
+        // placeholder is untouched.
+        var commandRaw = ExpandSpawnPlaceholders(package.ProcessCommand);
+        var command = commandRaw.Contains('/') || commandRaw.Contains(Path.DirectorySeparatorChar)
+            ? Path.Combine(package.RootDirectory, commandRaw)
+            : commandRaw;
 
         var start = new ProcessStartInfo
         {
@@ -265,11 +312,13 @@ internal sealed class ListenerSupervisor
             RedirectStandardError = true,
         };
         foreach (var argument in package.ProcessArgs)
-            start.ArgumentList.Add(argument);
+            start.ArgumentList.Add(ExpandSpawnPlaceholders(argument));
         start.Environment["ROD_BRIDGE_SOCKET"] = localName;
         start.Environment["ROD_LISTENER_ID"] = listener.Id.Value.ToString("N");
         start.Environment["ROD_LISTENER_PARAMS"] = System.Text.Json.JsonSerializer.Serialize(
             parameters, System.Text.Json.JsonSerializerOptions.Web);
+        if (tlsPem is not null)
+            start.Environment["ROD_LISTENER_TLS_PEM"] = tlsPem;
 
         var process = Process.Start(start)
             ?? throw new InvalidOperationException($"Failed to start listener process '{command}'.");
@@ -366,6 +415,85 @@ internal sealed class ListenerSupervisor
         {
             await stream.DisposeAsync();
         }
+    }
+
+    // The {os}/{arch} vocabulary the spawn contract expands: the Go-style
+    // cross-compile spellings, because that ecosystem is where one package
+    // per cell is routine. Documented in extending/listeners.md; a package
+    // that never uses a placeholder never sees a value.
+    private static string RuntimeOsToken
+        => RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "windows"
+            : RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "darwin"
+            : "linux";
+
+    private static string RuntimeArchToken
+        => RuntimeInformation.OSArchitecture switch
+        {
+            Architecture.X64 => "amd64",
+            Architecture.Arm64 => "arm64",
+            Architecture.X86 => "386",
+            Architecture.Arm => "arm",
+            _ => RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant(),
+        };
+
+    private static string ExpandSpawnPlaceholders(string value)
+        => value
+            .Replace("{os}", RuntimeOsToken, StringComparison.Ordinal)
+            .Replace("{arch}", RuntimeArchToken, StringComparison.Ordinal);
+
+    // One base64 PEM block, the 64-column wrap every reader expects.
+    private static string PemOf(string label, byte[] der)
+    {
+        var base64 = Convert.ToBase64String(der);
+        var lines = new List<string> { "-----BEGIN " + label + "-----" };
+        for (var offset = 0; offset < base64.Length; offset += 64)
+            lines.Add(base64[offset..Math.Min(offset + 64, base64.Length)]);
+        lines.Add("-----END " + label + "-----");
+        return string.Join("\n", lines);
+    }
+
+    // The TLS leaf a TLS-postured front presents: the same CA-issued,
+    // SAN-named leaf the in-tree https termination loads in-process, handed
+    // to the package as a PEM file the kernel's user alone reads. A zone
+    // public endpoint names its host exactly (ServerLeaf.HostOf parses the
+    // bare shape), so the DoH front's leaf carries the zone itself.
+    private string? ExportTlsPem(
+        Listener listener,
+        ListenerPackageInfo package,
+        ListenerBridgeOptions options,
+        string? reusePath = null)
+    {
+        var postured = package.Tls switch
+        {
+            ListenerTlsPostures.Always => true,
+            ListenerTlsPostures.Never => false,
+            _ => listener.PublicEndpoint.StartsWith("https://", StringComparison.OrdinalIgnoreCase),
+        };
+        if (!postured)
+            return null;
+
+        var leaf = _authority.GetServerCertificate(ServerLeaf.HostOf(listener.PublicEndpoint));
+        using var key = leaf.GetRSAPrivateKey()
+            ?? throw new InvalidOperationException(
+                $"The engagement CA's server leaf for listener '{listener.Name}' carries no RSA key to export.");
+        var directory = Path.GetFullPath(options.SocketDirectory, AppContext.BaseDirectory);
+        Directory.CreateDirectory(directory);
+        var path = reusePath ?? Path.Combine(directory, $"{listener.Id.Value:N}-tls.pem");
+        File.WriteAllText(path, PemOf("CERTIFICATE", leaf.RawData) + "\n" + key.ExportPkcs8PrivateKeyPem() + "\n");
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+        {
+            try
+            {
+                File.SetUnixFileMode(path,
+                    System.IO.UnixFileMode.UserRead | System.IO.UnixFileMode.UserWrite);
+            }
+            catch (IOException)
+            {
+                // Best effort beside the directory's own permissions, the
+                // same posture the socket file keeps.
+            }
+        }
+        return path;
     }
 
     private async Task AppendExitFactAsync(Listener listener, ListenerPackageInfo package, int exitCode)
