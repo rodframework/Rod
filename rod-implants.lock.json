@@ -13,12 +13,12 @@
     "https": {
       "repository": "https://github.com/rodframework/rod-listener-https",
       "version": "v1.0.0",
-      "sha256": "d04c781a7ea17b3fd44c5e32f8a22f9595776034dae55ac26abd353fe502183c"
+      "sha256": "c7df5b8ce25b24413dc8db7cdf2aae2b6fd31fc2e22587cb1052503b4c690110"
     },
     "doh": {
       "repository": "https://github.com/rodframework/rod-listener-doh",
       "version": "v1.0.0",
-      "sha256": "193691d403c854ad9ed1fcc5828391894d3b00564a9bdd252927a0192ca8a2ff"
+      "sha256": "c0ae21cc2d559daf4907105e15facdbc05ae2bf60b8a3d9fa9beb1cd663241b8"
     }
   }
 }
